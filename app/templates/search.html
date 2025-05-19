@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+
+{% block title %}Search Learning Goals - Learning Goals Extractor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/themes/base/jquery-ui.min.css">
+<style>
+    .search-container {
+        margin-bottom: 30px;
+    }
+    .ui-autocomplete {
+        max-height: 200px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        z-index: 9999;
+    }
+    .result-card {
+        transition: transform 0.2s;
+    }
+    .result-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+    }
+    .learning-goals-list {
+        max-height: 120px;
+        overflow-y: auto;
+        margin-bottom: 10px;
+    }
+    .learning-goals-list .list-group-item {
+        padding: 0.5rem 1rem;
+    }
+    .no-results {
+        text-align: center;
+        padding: 40px 0;
+    }
+    .loading-spinner {
+        text-align: center;
+        padding: 40px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h2 class="card-title h4 mb-0">Search Documents by Learning Goals</h2>
+            </div>
+            <div class="card-body">
+                <div class="search-container">
+                    <div class="input-group input-group-lg">
+                        <input type="text" id="search-input" class="form-control" placeholder="Search for learning goals (e.g. 'machine learning', 'data analysis')">
+                        <button class="btn btn-primary" type="button" id="search-button">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="loading-spinner" class="loading-spinner" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Searching documents...</p>
+                </div>
+                
+                <div id="no-results" class="no-results" style="display: none;">
+                    <i class="bi bi-emoji-frown" style="font-size: 3rem;"></i>
+                    <h3 class="mt-3">No results found</h3>
+                    <p class="text-muted">Try a different search term or <a href="{{ url_for('main.index') }}">upload a new document</a>.</p>
+                </div>
+                
+                <div id="results-container" class="row"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Document Result Template -->
+<template id="document-template">
+    <div class="col-md-6 mb-4">
+        <div class="card result-card h-100">
+            <div class="card-header">
+                <h3 class="card-title h5 mb-0 document-name"></h3>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <strong>Course:</strong> <span class="document-course"></span>
+                </div>
+                <div class="mb-2">
+                    <strong>Creator:</strong> <span class="document-creator"></span>
+                </div>
+                <div class="mb-2">
+                    <strong>Institution:</strong> <span class="document-institution"></span>
+                </div>
+                <div class="mb-2">
+                    <strong>Document Type:</strong> <span class="document-type"></span>
+                </div>
+                <div class="mb-3">
+                    <strong>Learning Goals:</strong>
+                    <div class="learning-goals-list">
+                        <ul class="list-group list-group-flush goals-list"></ul>
+                    </div>
+                </div>
+                <div class="text-end">
+                    <a href="#" class="btn btn-primary btn-sm view-document">
+                        <i class="bi bi-file-earmark-text"></i> View Document
+                    </a>
+                    <button class="btn btn-danger btn-sm ms-2 delete-document">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+<script>
+    $(document).ready(function() {
+        const resultsContainer = $('#results-container');
+        const documentTemplate = document.getElementById('document-template');
+        const noResults = $('#no-results');
+        const loadingSpinner = $('#loading-spinner');
+        
+        // Setup autocomplete
+        $('#search-input').autocomplete({
+            source: function(request, response) {
+                $.ajax({
+                    url: "{{ url_for('main.api_suggest') }}",
+                    dataType: "json",
+                    data: {
+                        q: request.term
+                    },
+                    success: function(data) {
+                        response(data);
+                    }
+                });
+            },
+            minLength: 3,
+            select: function(event, ui) {
+                $(this).val(ui.item.value);
+                searchDocuments();
+                return false;
+            }
+        });
+        
+        // Handle search button click
+        $('#search-button').click(function() {
+            searchDocuments();
+        });
+        
+        // Handle enter key in search input
+        $('#search-input').keypress(function(e) {
+            if (e.which === 13) {
+                searchDocuments();
+            }
+        });
+        
+        // Load all documents on page load
+        loadAllDocuments();
+        
+        // Function to search documents
+        function searchDocuments() {
+            const query = $('#search-input').val();
+            
+            // Show loading spinner
+            resultsContainer.empty();
+            noResults.hide();
+            loadingSpinner.show();
+            
+            // Make AJAX request
+            $.ajax({
+                url: "{{ url_for('main.api_search') }}",
+                data: {
+                    q: query
+                },
+                dataType: 'json',
+                success: function(data) {
+                    loadingSpinner.hide();
+                    
+                    if (data.length === 0) {
+                        noResults.show();
+                    } else {
+                        displayResults(data);
+                    }
+                },
+                error: function() {
+                    loadingSpinner.hide();
+                    alert('An error occurred while searching. Please try again.');
+                }
+            });
+        }
+        
+        // Function to load all documents
+        function loadAllDocuments() {
+            loadingSpinner.show();
+            
+            $.ajax({
+                url: "{{ url_for('main.api_search') }}",
+                dataType: 'json',
+                success: function(data) {
+                    loadingSpinner.hide();
+                    
+                    if (data.length === 0) {
+                        noResults.show();
+                    } else {
+                        displayResults(data);
+                    }
+                },
+                error: function() {
+                    loadingSpinner.hide();
+                    alert('An error occurred while loading documents. Please try again.');
+                }
+            });
+        }
+        
+        // Function to display search results
+        function displayResults(documents) {
+            resultsContainer.empty();
+            
+            documents.forEach(function(doc) {
+                // Clone template
+                const template = documentTemplate.content.cloneNode(true);
+                const card = template.querySelector('.result-card');
+                
+                // Fill template
+                card.querySelector('.document-name').textContent = doc.name;
+                card.querySelector('.document-course').textContent = doc.course_name || 'N/A';
+                card.querySelector('.document-creator').textContent = doc.creator || 'N/A';
+                card.querySelector('.document-institution').textContent = doc.institution || 'N/A';
+                card.querySelector('.document-type').textContent = doc.doc_type || 'N/A';
+                
+                // Add learning goals
+                const goalsList = card.querySelector('.goals-list');
+                if (doc.learning_goals && doc.learning_goals.length > 0) {
+                    doc.learning_goals.forEach(function(goal) {
+                        const li = document.createElement('li');
+                        li.className = 'list-group-item';
+                        li.textContent = goal;
+                        goalsList.appendChild(li);
+                    });
+                } else {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item text-muted';
+                    li.textContent = 'No learning goals available';
+                    goalsList.appendChild(li);
+                }
+                
+                // Set view link
+                card.querySelector('.view-document').href = "{{ url_for('main.view_document', document_id='') }}" + doc.id;
+                
+                // Setup delete button
+                const deleteButton = card.querySelector('.delete-document');
+                deleteButton.setAttribute('data-document-id', doc.id);
+                deleteButton.setAttribute('data-document-name', doc.name);
+                
+                // Append to results
+                resultsContainer.append(template);
+            });
+            
+            // Add delete event handlers
+            setupDeleteButtons();
+        }
+        
+        // Function to handle delete functionality
+        function setupDeleteButtons() {
+            $('.delete-document').click(function() {
+                const documentId = $(this).data('document-id');
+                const documentName = $(this).data('document-name');
+                
+                if (confirm(`Are you sure you want to delete "${documentName}"? This action cannot be undone.`)) {
+                    // Show loading spinner
+                    loadingSpinner.show();
+                    
+                    // Send delete request
+                    $.ajax({
+                        url: "{{ url_for('main.api_delete_document', document_id='') }}" + documentId,
+                        type: 'POST',
+                        dataType: 'json',
+                        success: function(response) {
+                            loadingSpinner.hide();
+                            
+                            if (response.success) {
+                                alert('Document deleted successfully');
+                                // Reload the document list
+                                loadAllDocuments();
+                            } else {
+                                alert('Error: ' + response.message);
+                            }
+                        },
+                        error: function() {
+                            loadingSpinner.hide();
+                            alert('An error occurred while deleting the document. Please try again.');
+                        }
+                    });
+                }
+            });
+        }
+    });
+</script>
+{% endblock %} 

@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Learning Goals - Learning Goals Extractor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/themes/base/jquery-ui.min.css">
+<style>
+    .learning-goal-item {
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+    }
+    .learning-goal-item .form-control {
+        flex-grow: 1;
+    }
+    .learning-goal-item .btn-remove {
+        margin-left: 10px;
+    }
+    #add-goal-btn {
+        margin-top: 10px;
+        margin-bottom: 20px;
+    }
+    .ui-autocomplete {
+        max-height: 200px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        z-index: 9999;
+    }
+    .saving-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        color: white;
+        flex-direction: column;
+    }
+    .saving-overlay .spinner-border {
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-10">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h2 class="card-title h4 mb-0">Edit Learning Goals</h2>
+            </div>
+            <div class="card-body">
+                <h3 class="h5 mb-3">Document: {{ filename }}</h3>
+                
+                <form id="save-form" method="post" action="{{ url_for('main.save_document_data') }}">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="document_name" class="form-label">Document Name:</label>
+                                <input type="text" class="form-control" id="document_name" name="document_name" value="{{ filename }}" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="creator" class="form-label">Creator:</label>
+                                <input type="text" class="form-control" id="creator" name="creator" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="course_name" class="form-label">Course Name:</label>
+                                <input type="text" class="form-control" id="course_name" name="course_name" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="institution" class="form-label">Institution:</label>
+                                <input type="text" class="form-control" id="institution" name="institution" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="doc_type" class="form-label">Document Type:</label>
+                                <select class="form-select" id="doc_type" name="doc_type" required>
+                                    <option value="" disabled selected>Select a document type</option>
+                                    <option value="Exam">Exam</option>
+                                    <option value="Homework">Homework</option>
+                                    <option value="Reading">Reading</option>
+                                    <option value="Syllabus">Syllabus</option>
+                                    <option value="Lecture">Lecture</option>
+                                    <option value="Lab">Lab</option>
+                                    <option value="Project">Project</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="notes" class="form-label">Notes (Optional):</label>
+                                <textarea class="form-control" id="notes" name="notes" rows="3"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h4 class="h5 mb-3">Learning Goals:</h4>
+                    <div id="learning-goals-container">
+                        {% if learning_goals %}
+                            {% for goal in learning_goals %}
+                                <div class="learning-goal-item">
+                                    <input type="text" class="form-control" name="learning_goals[]" value="{{ goal }}" required>
+                                    <button type="button" class="btn btn-danger btn-sm btn-remove">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="learning-goal-item">
+                                <input type="text" class="form-control" name="learning_goals[]" required>
+                                <button type="button" class="btn btn-danger btn-sm btn-remove">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <button type="button" id="add-goal-btn" class="btn btn-outline-primary">
+                        <i class="bi bi-plus-circle"></i> Add Learning Goal
+                    </button>
+                    
+                    <div class="d-grid gap-2 col-md-6 mx-auto mt-4">
+                        <button type="submit" class="btn btn-success btn-lg">
+                            <i class="bi bi-cloud-upload"></i> Save Document
+                        </button>
+                        <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="saving-overlay" style="display: none;">
+    <div class="spinner-border text-light" role="status" style="width: 3rem; height: 3rem;">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <h3>Saving document and uploading to Firebase...</h3>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+<script>
+    $(document).ready(function() {
+        // Add new learning goal
+        $('#add-goal-btn').click(function() {
+            var newGoal = $(`
+                <div class="learning-goal-item">
+                    <input type="text" class="form-control" name="learning_goals[]" required>
+                    <button type="button" class="btn btn-danger btn-sm btn-remove">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            `);
+            $('#learning-goals-container').append(newGoal);
+            setupAutocomplete(newGoal.find('input'));
+        });
+        
+        // Remove learning goal
+        $(document).on('click', '.btn-remove', function() {
+            if ($('.learning-goal-item').length > 1) {
+                $(this).closest('.learning-goal-item').remove();
+            } else {
+                alert('You must have at least one learning goal.');
+            }
+        });
+        
+        // Setup form submission
+        $('#save-form').submit(function(e) {
+            e.preventDefault();
+            
+            // Show saving overlay
+            $('.saving-overlay').show();
+            
+            // Submit form via AJAX
+            $.ajax({
+                url: $(this).attr('action'),
+                type: 'POST',
+                data: $(this).serialize(),
+                dataType: 'json',
+                success: function(response) {
+                    $('.saving-overlay').hide();
+                    
+                    if (response.success) {
+                        alert('Document saved successfully!');
+                        window.location.href = "{{ url_for('main.index') }}";
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                },
+                error: function() {
+                    $('.saving-overlay').hide();
+                    alert('An error occurred while saving the document. Please try again.');
+                }
+            });
+        });
+        
+        // Setup autocomplete for learning goals
+        function setupAutocomplete(element) {
+            $(element).autocomplete({
+                source: function(request, response) {
+                    $.ajax({
+                        url: "{{ url_for('main.api_suggest') }}",
+                        dataType: "json",
+                        data: {
+                            q: request.term
+                        },
+                        success: function(data) {
+                            response(data);
+                        }
+                    });
+                },
+                minLength: 3
+            });
+        }
+        
+        // Setup autocomplete for existing learning goals
+        $('.learning-goal-item input').each(function() {
+            setupAutocomplete(this);
+        });
+    });
+</script>
+{% endblock %} 

@@ -1,0 +1,70 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Environment variables and secrets
+.env
+*.env
+firebase-key.json
+*key*.json
+*credentials*.json
+
+# Flask instance folder
+instance/
+
+# Uploaded PDFs and temporary files
+instance/uploads/
+uploads/
+*.pdf
+
+# Dependencies
+node_modules/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Firebase credentials
+*-firebase-adminsdk-*.json
+
+# Python
+*.so
+.Python
+
+# Flask
+.webassets-cache
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Mac OS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini 
