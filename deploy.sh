@@ -1,11 +1,30 @@
 #!/bin/bash
 set -e
 
+# Load sensitive configuration from deploy-config.sh (if it exists)
+if [ -f "./deploy-config.sh" ]; then
+  echo "Loading configuration from deploy-config.sh..."
+  source ./deploy-config.sh
+else
+  echo "Warning: deploy-config.sh not found. You must set DEPLOY_OPENAI_API_KEY manually."
+  # Prompt for API key if not set
+  if [ -z "${DEPLOY_OPENAI_API_KEY}" ]; then
+    read -sp "Enter your OpenAI API key: " DEPLOY_OPENAI_API_KEY
+    echo
+  fi
+fi
+
 # Configuration
 PROJECT_ID="learninggoals2"
 REGION="us-central1"
 SERVICE_NAME="learning-goals-app"
-OPENAI_API_KEY="YOUR_OPENAI_API_KEY_HERE"  # Replace this with your actual OpenAI API key when deploying
+OPENAI_API_KEY="${DEPLOY_OPENAI_API_KEY}"
+
+# Verify API key is set
+if [ -z "${OPENAI_API_KEY}" ]; then
+  echo "Error: OpenAI API key is not set. Please update deploy-config.sh or set DEPLOY_OPENAI_API_KEY environment variable."
+  exit 1
+fi
 
 # Build and push the container image
 echo "Building and pushing container image..."
