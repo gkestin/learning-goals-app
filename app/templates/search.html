@@ -37,6 +37,34 @@
         text-align: center;
         padding: 40px 0;
     }
+    .filter-container {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+    }
+    .filter-value-container {
+        position: relative;
+    }
+    .autocomplete-dropdown {
+        max-height: 200px;
+        overflow-y: auto;
+        position: absolute;
+        width: 100%;
+        z-index: 1000;
+        background: white;
+        border: 1px solid #ced4da;
+        border-radius: 0.25rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+        display: none;
+    }
+    .autocomplete-item {
+        padding: 8px 12px;
+        cursor: pointer;
+    }
+    .autocomplete-item:hover {
+        background-color: #f8f9fa;
+    }
 </style>
 {% endblock %}
 
@@ -54,6 +82,45 @@
                         <button class="btn btn-primary" type="button" id="search-button">
                             <i class="bi bi-search"></i> Search
                         </button>
+                    </div>
+                </div>
+                
+                <!-- Filter Section -->
+                <div class="filter-container">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="filter-field" class="form-label">Filter by:</label>
+                                <select id="filter-field" class="form-select">
+                                    <option value="">Select a field</option>
+                                    <option value="institution">Institution</option>
+                                    <option value="creator">Creator</option>
+                                    <option value="doc_type">Document Type</option>
+                                    <option value="course_name">Course</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3 filter-value-container" id="filter-value-container">
+                                <label for="filter-value" class="form-label">Filter value:</label>
+                                <input type="text" id="filter-value" class="form-control" placeholder="Start typing to see options..." disabled>
+                                <div id="autocomplete-dropdown" class="autocomplete-dropdown"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            <div id="active-filters" class="mb-3">
+                                <!-- Active filters will be displayed here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12 text-end">
+                            <button id="clear-filters" class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-x-circle"></i> Clear Filters
+                            </button>
+                        </div>
                     </div>
                 </div>
                 
@@ -125,6 +192,17 @@
         const noResults = $('#no-results');
         const loadingSpinner = $('#loading-spinner');
         
+        // Variables for filtering
+        let allDocuments = [];
+        let filterField = '';
+        let filterValue = '';
+        let filterOptions = {
+            institution: new Set(),
+            creator: new Set(),
+            doc_type: new Set(),
+            course_name: new Set()
+        };
+        
         // Setup autocomplete
         $('#search-input').autocomplete({
             source: function(request, response) {
@@ -159,6 +237,136 @@
             }
         });
         
+        // Handle filter field change
+        $('#filter-field').change(function() {
+            filterField = $(this).val();
+            const filterValueInput = $('#filter-value');
+            
+            if (filterField) {
+                filterValueInput.prop('disabled', false);
+                filterValueInput.val('');
+                filterValueInput.focus();
+                showFilterOptions();
+            } else {
+                filterValueInput.prop('disabled', true);
+                filterValueInput.val('');
+                $('#autocomplete-dropdown').hide();
+            }
+        });
+        
+        // Handle filter value input
+        $('#filter-value').on('input', function() {
+            if (filterField) {
+                const inputValue = $(this).val().toLowerCase();
+                showFilterOptions(inputValue);
+            }
+        });
+        
+        // Handle click outside autocomplete dropdown
+        $(document).click(function(e) {
+            if (!$(e.target).closest('.filter-value-container').length) {
+                $('#autocomplete-dropdown').hide();
+            }
+        });
+        
+        // Handle focus on filter value input
+        $('#filter-value').focus(function() {
+            if (filterField) {
+                showFilterOptions($(this).val().toLowerCase());
+            }
+        });
+        
+        // Handle clear filters button
+        $('#clear-filters').click(function() {
+            filterField = '';
+            filterValue = '';
+            $('#filter-field').val('');
+            $('#filter-value').val('').prop('disabled', true);
+            $('#active-filters').empty();
+            $('#autocomplete-dropdown').hide();
+            applyFilters();
+        });
+        
+        // Function to show filter options in dropdown
+        function showFilterOptions(searchTerm = '') {
+            const dropdown = $('#autocomplete-dropdown');
+            dropdown.empty();
+            
+            if (!filterField || filterOptions[filterField].size === 0) {
+                dropdown.hide();
+                return;
+            }
+            
+            const options = Array.from(filterOptions[filterField])
+                .filter(option => option.toLowerCase().includes(searchTerm))
+                .sort();
+                
+            if (options.length === 0) {
+                dropdown.hide();
+                return;
+            }
+            
+            options.forEach(option => {
+                const item = $('<div>')
+                    .addClass('autocomplete-item')
+                    .text(option)
+                    .click(function() {
+                        selectFilterValue(option);
+                    });
+                dropdown.append(item);
+            });
+            
+            dropdown.show();
+        }
+        
+        // Function to select a filter value
+        function selectFilterValue(value) {
+            filterValue = value;
+            $('#filter-value').val(value);
+            $('#autocomplete-dropdown').hide();
+            
+            // Update active filters display
+            const activeFilters = $('#active-filters');
+            activeFilters.empty();
+            
+            const filterBadge = $('<span>')
+                .addClass('badge bg-primary me-2 mb-2')
+                .html(`${filterField}: ${filterValue} <i class="bi bi-x-circle ms-1" style="cursor: pointer;"></i>`)
+                .click(function() {
+                    $(this).remove();
+                    filterField = '';
+                    filterValue = '';
+                    $('#filter-field').val('');
+                    $('#filter-value').val('').prop('disabled', true);
+                    applyFilters();
+                });
+                
+            activeFilters.append(filterBadge);
+            
+            // Apply the filter
+            applyFilters();
+        }
+        
+        // Function to apply filters to the current document set
+        function applyFilters() {
+            let filteredDocs = [...allDocuments];
+            
+            if (filterField && filterValue) {
+                filteredDocs = filteredDocs.filter(doc => {
+                    const fieldValue = doc[filterField] || '';
+                    return fieldValue.toLowerCase() === filterValue.toLowerCase();
+                });
+            }
+            
+            if (filteredDocs.length === 0) {
+                resultsContainer.empty();
+                noResults.show();
+            } else {
+                noResults.hide();
+                displayResults(filteredDocs);
+            }
+        }
+        
         // Load all documents on page load
         loadAllDocuments();
         
@@ -184,13 +392,38 @@
                     if (data.length === 0) {
                         noResults.show();
                     } else {
-                        displayResults(data);
+                        // Store all documents for filtering
+                        allDocuments = data;
+                        collectFilterOptions(data);
+                        
+                        // Apply any existing filters
+                        if (filterField && filterValue) {
+                            applyFilters();
+                        } else {
+                            displayResults(data);
+                        }
                     }
                 },
                 error: function() {
                     loadingSpinner.hide();
                     alert('An error occurred while searching. Please try again.');
                 }
+            });
+        }
+        
+        // Function to collect filter options from document data
+        function collectFilterOptions(documents) {
+            // Reset filter options
+            Object.keys(filterOptions).forEach(key => {
+                filterOptions[key] = new Set();
+            });
+            
+            // Collect unique values for each filter field
+            documents.forEach(doc => {
+                if (doc.institution) filterOptions.institution.add(doc.institution);
+                if (doc.creator) filterOptions.creator.add(doc.creator);
+                if (doc.doc_type) filterOptions.doc_type.add(doc.doc_type);
+                if (doc.course_name) filterOptions.course_name.add(doc.course_name);
             });
         }
         
@@ -207,6 +440,9 @@
                     if (data.length === 0) {
                         noResults.show();
                     } else {
+                        // Store all documents for filtering
+                        allDocuments = data;
+                        collectFilterOptions(data);
                         displayResults(data);
                     }
                 },
