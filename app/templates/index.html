@@ -110,6 +110,13 @@
                         <div class="form-text">
                             Provide custom instructions to the AI for how to extract learning goals. Leave empty to use default instructions.
                             <a href="#" data-bs-toggle="collapse" data-bs-target="#defaultInstructions">Show default instructions</a>
+                            <span class="float-end">
+                                <small>Model:</small>
+                                <select class="form-select form-select-sm d-inline-block" id="model" name="model" style="width: auto; min-width: 120px;">
+                                    <option value="gpt-4o" selected>GPT-4o</option>
+                                    <option value="gpt-4.1">GPT-4.1</option>
+                                </select>
+                            </span>
                         </div>
                         <div class="collapse mt-2" id="defaultInstructions">
                             <div class="card card-body bg-light">

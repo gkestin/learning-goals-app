@@ -31,6 +31,9 @@ def upload_file():
     # Get custom system message if provided
     custom_system_message = request.form.get('system_message', None)
     
+    # Get model selection
+    model = request.form.get('model', 'gpt-4o')
+    
     # Process up to 10 files
     processed_files = []
     
@@ -52,7 +55,7 @@ def upload_file():
                 
             # Extract learning goals using OpenAI
             api_key = current_app.config['OPENAI_API_KEY']
-            learning_goals = extract_learning_goals(pdf_text, api_key, custom_system_message)
+            learning_goals = extract_learning_goals(pdf_text, api_key, custom_system_message, model=model)
             
             # Store file data
             processed_files.append({

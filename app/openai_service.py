@@ -26,7 +26,7 @@ IMPORTANT: Your response MUST be valid JSON with the following structure:
 Do not include any explanations or notes outside the JSON structure.
 """
 
-def extract_learning_goals(text, api_key, custom_system_message=None):
+def extract_learning_goals(text, api_key, custom_system_message=None, model="gpt-4o"):
     """Extract learning goals from text using OpenAI API"""
     http_client = httpx.Client(
         timeout=60.0,
@@ -63,7 +63,7 @@ Do not include any explanations or notes outside the JSON structure.
     
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=model,
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": f"Extract learning goals from the following text:\n\n{text[:10000]}"}
