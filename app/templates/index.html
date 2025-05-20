@@ -27,6 +27,50 @@
         font-size: 1.5rem;
         text-align: center;
     }
+    .file-count {
+        margin-top: 10px;
+        font-weight: bold;
+    }
+    .selected-files {
+        margin-top: 15px;
+    }
+    .file-tag {
+        display: inline-flex;
+        align-items: center;
+        background-color: #e9f5ff;
+        border: 1px solid #c8e1ff;
+        border-radius: 20px;
+        padding: 5px 12px;
+        margin: 5px 5px 5px 0;
+        font-size: 0.9rem;
+        max-width: 100%;
+    }
+    .file-tag .file-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 200px;
+    }
+    .file-tag .remove-file {
+        margin-left: 8px;
+        cursor: pointer;
+        font-weight: bold;
+        color: #6c757d;
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+    }
+    .file-tag .remove-file:hover {
+        background-color: #dc3545;
+        color: white;
+    }
+    .warning-text {
+        color: #dc3545;
+        font-weight: bold;
+    }
 </style>
 {% endblock %}
 
@@ -41,21 +85,23 @@
                 <div class="mb-4">
                     <h3 class="h5">How it works:</h3>
                     <ol>
-                        <li>Upload a PDF document containing learning goals.</li>
-                        <li>Our AI will extract learning goals from the text.</li>
-                        <li>Review and edit the extracted learning goals.</li>
-                        <li>Add metadata and save the document to the database.</li>
+                        <li>Upload up to 10 PDF documents containing learning goals.</li>
+                        <li>Our AI will extract learning goals from each document.</li>
+                        <li>Review and edit the extracted learning goals for each document.</li>
+                        <li>Add metadata and save the documents to the database.</li>
                     </ol>
                 </div>
                 
                 <form id="upload-form" action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data" class="needs-validation" novalidate>
                     <div class="mb-3">
-                        <label for="file" class="form-label">Choose a PDF document:</label>
-                        <input type="file" class="form-control" id="file" name="file" accept=".pdf" required>
+                        <label for="file" class="form-label">Choose PDF documents (up to 10):</label>
+                        <input type="file" class="form-control" id="file" name="file" accept=".pdf" required multiple>
                         <div class="invalid-feedback">
-                            Please select a valid PDF file.
+                            Please select valid PDF files.
                         </div>
-                        <div class="form-text">Maximum file size: 16MB</div>
+                        <div class="form-text">Maximum file size: 16MB per file</div>
+                        <div id="fileCount" class="file-count"></div>
+                        <div id="selectedFiles" class="selected-files"></div>
                     </div>
                     
                     <div class="mb-3">
@@ -75,7 +121,7 @@
                     </div>
                     
                     <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary btn-lg">
+                        <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn">
                             <i class="bi bi-cloud-upload"></i> Upload and Extract
                         </button>
                     </div>
@@ -91,14 +137,84 @@
         <span class="visually-hidden">Loading...</span>
     </div>
     <div class="loading-message">
-        <p>Extracting learning goals...</p>
-        <p><small>This might take a minute. Please don't close the page.</small></p>
+        <p>Extracting learning goals from uploaded documents...</p>
+        <p><small>This might take a few minutes. Please don't close the page.</small></p>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+    // Create a FileList-like object that we can manipulate
+    let selectedFiles = new DataTransfer();
+    
+    // Track number of selected files and display them
+    function updateFileDisplay() {
+        const fileInput = document.getElementById('file');
+        const fileCount = document.getElementById('fileCount');
+        const selectedFilesContainer = document.getElementById('selectedFiles');
+        const numFiles = fileInput.files.length;
+        
+        // Update file count text
+        if (numFiles > 0) {
+            fileCount.textContent = `${numFiles} file(s) selected`;
+            if (numFiles > 10) {
+                fileCount.classList.add('warning-text');
+                fileCount.textContent += ' (maximum 10 files allowed)';
+                document.getElementById('uploadBtn').disabled = true;
+            } else {
+                fileCount.classList.remove('warning-text');
+                document.getElementById('uploadBtn').disabled = false;
+            }
+        } else {
+            fileCount.textContent = '';
+            document.getElementById('uploadBtn').disabled = false;
+        }
+        
+        // Display selected files
+        selectedFilesContainer.innerHTML = '';
+        
+        if (numFiles > 0) {
+            // Only show the first 10 files
+            const filesToShow = Array.from(fileInput.files).slice(0, 10);
+            
+            filesToShow.forEach((file, index) => {
+                const fileTag = document.createElement('div');
+                fileTag.className = 'file-tag';
+                fileTag.innerHTML = `
+                    <span class="file-name" title="${file.name}">${file.name}</span>
+                    <span class="remove-file" data-index="${index}">×</span>
+                `;
+                selectedFilesContainer.appendChild(fileTag);
+            });
+            
+            // Add warning if more than 10 files
+            if (numFiles > 10) {
+                const warningTag = document.createElement('div');
+                warningTag.className = 'file-tag warning-text';
+                warningTag.innerHTML = `<span>... and ${numFiles - 10} more (exceeds limit)</span>`;
+                selectedFilesContainer.appendChild(warningTag);
+            }
+        }
+    }
+    
+    // Remove a file from the selection
+    function removeFile(index) {
+        const fileInput = document.getElementById('file');
+        selectedFiles = new DataTransfer();
+        
+        // Copy all files except the one to remove
+        Array.from(fileInput.files)
+            .filter((_, i) => i !== index)
+            .forEach(file => selectedFiles.items.add(file));
+        
+        // Update the file input with the new file list
+        fileInput.files = selectedFiles.files;
+        
+        // Update the display
+        updateFileDisplay();
+    }
+    
     // Form validation
     (function() {
         'use strict';
@@ -109,6 +225,15 @@
                     event.preventDefault();
                     event.stopPropagation();
                 } else {
+                    // Check if the number of files doesn't exceed 10
+                    const fileInput = document.getElementById('file');
+                    if (fileInput.files.length > 10) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        alert('Please select up to 10 files only.');
+                        return;
+                    }
+                    
                     // Show loading overlay when form is valid and submitted
                     document.querySelector('.loading-overlay').style.display = 'flex';
                 }
@@ -116,5 +241,16 @@
             }, false);
         });
     })();
+    
+    // Track file selection changes
+    document.getElementById('file').addEventListener('change', updateFileDisplay);
+    
+    // Handle removing files
+    document.getElementById('selectedFiles').addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-file')) {
+            const index = parseInt(e.target.getAttribute('data-index'));
+            removeFile(index);
+        }
+    });
 </script>
 {% endblock %} 

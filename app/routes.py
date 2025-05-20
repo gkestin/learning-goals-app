@@ -15,147 +15,170 @@ def index():
 
 @main.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle PDF upload and processing"""
+    """Handle multiple PDF uploads and processing"""
     # Check if the post request has the file part
     if 'file' not in request.files:
         flash('No file part')
         return redirect(request.url)
         
-    file = request.files['file']
+    files = request.files.getlist('file')
     
     # If user does not select file, browser also submits an empty part without filename
-    if file.filename == '':
-        flash('No selected file')
+    if not files or files[0].filename == '':
+        flash('No selected files')
         return redirect(request.url)
         
     # Get custom system message if provided
     custom_system_message = request.form.get('system_message', None)
     
-    if file and allowed_file(file.filename, current_app.config['ALLOWED_EXTENSIONS']):
-        # Save the uploaded file temporarily
-        upload_folder = current_app.config['UPLOAD_FOLDER']
-        pdf_path = save_pdf(file, upload_folder)
-        
-        if not pdf_path:
-            flash('Error saving file')
-            return redirect(request.url)
-            
-        # Extract text from PDF
-        pdf_text = extract_text_from_pdf(pdf_path)
-        
-        if not pdf_text:
-            flash('Could not extract text from PDF')
-            os.remove(pdf_path)  # Clean up
-            return redirect(request.url)
-            
-        # Extract learning goals using OpenAI
-        api_key = current_app.config['OPENAI_API_KEY']
-        learning_goals = extract_learning_goals(pdf_text, api_key, custom_system_message)
-        
-        # Store data in session for the edit page
-        session['pdf_path'] = pdf_path
-        session['original_filename'] = file.filename
-        session['learning_goals'] = learning_goals
-        
-        return redirect(url_for('main.edit_learning_goals'))
+    # Process up to 10 files
+    processed_files = []
     
-    flash('Invalid file type')
-    return redirect(request.url)
+    for file in files[:10]:  # Limit to first 10 files
+        if allowed_file(file.filename, current_app.config['ALLOWED_EXTENSIONS']):
+            # Save the uploaded file temporarily
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            pdf_path = save_pdf(file, upload_folder)
+            
+            if not pdf_path:
+                continue
+                
+            # Extract text from PDF
+            pdf_text = extract_text_from_pdf(pdf_path)
+            
+            if not pdf_text:
+                os.remove(pdf_path)  # Clean up
+                continue
+                
+            # Extract learning goals using OpenAI
+            api_key = current_app.config['OPENAI_API_KEY']
+            learning_goals = extract_learning_goals(pdf_text, api_key, custom_system_message)
+            
+            # Store file data
+            processed_files.append({
+                'pdf_path': pdf_path,
+                'original_filename': file.filename,
+                'learning_goals': learning_goals
+            })
+    
+    if not processed_files:
+        flash('No valid files were processed')
+        return redirect(request.url)
+        
+    # Store data in session for the edit page
+    session['processed_files'] = processed_files
+    
+    return redirect(url_for('main.edit_learning_goals'))
 
 @main.route('/edit', methods=['GET'])
 def edit_learning_goals():
-    """Render the page for editing learning goals"""
+    """Render the page for editing learning goals for multiple documents"""
     # Get data from session
-    pdf_path = session.get('pdf_path')
-    original_filename = session.get('original_filename')
-    learning_goals = session.get('learning_goals', [])
+    processed_files = session.get('processed_files', [])
     
-    if not pdf_path or not original_filename:
+    if not processed_files:
         flash('No file data found')
         return redirect(url_for('main.index'))
         
     return render_template('edit.html', 
-                           filename=original_filename,
-                           learning_goals=learning_goals)
+                           processed_files=processed_files)
 
 @main.route('/save', methods=['POST'])
 def save_document_data():
-    """Save document data to Firebase"""
-    # Get form data
-    name = request.form.get('document_name')
-    creator = request.form.get('creator')
-    course_name = request.form.get('course_name')
-    institution = request.form.get('institution')
-    doc_type = request.form.get('doc_type')
-    notes = request.form.get('notes', '')
-    learning_goals = request.form.getlist('learning_goals[]')
+    """Save multiple document data to Firebase"""
+    # Get form data for global metadata
+    global_creator = request.form.get('global_creator', '')
+    global_course_name = request.form.get('global_course_name', '')
+    global_institution = request.form.get('global_institution', '')
+    global_doc_type = request.form.get('global_doc_type', '')
+    global_notes = request.form.get('global_notes', '')
     
-    # Get file path from session
-    pdf_path = session.get('pdf_path')
-    original_filename = session.get('original_filename')
+    # Get processed files from session
+    processed_files = session.get('processed_files', [])
     
-    if not pdf_path or not original_filename:
+    if not processed_files:
         return jsonify({'success': False, 'message': 'No file data found'})
     
-    try:
-        # Upload PDF to Google Cloud Storage
-        destination_blob_name = f"pdfs/{creator}_{name}_{os.path.basename(pdf_path)}"
-        print(f"Uploading PDF to Firebase Storage: {destination_blob_name}")
-        result = upload_pdf_to_storage(pdf_path, destination_blob_name)
-        
-        print(f"PDF uploaded, storage path: {result['storage_path']}")
-        print(f"Public URL: {result.get('public_url', 'Not available')}")
-        
-        # Create document object
-        doc = Document(
-            name=name or original_filename,
-            original_filename=original_filename,
-            creator=creator,
-            course_name=course_name,
-            institution=institution,
-            doc_type=doc_type,
-            notes=notes,
-            learning_goals=learning_goals,
-            storage_path=result['storage_path'],
-            public_url=result.get('public_url')
-        )
-        
-        # Save to Firestore
-        print("Saving document metadata to Firestore...")
-        doc_id = save_document(doc)
-        print(f"Document saved with ID: {doc_id}")
-        
-        # Clean up the temporary file
-        if os.path.exists(pdf_path):
-            print(f"Deleting local temporary file: {pdf_path}")
-            os.remove(pdf_path)
-            print("Local file deleted successfully")
-        else:
-            print(f"Warning: Local file {pdf_path} not found for deletion")
-        
-        # Clear session data
-        session.pop('pdf_path', None)
-        session.pop('original_filename', None)
-        session.pop('learning_goals', None)
-        
-        return jsonify({
-            'success': True, 
-            'document_id': doc_id,
-            'message': 'Document saved to Firebase successfully',
-            'storage_path': result['storage_path']
-        })
+    results = []
+    success_count = 0
     
-    except Exception as e:
-        print(f"Error saving document to Firebase: {e}")
-        # Ensure temporary file is cleaned up even on error
-        if pdf_path and os.path.exists(pdf_path):
-            try:
+    for index, file_data in enumerate(processed_files):
+        try:
+            # Get specific document metadata or use global values
+            doc_id = request.form.get(f'doc_id_{index}', str(index))
+            name = request.form.get(f'document_name_{index}', file_data['original_filename'])
+            creator = request.form.get(f'creator_{index}', global_creator)
+            course_name = request.form.get(f'course_name_{index}', global_course_name)
+            institution = request.form.get(f'institution_{index}', global_institution)
+            doc_type = request.form.get(f'doc_type_{index}', global_doc_type)
+            notes = request.form.get(f'notes_{index}', global_notes)
+            
+            # Get learning goals for this document
+            learning_goals = request.form.getlist(f'learning_goals_{index}[]')
+            
+            # Get file path
+            pdf_path = file_data['pdf_path']
+            original_filename = file_data['original_filename']
+            
+            # Upload PDF to Google Cloud Storage
+            destination_blob_name = f"pdfs/{creator}_{name}_{os.path.basename(pdf_path)}"
+            result = upload_pdf_to_storage(pdf_path, destination_blob_name)
+            
+            # Create document object
+            doc = Document(
+                name=name or original_filename,
+                original_filename=original_filename,
+                creator=creator,
+                course_name=course_name,
+                institution=institution,
+                doc_type=doc_type,
+                notes=notes,
+                learning_goals=learning_goals,
+                storage_path=result['storage_path'],
+                public_url=result.get('public_url')
+            )
+            
+            # Save to Firestore
+            doc_id = save_document(doc)
+            
+            # Clean up the temporary file
+            if os.path.exists(pdf_path):
                 os.remove(pdf_path)
-                print(f"Deleted temporary file {pdf_path} after error")
-            except Exception as del_error:
-                print(f"Could not delete temporary file: {del_error}")
-                
-        return jsonify({'success': False, 'message': f'Error: {str(e)}'})
+            
+            success_count += 1
+            results.append({
+                'success': True,
+                'document_id': doc_id,
+                'name': doc.name,
+                'storage_path': doc.storage_path
+            })
+            
+        except Exception as e:
+            print(f"Error saving document to Firebase: {e}")
+            # Ensure temporary file is cleaned up even on error
+            if 'pdf_path' in file_data and os.path.exists(file_data['pdf_path']):
+                try:
+                    os.remove(file_data['pdf_path'])
+                except Exception as del_error:
+                    print(f"Could not delete temporary file: {del_error}")
+                    
+            results.append({
+                'success': False,
+                'message': f'Error: {str(e)}',
+                'name': file_data.get('original_filename', 'Unknown')
+            })
+    
+    # Clear session data
+    session.pop('processed_files', None)
+    
+    # Return aggregated results
+    return jsonify({
+        'success': success_count > 0,
+        'total': len(processed_files),
+        'success_count': success_count,
+        'results': results,
+        'message': f'{success_count} of {len(processed_files)} documents saved successfully'
+    })
 
 @main.route('/search')
 def search_page():

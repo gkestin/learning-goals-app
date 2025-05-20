@@ -16,7 +16,7 @@
     .learning-goal-item .btn-remove {
         margin-left: 10px;
     }
-    #add-goal-btn {
+    .add-goal-btn {
         margin-top: 10px;
         margin-bottom: 20px;
     }
@@ -43,53 +43,188 @@
     .saving-overlay .spinner-border {
         margin-bottom: 20px;
     }
+    .saving-message {
+        font-size: 1.2rem;
+        margin-top: 10px;
+    }
+    .saving-dots::after {
+        display: inline-block;
+        animation: ellipsis 1.5s infinite;
+        content: ".";
+        width: 24px;
+        text-align: left;
+    }
+    @keyframes ellipsis {
+        0% { content: "."; }
+        25% { content: ".."; }
+        50% { content: "..."; }
+        75% { content: "...."; }
+    }
+    .document-card {
+        margin-bottom: 30px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+    }
+    .document-card .card-header {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-bottom: 1px solid #ddd;
+    }
+    .document-card .card-body {
+        padding: 20px;
+    }
+    .global-metadata {
+        background-color: #f0f7ff;
+        border: 1px solid #c8e1ff;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 30px;
+    }
+    .global-metadata-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .progress-container {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background-color: white;
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        width: 300px;
+        display: none;
+    }
+    .document-status {
+        margin-top: 10px;
+        padding: 5px 10px;
+        border-radius: 4px;
+        color: white;
+    }
+    .status-pending {
+        background-color: #6c757d;
+    }
+    .status-processing {
+        background-color: #007bff;
+    }
+    .status-success {
+        background-color: #28a745;
+    }
+    .status-error {
+        background-color: #dc3545;
+    }
+    .disabled-input {
+        background-color: #e9ecef;
+        cursor: not-allowed;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-10">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h2 class="card-title h4 mb-0">Edit Learning Goals</h2>
+        <!-- Progress Container -->
+        <div class="progress-container">
+            <h5>Processing Documents</h5>
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
             </div>
-            <div class="card-body">
-                <h3 class="h5 mb-3">Document: {{ filename }}</h3>
+            <div class="document-statuses"></div>
+        </div>
+
+        <form id="save-form" method="post" action="{{ url_for('main.save_document_data') }}">
+            <!-- Global Metadata Section - Only show if there are multiple documents -->
+            {% if processed_files|length > 1 %}
+            <div class="global-metadata">
+                <div class="global-metadata-heading">
+                    <h3 class="h5">Global Metadata (applies to all documents)</h3>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="apply-global-btn">Apply to All</button>
+                </div>
                 
-                <form id="save-form" method="post" action="{{ url_for('main.save_document_data') }}">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="global_creator" class="form-label">Creator:</label>
+                            <input type="text" class="form-control" id="global_creator" name="global_creator">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="global_course_name" class="form-label">Course Name:</label>
+                            <input type="text" class="form-control" id="global_course_name" name="global_course_name">
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="global_institution" class="form-label">Institution:</label>
+                            <input type="text" class="form-control" id="global_institution" name="global_institution">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="global_doc_type" class="form-label">Document Type:</label>
+                            <select class="form-select" id="global_doc_type" name="global_doc_type">
+                                <option value="" selected>Select a document type (optional)</option>
+                                <option value="Exam">Exam</option>
+                                <option value="Homework">Homework</option>
+                                <option value="Reading">Reading</option>
+                                <option value="Syllabus">Syllabus</option>
+                                <option value="Lecture">Lecture</option>
+                                <option value="Lab">Lab</option>
+                                <option value="Project">Project</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="mb-3">
+                            <label for="global_notes" class="form-label">Notes (Optional):</label>
+                            <textarea class="form-control" id="global_notes" name="global_notes" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Individual Document Sections -->
+            {% for document in processed_files %}
+            <div class="document-card" id="document-card-{{ loop.index0 }}">
+                <div class="card-header">
+                    <h4 class="h5 mb-0">Document {{ loop.index }}: {{ document.original_filename }}</h4>
+                </div>
+                <div class="card-body">
                     <div class="row mb-4">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="document_name" class="form-label">Document Name:</label>
-                                <input type="text" class="form-control" id="document_name" name="document_name" value="{{ filename }}" required>
+                                <label for="creator_{{ loop.index0 }}" class="form-label">Creator:</label>
+                                <input type="text" class="form-control metadata-field" id="creator_{{ loop.index0 }}" name="creator_{{ loop.index0 }}" data-field-type="creator" required>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="creator" class="form-label">Creator:</label>
-                                <input type="text" class="form-control" id="creator" name="creator" required>
+                                <label for="course_name_{{ loop.index0 }}" class="form-label">Course Name:</label>
+                                <input type="text" class="form-control metadata-field" id="course_name_{{ loop.index0 }}" name="course_name_{{ loop.index0 }}" data-field-type="course_name" required>
                             </div>
                         </div>
                     </div>
                     <div class="row mb-4">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="course_name" class="form-label">Course Name:</label>
-                                <input type="text" class="form-control" id="course_name" name="course_name" required>
+                                <label for="institution_{{ loop.index0 }}" class="form-label">Institution:</label>
+                                <input type="text" class="form-control metadata-field" id="institution_{{ loop.index0 }}" name="institution_{{ loop.index0 }}" data-field-type="institution" required>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="institution" class="form-label">Institution:</label>
-                                <input type="text" class="form-control" id="institution" name="institution" required>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row mb-4">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="doc_type" class="form-label">Document Type:</label>
-                                <select class="form-select" id="doc_type" name="doc_type" required>
+                                <label for="doc_type_{{ loop.index0 }}" class="form-label">Document Type:</label>
+                                <select class="form-select metadata-field" id="doc_type_{{ loop.index0 }}" name="doc_type_{{ loop.index0 }}" data-field-type="doc_type" required>
                                     <option value="" disabled selected>Select a document type</option>
                                     <option value="Exam">Exam</option>
                                     <option value="Homework">Homework</option>
@@ -102,20 +237,29 @@
                                 </select>
                             </div>
                         </div>
+                    </div>
+                    <div class="row mb-4">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="notes" class="form-label">Notes (Optional):</label>
-                                <textarea class="form-control" id="notes" name="notes" rows="3"></textarea>
+                                <label for="notes_{{ loop.index0 }}" class="form-label">Notes (Optional):</label>
+                                <textarea class="form-control metadata-field" id="notes_{{ loop.index0 }}" name="notes_{{ loop.index0 }}" data-field-type="notes" rows="3"></textarea>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="document_name_{{ loop.index0 }}" class="form-label">Document Name:</label>
+                                <input type="text" class="form-control" id="document_name_{{ loop.index0 }}" name="document_name_{{ loop.index0 }}" value="{{ document.original_filename }}" required>
                             </div>
                         </div>
                     </div>
                     
                     <h4 class="h5 mb-3">Learning Goals:</h4>
-                    <div id="learning-goals-container">
-                        {% if learning_goals %}
-                            {% for goal in learning_goals %}
+                    <div id="learning-goals-container-{{ loop.index0 }}" class="learning-goals-container">
+                        {% if document.learning_goals %}
+                            {% set doc_index = loop.index0 %}
+                            {% for goal in document.learning_goals %}
                                 <div class="learning-goal-item">
-                                    <input type="text" class="form-control" name="learning_goals[]" value="{{ goal }}" required>
+                                    <input type="text" class="form-control" name="learning_goals_{{ doc_index }}[]" value="{{ goal }}" required>
                                     <button type="button" class="btn btn-danger btn-sm btn-remove">
                                         <i class="bi bi-trash"></i>
                                     </button>
@@ -123,7 +267,7 @@
                             {% endfor %}
                         {% else %}
                             <div class="learning-goal-item">
-                                <input type="text" class="form-control" name="learning_goals[]" required>
+                                <input type="text" class="form-control" name="learning_goals_{{ loop.index0 }}[]" required>
                                 <button type="button" class="btn btn-danger btn-sm btn-remove">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -131,19 +275,20 @@
                         {% endif %}
                     </div>
                     
-                    <button type="button" id="add-goal-btn" class="btn btn-outline-primary">
+                    <button type="button" data-index="{{ loop.index0 }}" class="btn btn-outline-primary add-goal-btn">
                         <i class="bi bi-plus-circle"></i> Add Learning Goal
                     </button>
-                    
-                    <div class="d-grid gap-2 col-md-6 mx-auto mt-4">
-                        <button type="submit" class="btn btn-success btn-lg">
-                            <i class="bi bi-cloud-upload"></i> Save Document
-                        </button>
-                        <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">Cancel</a>
-                    </div>
-                </form>
+                </div>
             </div>
-        </div>
+            {% endfor %}
+            
+            <div class="d-grid gap-2 col-md-6 mx-auto mt-4 mb-5">
+                <button type="submit" class="btn btn-success btn-lg">
+                    <i class="bi bi-cloud-upload"></i> Save All Documents
+                </button>
+                <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">Cancel</a>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -151,7 +296,14 @@
     <div class="spinner-border text-light" role="status" style="width: 3rem; height: 3rem;">
         <span class="visually-hidden">Loading...</span>
     </div>
-    <h3>Saving document and uploading to Firebase...</h3>
+    <h3>Saving documents and uploading to Firebase</h3>
+    <p class="saving-message">
+        {% if processed_files|length > 1 %}
+            Processing {{ processed_files|length }} documents<span class="saving-dots"></span>
+        {% else %}
+            Processing document<span class="saving-dots"></span>
+        {% endif %}
+    </p>
 </div>
 {% endblock %}
 
@@ -159,23 +311,143 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
 <script>
     $(document).ready(function() {
+        // Real-time synchronization of global metadata to all documents
+        function setupGlobalFieldSync() {
+            // For each global input field, add event listeners
+            $('#global_creator, #global_course_name, #global_institution, #global_notes').on('input', function() {
+                const fieldType = $(this).attr('id').replace('global_', '');
+                const value = $(this).val();
+                
+                // Apply to all corresponding fields if they haven't been manually overridden
+                $(`.metadata-field[data-field-type="${fieldType}"]`).each(function() {
+                    // Only update if the field is not already being manually edited
+                    if (!$(this).hasClass('manually-edited')) {
+                        $(this).val(value);
+                        
+                        // If there's a value, mark as controlled by global
+                        if (value) {
+                            $(this).addClass('disabled-input').prop('readonly', true);
+                        } else {
+                            $(this).removeClass('disabled-input').prop('readonly', false);
+                        }
+                    }
+                });
+            });
+            
+            // Special handling for select elements
+            $('#global_doc_type').on('change', function() {
+                const value = $(this).val();
+                
+                // Apply to all corresponding select elements
+                $('select.metadata-field[data-field-type="doc_type"]').each(function() {
+                    if (!$(this).hasClass('manually-edited')) {
+                        $(this).val(value);
+                        
+                        if (value) {
+                            $(this).addClass('disabled-input');
+                            // Cannot use readonly on select, so we use disabled attribute
+                            // but we need to add a hidden input to maintain the value
+                            const fieldId = $(this).attr('id');
+                            const fieldName = $(this).attr('name');
+                            
+                            // Create or update hidden input
+                            let hiddenInput = $(`input[name="${fieldName}_hidden"]`);
+                            if (hiddenInput.length === 0) {
+                                hiddenInput = $(`<input type="hidden" name="${fieldName}" value="${value}">`);
+                                $(this).after(hiddenInput);
+                                $(this).attr('name', `${fieldName}_display`);
+                            } else {
+                                hiddenInput.val(value);
+                            }
+                            
+                            $(this).prop('disabled', true);
+                        } else {
+                            $(this).removeClass('disabled-input').prop('disabled', false);
+                            
+                            // Remove hidden input if it exists
+                            const fieldName = $(this).attr('name').replace('_display', '');
+                            $(`input[name="${fieldName}"]`).remove();
+                            
+                            // Restore original name
+                            if ($(this).attr('name').endsWith('_display')) {
+                                $(this).attr('name', fieldName);
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // Keep the apply button for a one-time full apply
+            $('#apply-global-btn').click(function() {
+                // Trigger input event on all global fields to apply their current values
+                $('#global_creator, #global_course_name, #global_institution, #global_notes').trigger('input');
+                $('#global_doc_type').trigger('change');
+            });
+        }
+        
+        // Mark a field as manually edited when user clicks to edit it
+        $('.metadata-field').on('click', function() {
+            if ($(this).hasClass('disabled-input')) {
+                $(this).removeClass('disabled-input').prop('readonly', false).prop('disabled', false);
+                $(this).addClass('manually-edited');
+                
+                // For select elements, restore original name
+                if ($(this).is('select') && $(this).attr('name').endsWith('_display')) {
+                    const fieldName = $(this).attr('name').replace('_display', '');
+                    $(`input[name="${fieldName}"]`).remove();
+                    $(this).attr('name', fieldName);
+                }
+            }
+        });
+        
+        // Reset manual edit status when double-clicking a field that's not disabled
+        $('.metadata-field').on('dblclick', function() {
+            $(this).removeClass('manually-edited');
+            
+            // Re-apply global value
+            const fieldType = $(this).data('field-type');
+            const globalValue = $(`#global_${fieldType}`).val();
+            
+            if (globalValue) {
+                $(this).val(globalValue);
+                $(this).addClass('disabled-input').prop('readonly', true);
+                
+                if ($(this).is('select')) {
+                    const fieldName = $(this).attr('name');
+                    let hiddenInput = $(`input[name="${fieldName}_hidden"]`);
+                    if (hiddenInput.length === 0) {
+                        hiddenInput = $(`<input type="hidden" name="${fieldName}" value="${globalValue}">`);
+                        $(this).after(hiddenInput);
+                        $(this).attr('name', `${fieldName}_display`);
+                    } else {
+                        hiddenInput.val(globalValue);
+                    }
+                    $(this).prop('disabled', true);
+                }
+            }
+        });
+        
         // Add new learning goal
-        $('#add-goal-btn').click(function() {
+        $('.add-goal-btn').click(function() {
+            var index = $(this).data('index');
             var newGoal = $(`
                 <div class="learning-goal-item">
-                    <input type="text" class="form-control" name="learning_goals[]" required>
+                    <input type="text" class="form-control" name="learning_goals_${index}[]" required>
                     <button type="button" class="btn btn-danger btn-sm btn-remove">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
             `);
-            $('#learning-goals-container').append(newGoal);
+            $(`#learning-goals-container-${index}`).append(newGoal);
             setupAutocomplete(newGoal.find('input'));
         });
         
         // Remove learning goal
         $(document).on('click', '.btn-remove', function() {
-            if ($('.learning-goal-item').length > 1) {
+            var container = $(this).closest('.learning-goals-container');
+            var items = container.find('.learning-goal-item');
+            
+            if (items.length > 1) {
                 $(this).closest('.learning-goal-item').remove();
             } else {
                 alert('You must have at least one learning goal.');
@@ -189,6 +461,9 @@
             // Show saving overlay
             $('.saving-overlay').show();
             
+            // Re-enable any disabled fields before submitting
+            $('select:disabled').prop('disabled', false);
+            
             // Submit form via AJAX
             $.ajax({
                 url: $(this).attr('action'),
@@ -199,7 +474,7 @@
                     $('.saving-overlay').hide();
                     
                     if (response.success) {
-                        alert('Document saved successfully!');
+                        alert(`${response.success_count} of ${response.total} documents saved successfully!`);
                         window.location.href = "{{ url_for('main.index') }}";
                     } else {
                         alert('Error: ' + response.message);
@@ -207,7 +482,7 @@
                 },
                 error: function() {
                     $('.saving-overlay').hide();
-                    alert('An error occurred while saving the document. Please try again.');
+                    alert('An error occurred while saving the documents. Please try again.');
                 }
             });
         });
@@ -235,6 +510,9 @@
         $('.learning-goal-item input').each(function() {
             setupAutocomplete(this);
         });
+        
+        // Initialize global field synchronization
+        setupGlobalFieldSync();
     });
 </script>
 {% endblock %} 
