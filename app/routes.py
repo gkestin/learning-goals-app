@@ -445,6 +445,7 @@ def api_cluster_goals():
         
         # Calculate quality metrics
         silhouette_avg = clustering_service.calculate_cluster_quality(embeddings, labels)
+        inter_cluster_separation, intra_cluster_cohesion = clustering_service.calculate_cluster_separation_metrics(embeddings, labels)
         
         # Organize results
         clusters = {}
@@ -488,6 +489,8 @@ def api_cluster_goals():
             'total_goals': len(all_goals),
             'n_clusters': len(formatted_clusters),
             'silhouette_score': round(float(silhouette_avg), 3),
+            'inter_cluster_separation': round(float(inter_cluster_separation), 3),
+            'intra_cluster_cohesion': round(float(intra_cluster_cohesion), 3),
             'method_used': 'hierarchical'
         })
         
@@ -496,4 +499,78 @@ def api_cluster_goals():
         return jsonify({
             'success': False,
             'message': f'Clustering failed: {str(e)}'
+        })
+
+@main.route('/api/find-optimal-clusters', methods=['POST'])
+def api_find_optimal_clusters():
+    """API endpoint to find optimal cluster sizes"""
+    from app.clustering_service import LearningGoalsClusteringService
+    
+    # Get all learning goals from Firebase
+    all_documents = search_documents(limit=1000)
+    
+    # Extract all learning goals
+    all_goals = []
+    for doc in all_documents:
+        all_goals.extend(doc.learning_goals)
+    
+    if len(all_goals) < 4:
+        return jsonify({
+            'success': False,
+            'message': 'Need at least 4 learning goals for optimization analysis'
+        })
+    
+    # Initialize clustering service
+    clustering_service = LearningGoalsClusteringService()
+    
+    try:
+        print(f"Finding optimal cluster sizes for {len(all_goals)} learning goals...")
+        
+        # Generate embeddings
+        embeddings = clustering_service.generate_embeddings(all_goals)
+        
+        # Find optimal cluster sizes using true optimization
+        results, best_composite_k, best_separation_k = clustering_service.find_optimal_cluster_sizes(
+            embeddings, 
+            max_clusters=min(len(all_goals) - 1, len(all_goals) // 2 + 50)  # Test broader range
+        )
+        
+        if results is None:
+            return jsonify({
+                'success': False,
+                'message': 'Unable to perform optimization analysis'
+            })
+        
+        print(f"True optimization completed: Best composite {best_composite_k}, Best separation {best_separation_k}")
+        
+        return jsonify({
+            'success': True,
+            'total_goals': len(all_goals),
+            'best_composite_k': int(best_composite_k),
+            'best_separation_k': int(best_separation_k),
+            'best_cohesion_k': int(results['best_cohesion_k']),
+            'best_silhouette_k': int(results['best_silhouette_k']),
+            'max_composite_score': round(float(results['max_composite']), 3),
+            'max_separation_score': round(float(results['max_separation']), 3),
+            'max_cohesion_score': round(float(results['max_cohesion']), 3),
+            'max_silhouette_score': round(float(results['max_silhouette']), 3),
+            'analysis_data': {
+                'cluster_sizes': [int(k) for k in results['cluster_sizes']],
+                'silhouette_scores': [round(float(s), 3) for s in results['silhouette_scores']],
+                'separation_scores': [round(float(s), 3) for s in results['separation_scores']],
+                'cohesion_scores': [round(float(s), 3) for s in results['cohesion_scores']],
+                'composite_scores': [round(float(s), 3) for s in results['composite_scores']]
+            },
+            'recommendation': {
+                'primary': int(best_composite_k),
+                'alternative': int(best_separation_k),
+                'explanation': f"True optimization suggests {best_composite_k} clusters for best overall quality (composite score: {results['max_composite']:.3f}). Alternative: {best_separation_k} clusters for maximum cluster separation."
+            }
+        })
+        
+    except Exception as e:
+        print(f"Optimization error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Optimization failed: {str(e)}'
         }) 

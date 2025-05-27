@@ -68,6 +68,16 @@
         font-size: 0.7em;
         font-weight: bold;
     }
+    
+    .btn-group .btn-check:checked + .btn {
+        background-color: var(--bs-btn-active-bg);
+        border-color: var(--bs-btn-active-border-color);
+        color: var(--bs-btn-active-color);
+    }
+    
+    .clustering-controls {
+        transition: all 0.3s ease;
+    }
 </style>
 {% endblock %}
 
@@ -98,10 +108,52 @@
                     </div>
                 </div>
                 
-                <!-- Clustering Controls -->
-                <div class="clustering-controls border border-2 border-primary">
-                    <h4 class="text-primary mb-3">🎯 Hierarchical Clustering Configuration</h4>
-                    <p class="text-muted mb-3">Create many small clusters to group highly similar learning goals together for precise analysis.</p>
+                <!-- Approach Toggle -->
+                <div class="mb-3">
+                    <div class="btn-group" role="group" aria-label="Clustering approach toggle">
+                        <input type="radio" class="btn-check" name="approach-toggle" id="optimize-toggle" autocomplete="off" checked>
+                        <label class="btn btn-outline-info" for="optimize-toggle">🎯 Auto-Optimize</label>
+                        
+                        <input type="radio" class="btn-check" name="approach-toggle" id="manual-toggle" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="manual-toggle">🎮 Manual Config</label>
+                    </div>
+                    <small class="text-muted ms-3">Choose your clustering approach</small>
+                </div>
+
+                <!-- Approach 1: Automatic Optimization -->
+                <div id="optimize-approach" class="clustering-controls border border-2 border-info">
+                    <h4 class="text-info mb-3">🎯 Automatic Optimization</h4>
+                    <p class="text-muted mb-3">Let the AI find the optimal cluster size using data-driven analysis methods.</p>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <p><strong>How it works:</strong></p>
+                                <ul class="mb-0">
+                                    <li><strong>True Optimization:</strong> Tests multiple sizes to maximize our actual quality metrics</li>
+                                    <li><strong>Composite Score:</strong> Weighted combination of separation + cohesion + silhouette</li>
+                                    <li><strong>Multiple Options:</strong> Best overall, best separation, best cohesion, best silhouette</li>
+                                    <li><strong>Data-Driven:</strong> Finds cluster sizes that actually optimize your specific learning goals</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="d-grid gap-2">
+                                <button id="find-optimal-btn" class="btn btn-info btn-lg" disabled>
+                                    🎯 Find Optimal Size & Cluster
+                                </button>
+                                <small class="text-muted">
+                                    Recommended for first-time analysis or when unsure about cluster size
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Approach 2: Manual Configuration -->
+                <div id="manual-approach" class="clustering-controls border border-2 border-primary" style="display: none;">
+                    <h4 class="text-primary mb-3">🎮 Manual Configuration</h4>
+                    <p class="text-muted mb-3">Specify exact number of clusters for precise control over granularity.</p>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -111,8 +163,9 @@
                                     <span class="input-group-text">clusters</span>
                                 </div>
                                 <div class="form-text">
-                                    Create many small, specific clusters to group highly similar goals<br>
-                                    <strong>Tip:</strong> Use ~20% of your total goals (e.g., 50 clusters for 250 goals)
+                                    More clusters = smaller, more specific groups<br>
+                                    Fewer clusters = broader, more general themes<br>
+                                    <strong>Suggested starting point:</strong> ~20% of total goals
                                 </div>
                             </div>
                         </div>
@@ -120,11 +173,10 @@
                         <div class="col-md-6">
                             <div class="d-grid gap-2">
                                 <button id="cluster-btn" class="btn btn-primary btn-lg" disabled>
-                                    🧠 Analyze Learning Goals
+                                    🧠 Analyze with Manual Size
                                 </button>
                                 <small class="text-muted">
-                                    This will analyze all learning goals from uploaded documents using 
-                                    <strong>all-mpnet-base-v2</strong> embeddings with STEM context optimization
+                                    Good for fine-tuning or when you have specific clustering requirements
                                 </small>
                             </div>
                         </div>
@@ -167,6 +219,18 @@
 
 {% block scripts %}
 <script>
+// Global functions for modal button clicks
+function applyOptimalClusters(optimalK) {
+    // Close modal first
+    $('#optimizationModal').modal('hide');
+    
+    // Set the optimal cluster size (for display purposes)
+    $('#n-clusters-input').val(optimalK);
+    
+    // Auto-trigger clustering with the optimal size
+    window.performClustering(optimalK);
+}
+
 $(document).ready(function() {
     // Load overview on page load
     loadGoalsOverview();
@@ -179,9 +243,25 @@ $(document).ready(function() {
         if (value > maxValue) $(this).val(maxValue);
     });
     
+    // Find optimal button
+    $('#find-optimal-btn').click(function() {
+        findOptimalClusters();
+    });
+    
     // Clustering button
     $('#cluster-btn').click(function() {
         performClustering();
+    });
+    
+    // Approach toggle functionality
+    $('input[name="approach-toggle"]').change(function() {
+        if ($('#optimize-toggle').is(':checked')) {
+            $('#optimize-approach').show();
+            $('#manual-approach').hide();
+        } else {
+            $('#optimize-approach').hide();
+            $('#manual-approach').show();
+        }
     });
     
     function loadGoalsOverview() {
@@ -218,6 +298,10 @@ $(document).ready(function() {
                     // Enable clustering if we have enough goals
                     if (response.total_goals >= 2) {
                         $('#cluster-btn').prop('disabled', false);
+                        // Enable optimization if we have enough goals
+                        if (response.total_goals >= 4) {
+                            $('#find-optimal-btn').prop('disabled', false);
+                        }
                         // Set max clusters to total number of goals (each goal could be its own cluster)
                         const maxClusters = response.total_goals;
                         $('#n-clusters-input').attr('max', maxClusters);
@@ -228,8 +312,9 @@ $(document).ready(function() {
                         
                         // Update the help text with specific recommendation
                         $('.form-text').html(`
-                            Create many small, specific clusters to group highly similar goals<br>
-                            <strong>Recommended for ${response.total_goals} goals:</strong> ${suggestedClusters} clusters 
+                            More clusters = smaller, more specific groups<br>
+                            Fewer clusters = broader, more general themes<br>
+                            <strong>Suggested starting point for ${response.total_goals} goals:</strong> ${suggestedClusters} clusters 
                             (Range: 2-${maxClusters})
                         `);
                     } else {
@@ -268,8 +353,106 @@ $(document).ready(function() {
         });
     }
     
-    function performClustering() {
-        const nClusters = $('#n-clusters-input').val();
+    function findOptimalClusters() {
+        // Show loading
+        $('#loading-spinner').show();
+        $('#results-section').hide();
+        $('#no-goals').hide();
+        $('#find-optimal-btn').prop('disabled', true);
+        $('#cluster-btn').prop('disabled', true);
+        
+        // Update loading text
+        $('#loading-spinner p').text('Finding optimal cluster size...');
+        $('#loading-spinner small').text('Testing different cluster sizes with elbow method and silhouette analysis...');
+        
+        // API call
+        $.ajax({
+            url: '{{ url_for("main.api_find_optimal_clusters") }}',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({}),
+            success: function(response) {
+                if (response.success) {
+                    // Show optimization results
+                    const modalHtml = `
+                        <div class="modal fade" id="optimizationModal" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">🎯 Optimal Cluster Size Analysis</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                                                                 <div class="alert alert-success">
+                                             <h6>🎯 True Optimization Results for ${response.total_goals} Learning Goals</h6>
+                                             <div class="row mt-3">
+                                                 <div class="col-md-6">
+                                                     <strong>🏆 Best Overall (Composite):</strong> 
+                                                     <span class="badge bg-success fs-6">${response.best_composite_k} clusters</span>
+                                                     <br><small>Optimized composite score: ${response.max_composite_score}</small>
+                                                     <br><small class="text-muted">Balances separation, cohesion & silhouette</small>
+                                                 </div>
+                                                 <div class="col-md-6">
+                                                     <strong>🎯 Best Separation:</strong> 
+                                                     <span class="badge bg-info fs-6">${response.best_separation_k} clusters</span>
+                                                     <br><small>Max separation score: ${response.max_separation_score}</small>
+                                                     <br><small class="text-muted">Most distinct clusters (least redundancy)</small>
+                                                 </div>
+                                             </div>
+                                             <div class="row mt-2">
+                                                 <div class="col-md-6">
+                                                     <small><strong>Best Cohesion:</strong> ${response.best_cohesion_k} clusters (${response.max_cohesion_score})</small>
+                                                 </div>
+                                                 <div class="col-md-6">
+                                                     <small><strong>Best Silhouette:</strong> ${response.best_silhouette_k} clusters (${response.max_silhouette_score})</small>
+                                                 </div>
+                                             </div>
+                                         </div>
+                                        <p class="text-muted">${response.recommendation.explanation}</p>
+                                                                                 <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                             <button class="btn btn-success" onclick="applyOptimalClusters(${response.best_composite_k})">
+                                                 🏆 Use ${response.best_composite_k} clusters (Best Overall)
+                                             </button>
+                                             <button class="btn btn-outline-info" onclick="applyOptimalClusters(${response.best_separation_k})">
+                                                 🎯 Use ${response.best_separation_k} clusters (Max Separation)
+                                             </button>
+                                             <button class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                                                 🎮 Use Manual Approach Instead
+                                             </button>
+                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Remove existing modal and add new one
+                    $('#optimizationModal').remove();
+                    $('body').append(modalHtml);
+                    $('#optimizationModal').modal('show');
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Optimization failed:', error);
+                alert('Failed to find optimal cluster size. Please try again.\nError: ' + error);
+            },
+            complete: function() {
+                $('#loading-spinner').hide();
+                $('#find-optimal-btn').prop('disabled', false);
+                $('#cluster-btn').prop('disabled', false);
+                // Reset loading text
+                $('#loading-spinner p').text('Analyzing learning goals with AI...');
+                $('#loading-spinner small').text('Generating semantic embeddings and clustering...');
+            }
+        });
+    }
+    
+
+    
+    function performClustering(explicitClusters = null) {
+        const nClusters = explicitClusters || $('#n-clusters-input').val();
         
         // Show loading
         $('#loading-spinner').show();
@@ -310,21 +493,33 @@ $(document).ready(function() {
     function displayResults(data) {
         // Display stats
         const qualityLabel = getQualityLabel(data.silhouette_score);
+        const separationLabel = getSeparationLabel(data.inter_cluster_separation);
+        const cohesionLabel = getCohesionLabel(data.intra_cluster_cohesion);
         const statsHtml = `
             <h5><i class="bi bi-graph-up"></i> Clustering Results</h5>
-            <div class="row">
-                <div class="col-md-3">
-                    <strong>Total Learning Goals:</strong> ${data.total_goals}
-                </div>
-                <div class="col-md-2">
-                    <strong>Clusters Found:</strong> ${data.n_clusters}
-                </div>
-                <div class="col-md-3">
-                    <strong>Method Used:</strong> ${data.method_used}
-                </div>
+            <div class="row mb-2">
                 <div class="col-md-4">
-                    <strong>Quality Score:</strong> ${data.silhouette_score} 
+                    <strong>Total Goals:</strong> ${data.total_goals} | <strong>Clusters:</strong> ${data.n_clusters}
+                </div>
+                <div class="col-md-3">
+                    <strong>Silhouette Score:</strong> ${data.silhouette_score} 
                     <span class="badge ${qualityLabel.class}">${qualityLabel.text}</span>
+                </div>
+                <div class="col-md-2.5">
+                    <strong>Cluster Separation:</strong> ${data.inter_cluster_separation} 
+                    <span class="badge ${separationLabel.class}">${separationLabel.text}</span>
+                </div>
+                <div class="col-md-2.5">
+                    <strong>Cluster Cohesion:</strong> ${data.intra_cluster_cohesion} 
+                    <span class="badge ${cohesionLabel.class}">${cohesionLabel.text}</span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-12">
+                    <small class="text-muted">
+                        <strong>Separation:</strong> How distinct clusters are from each other (higher = better) | 
+                        <strong>Cohesion:</strong> How similar goals within clusters are (higher = better)
+                    </small>
                 </div>
             </div>
         `;
@@ -416,10 +611,30 @@ $(document).ready(function() {
         return {class: 'bg-secondary', text: 'N/A'};
     }
     
+    function getSeparationLabel(score) {
+        // Higher distance = better separation between clusters
+        if (score >= 0.8) return {class: 'bg-success', text: 'Excellent'};
+        if (score >= 0.6) return {class: 'bg-info', text: 'Good'};
+        if (score >= 0.4) return {class: 'bg-warning', text: 'Fair'};
+        return {class: 'bg-danger', text: 'Poor'};
+    }
+    
+    function getCohesionLabel(score) {
+        // Higher similarity = better cohesion within clusters
+        if (score >= 0.7) return {class: 'bg-success', text: 'Tight'};
+        if (score >= 0.5) return {class: 'bg-info', text: 'Good'};
+        if (score >= 0.3) return {class: 'bg-warning', text: 'Loose'};
+        return {class: 'bg-danger', text: 'Scattered'};
+    }
+    
     function truncateText(text, maxLength) {
         if (text.length <= maxLength) return text;
         return text.substring(0, maxLength) + '...';
     }
+    
+    // Make functions globally accessible for modal buttons
+    window.applyOptimalClusters = applyOptimalClusters;
+    window.performClustering = performClustering;
 });
 </script>
 {% endblock %} 
