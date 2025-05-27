@@ -65,6 +65,81 @@
     .autocomplete-item:hover {
         background-color: #f8f9fa;
     }
+    
+    /* Hierarchical Stack Styles */
+    .stack-card {
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border-left: 4px solid #007bff;
+    }
+    .stack-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    }
+    .stack-card.expanded {
+        border-left-color: #28a745;
+    }
+    .stack-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .stack-count {
+        background: #007bff;
+        color: white;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        font-weight: bold;
+    }
+    .stack-expanded .stack-count {
+        background: #28a745;
+    }
+    .stack-children {
+        margin-top: 15px;
+        margin-left: 20px;
+        border-left: 2px solid #e9ecef;
+        padding-left: 15px;
+    }
+    .course-stack-card {
+        border-left: 4px solid #ffc107;
+        margin-bottom: 10px;
+    }
+    .course-stack-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    .course-stack-card.expanded {
+        border-left-color: #fd7e14;
+    }
+    .course-stack-count {
+        background: #ffc107;
+        color: #212529;
+    }
+    .course-expanded .course-stack-count {
+        background: #fd7e14;
+        color: white;
+    }
+    .document-card {
+        border-left: 4px solid #6c757d;
+        margin-bottom: 8px;
+        transition: all 0.2s ease;
+    }
+    .document-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        border-left-color: #007bff;
+    }
+    .expand-icon {
+        transition: transform 0.3s ease;
+    }
+    .expanded .expand-icon {
+        transform: rotate(90deg);
+    }
 </style>
 {% endblock %}
 
@@ -143,41 +218,73 @@
     </div>
 </div>
 
-<!-- Document Result Template -->
-<template id="document-template">
-    <div class="col-md-6 mb-4">
-        <div class="card result-card h-100">
-            <div class="card-header">
-                <h3 class="card-title h5 mb-0 document-name"></h3>
-            </div>
+<!-- User Stack Template -->
+<template id="user-stack-template">
+    <div class="col-12 mb-3">
+        <div class="card stack-card" data-creator="">
             <div class="card-body">
-                <div class="mb-2">
-                    <strong>Course:</strong> <span class="document-course"></span>
+                <div class="stack-header">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-chevron-right expand-icon me-2"></i>
+                        <div>
+                            <h5 class="mb-1 creator-name"></h5>
+                            <small class="text-muted institution-name"></small>
+                        </div>
+                    </div>
+                    <div class="stack-count document-count"></div>
                 </div>
-                <div class="mb-2">
-                    <strong>Creator:</strong> <span class="document-creator"></span>
+                <div class="stack-children" style="display: none;">
+                    <!-- Course stacks will be inserted here -->
                 </div>
-                <div class="mb-2">
-                    <strong>Institution:</strong> <span class="document-institution"></span>
-                </div>
-                <div class="mb-2">
-                    <strong>Document Type:</strong> <span class="document-type"></span>
-                </div>
-                <div class="mb-3">
-                    <strong>Learning Goals:</strong>
-                    <div class="learning-goals-list">
-                        <ul class="list-group list-group-flush goals-list"></ul>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Course Stack Template -->
+<template id="course-stack-template">
+    <div class="course-stack-card card" data-course="">
+        <div class="card-body py-2">
+            <div class="stack-header">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-chevron-right expand-icon me-2"></i>
+                    <div>
+                        <h6 class="mb-0 course-name"></h6>
+                        <small class="text-muted doc-type"></small>
                     </div>
                 </div>
-                <div class="text-end">
-                    <a href="#" class="btn btn-primary btn-sm view-document">
-                        <i class="bi bi-file-earmark-text"></i> View Document
-                    </a>
-                    <button class="btn btn-danger btn-sm ms-2 delete-document">
-                        <i class="bi bi-trash"></i> Delete
+                <div class="stack-count course-stack-count course-count"></div>
+            </div>
+            <div class="stack-children" style="display: none;">
+                <!-- Individual documents will be inserted here -->
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Document Template -->
+<template id="document-template">
+    <div class="document-card card mb-2" style="cursor: pointer;">
+        <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                    <h6 class="mb-1 document-name"></h6>
+                    <small class="text-muted document-type"></small>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-danger btn-sm delete-document">
+                        <i class="bi bi-trash"></i>
                     </button>
                 </div>
             </div>
+            <div class="mt-2">
+                <small class="text-muted">Learning Goals:</small>
+                <div class="learning-goals-preview">
+                    <!-- Learning goals preview will be inserted here -->
+                </div>
+            </div>
+            <!-- Hidden field to store the document URL -->
+            <input type="hidden" class="document-url" value="">
         </div>
     </div>
 </template>
@@ -188,6 +295,8 @@
 <script>
     $(document).ready(function() {
         const resultsContainer = $('#results-container');
+        const userStackTemplate = document.getElementById('user-stack-template');
+        const courseStackTemplate = document.getElementById('course-stack-template');
         const documentTemplate = document.getElementById('document-template');
         const noResults = $('#no-results');
         const loadingSpinner = $('#loading-spinner');
@@ -453,57 +562,225 @@
             });
         }
         
-        // Function to display search results
+        // Function to display search results with hierarchical stacking
         function displayResults(documents) {
             resultsContainer.empty();
             
-            documents.forEach(function(doc) {
-                // Clone template
-                const template = documentTemplate.content.cloneNode(true);
-                const card = template.querySelector('.result-card');
-                
-                // Fill template
-                card.querySelector('.document-name').textContent = doc.name;
-                card.querySelector('.document-course').textContent = doc.course_name || 'N/A';
-                card.querySelector('.document-creator').textContent = doc.creator || 'N/A';
-                card.querySelector('.document-institution').textContent = doc.institution || 'N/A';
-                card.querySelector('.document-type').textContent = doc.doc_type || 'N/A';
-                
-                // Add learning goals
-                const goalsList = card.querySelector('.goals-list');
-                if (doc.learning_goals && doc.learning_goals.length > 0) {
-                    doc.learning_goals.forEach(function(goal) {
-                        const li = document.createElement('li');
-                        li.className = 'list-group-item';
-                        li.textContent = goal;
-                        goalsList.appendChild(li);
-                    });
-                } else {
-                    const li = document.createElement('li');
-                    li.className = 'list-group-item text-muted';
-                    li.textContent = 'No learning goals available';
-                    goalsList.appendChild(li);
-                }
-                
-                // Set view link
-                card.querySelector('.view-document').href = "{{ url_for('main.view_document', document_id='') }}" + doc.id;
-                
-                // Setup delete button
-                const deleteButton = card.querySelector('.delete-document');
-                deleteButton.setAttribute('data-document-id', doc.id);
-                deleteButton.setAttribute('data-document-name', doc.name);
-                
-                // Append to results
-                resultsContainer.append(template);
+            if (documents.length === 0) {
+                noResults.show();
+                return;
+            }
+            
+            // Group documents by creator (user)
+            const userGroups = groupDocumentsByUser(documents);
+            
+            // Create user stacks
+            Object.keys(userGroups).forEach(function(creator) {
+                const userDocs = userGroups[creator];
+                const userStack = createUserStack(creator, userDocs);
+                resultsContainer.append(userStack);
             });
             
-            // Add delete event handlers
+            // Setup event handlers
+            setupStackEventHandlers();
+        }
+        
+        // Function to group documents by user/creator
+        function groupDocumentsByUser(documents) {
+            const groups = {};
+            
+            documents.forEach(function(doc) {
+                const creator = doc.creator || 'Unknown User';
+                if (!groups[creator]) {
+                    groups[creator] = [];
+                }
+                groups[creator].push(doc);
+            });
+            
+            return groups;
+        }
+        
+        // Function to group documents by course within a user
+        function groupDocumentsByCourse(documents) {
+            const groups = {};
+            
+            documents.forEach(function(doc) {
+                const course = doc.course_name || 'Uncategorized';
+                if (!groups[course]) {
+                    groups[course] = [];
+                }
+                groups[course].push(doc);
+            });
+            
+            return groups;
+        }
+        
+        // Function to create a user stack
+        function createUserStack(creator, documents) {
+            const template = userStackTemplate.content.cloneNode(true);
+            const stackCard = template.querySelector('.stack-card');
+            
+            // Set user data
+            stackCard.setAttribute('data-creator', creator);
+            template.querySelector('.creator-name').textContent = creator;
+            template.querySelector('.document-count').textContent = documents.length;
+            
+            // Set institution (use the most common one if multiple)
+            const institutions = documents.map(d => d.institution).filter(Boolean);
+            const institution = getMostCommon(institutions) || 'Unknown Institution';
+            template.querySelector('.institution-name').textContent = institution;
+            
+            // Group documents by course
+            const courseGroups = groupDocumentsByCourse(documents);
+            const stackChildren = template.querySelector('.stack-children');
+            
+            // Create course stacks or individual documents
+            Object.keys(courseGroups).forEach(function(course) {
+                const courseDocs = courseGroups[course];
+                
+                if (courseDocs.length === 1) {
+                    // Single document - create document card directly
+                    const docCard = createDocumentCard(courseDocs[0]);
+                    stackChildren.appendChild(docCard);
+                } else {
+                    // Multiple documents - create course stack
+                    const courseStack = createCourseStack(course, courseDocs);
+                    stackChildren.appendChild(courseStack);
+                }
+            });
+            
+            return template;
+        }
+        
+        // Function to create a course stack
+        function createCourseStack(course, documents) {
+            const template = courseStackTemplate.content.cloneNode(true);
+            const stackCard = template.querySelector('.course-stack-card');
+            
+            // Set course data
+            stackCard.setAttribute('data-course', course);
+            template.querySelector('.course-name').textContent = course;
+            template.querySelector('.course-count').textContent = documents.length;
+            
+            // Set document type (use the most common one)
+            const docTypes = documents.map(d => d.doc_type).filter(Boolean);
+            const docType = getMostCommon(docTypes) || 'Document';
+            template.querySelector('.doc-type').textContent = docType;
+            
+            // Create individual document cards
+            const stackChildren = template.querySelector('.stack-children');
+            documents.forEach(function(doc) {
+                const docCard = createDocumentCard(doc);
+                stackChildren.appendChild(docCard);
+            });
+            
+            return template.firstElementChild;
+        }
+        
+        // Function to create an individual document card
+        function createDocumentCard(doc) {
+            const template = documentTemplate.content.cloneNode(true);
+            
+            // Fill template
+            template.querySelector('.document-name').textContent = doc.name;
+            template.querySelector('.document-type').textContent = doc.doc_type || 'Document';
+            
+            // Add learning goals preview (first 2-3 goals)
+            const goalsPreview = template.querySelector('.learning-goals-preview');
+            if (doc.learning_goals && doc.learning_goals.length > 0) {
+                const previewGoals = doc.learning_goals.slice(0, 3);
+                const goalText = previewGoals.join('; ');
+                const truncatedText = goalText.length > 100 ? goalText.substring(0, 100) + '...' : goalText;
+                goalsPreview.textContent = truncatedText;
+            } else {
+                goalsPreview.textContent = 'No learning goals available';
+                goalsPreview.classList.add('text-muted');
+            }
+            
+            // Store the document URL in the hidden field
+            const documentUrl = "{{ url_for('main.view_document', document_id='') }}" + doc.id;
+            template.querySelector('.document-url').value = documentUrl;
+            
+            // Setup delete button
+            const deleteButton = template.querySelector('.delete-document');
+            deleteButton.setAttribute('data-document-id', doc.id);
+            deleteButton.setAttribute('data-document-name', doc.name);
+            
+            return template.firstElementChild;
+        }
+        
+        // Helper function to get the most common value in an array
+        function getMostCommon(arr) {
+            if (!arr.length) return null;
+            const counts = {};
+            arr.forEach(item => counts[item] = (counts[item] || 0) + 1);
+            return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+        }
+        
+        // Function to setup stack event handlers
+        function setupStackEventHandlers() {
+            // User stack click handlers
+            $('.stack-card').off('click').on('click', function(e) {
+                e.stopPropagation();
+                toggleUserStack($(this));
+            });
+            
+            // Course stack click handlers
+            $('.course-stack-card').off('click').on('click', function(e) {
+                e.stopPropagation();
+                toggleCourseStack($(this));
+            });
+            
+            // Document card click handlers
+            $('.document-card').off('click').on('click', function(e) {
+                e.stopPropagation();
+                const documentUrl = $(this).find('.document-url').val();
+                if (documentUrl) {
+                    window.location.href = documentUrl;
+                }
+            });
+            
+            // Delete button handlers
             setupDeleteButtons();
+        }
+        
+        // Function to toggle user stack
+        function toggleUserStack($stack) {
+            const $children = $stack.find('.stack-children').first();
+            const $icon = $stack.find('.expand-icon').first();
+            
+            if ($children.is(':visible')) {
+                $children.slideUp(300);
+                $stack.removeClass('expanded');
+                $icon.removeClass('expanded');
+            } else {
+                $children.slideDown(300);
+                $stack.addClass('expanded');
+                $icon.addClass('expanded');
+            }
+        }
+        
+        // Function to toggle course stack
+        function toggleCourseStack($stack) {
+            const $children = $stack.find('.stack-children').first();
+            const $icon = $stack.find('.expand-icon').first();
+            
+            if ($children.is(':visible')) {
+                $children.slideUp(300);
+                $stack.removeClass('expanded');
+                $icon.removeClass('expanded');
+            } else {
+                $children.slideDown(300);
+                $stack.addClass('expanded');
+                $icon.addClass('expanded');
+            }
         }
         
         // Function to handle delete functionality
         function setupDeleteButtons() {
-            $('.delete-document').click(function() {
+            $('.delete-document').off('click').on('click', function(e) {
+                e.stopPropagation(); // Prevent stack expansion
+                
                 const documentId = $(this).data('document-id');
                 const documentName = $(this).data('document-name');
                 
