@@ -520,11 +520,16 @@ def api_find_optimal_clusters():
             'message': 'Need at least 4 learning goals for optimization analysis'
         })
     
+    # Get optimization parameters
+    request_data = request.get_json() or {}
+    use_multires = request_data.get('use_multires', True)  # Default to multi-resolution for efficiency
+    
     # Initialize clustering service
     clustering_service = LearningGoalsClusteringService()
     
     try:
-        print(f"Finding optimal cluster sizes for {len(all_goals)} learning goals...")
+        optimization_method = "multi-resolution" if use_multires else "exhaustive"
+        print(f"Finding optimal cluster sizes for {len(all_goals)} learning goals using {optimization_method} search...")
         
         # Generate embeddings
         embeddings = clustering_service.generate_embeddings(all_goals)
@@ -532,7 +537,8 @@ def api_find_optimal_clusters():
         # Find optimal cluster sizes using true optimization
         results, best_composite_k, best_separation_k = clustering_service.find_optimal_cluster_sizes(
             embeddings, 
-            max_clusters=min(len(all_goals) - 1, len(all_goals) // 2 + 50)  # Test broader range
+            max_clusters=min(len(all_goals) - 1, len(all_goals) // 2 + 50),  # Test broader range
+            use_multires=use_multires
         )
         
         if results is None:

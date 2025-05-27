@@ -104,7 +104,7 @@ class LearningGoalsClusteringService:
         
         return float(inter_cluster_separation), float(avg_intra_cluster_cohesion)
     
-    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2):
+    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True):
         """Find truly optimal cluster sizes by maximizing our actual quality metrics"""
         n_goals = len(embeddings)
         
@@ -115,7 +115,18 @@ class LearningGoalsClusteringService:
         
         if max_clusters < min_clusters:
             return None, None, None
-            
+        
+        # Use multi-resolution optimization for larger datasets (>100 potential clusters to test)
+        search_range = max_clusters - min_clusters + 1
+        if use_multires and search_range > 100:
+            print(f"Using multi-resolution optimization for large search space ({search_range} clusters to test)")
+            return self._find_optimal_multires(embeddings, max_clusters, min_clusters)
+        else:
+            print(f"Using exhaustive search for moderate search space ({search_range} clusters to test)")
+            return self._find_optimal_exhaustive(embeddings, max_clusters, min_clusters)
+
+    def _find_optimal_exhaustive(self, embeddings, max_clusters, min_clusters):
+        """Exhaustive search - test every cluster size (original brute force method)"""
         # Test different cluster sizes
         cluster_sizes = range(min_clusters, max_clusters + 1)
         
@@ -133,8 +144,6 @@ class LearningGoalsClusteringService:
             inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
             
             # Calculate composite quality score
-            # Higher separation + higher cohesion + reasonable silhouette = better
-            # Normalize and weight the metrics
             composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
             
             results_data.append({
@@ -145,6 +154,105 @@ class LearningGoalsClusteringService:
                 'composite': composite_score
             })
         
+        return self._process_optimization_results(results_data)
+
+    def _find_optimal_multires(self, embeddings, max_clusters, min_clusters):
+        """Multi-resolution search: coarse grid first, then fine search around best regions"""
+        
+        # Phase 1: Coarse search (test every 8th-12th value depending on range)
+        search_range = max_clusters - min_clusters + 1
+        coarse_step = max(8, search_range // 15)  # Adaptive step size
+        
+        coarse_range = list(range(min_clusters, max_clusters + 1, coarse_step))
+        # Ensure we include the max value
+        if coarse_range[-1] != max_clusters:
+            coarse_range.append(max_clusters)
+        
+        print(f"Phase 1: Coarse search with step size {coarse_step} ({len(coarse_range)} points)")
+        
+        coarse_results = []
+        for k in coarse_range:
+            labels = self.cluster_hierarchical(embeddings, k)
+            silhouette_score = self.calculate_cluster_quality(embeddings, labels)
+            inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
+            composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
+            
+            coarse_results.append({
+                'k': k,
+                'silhouette': silhouette_score,
+                'separation': inter_sep,
+                'cohesion': intra_cohesion,
+                'composite': composite_score
+            })
+        
+        # Find the best coarse results for each metric
+        best_coarse_composite = max(coarse_results, key=lambda x: x['composite'])
+        best_coarse_separation = max(coarse_results, key=lambda x: x['separation'])
+        best_coarse_cohesion = max(coarse_results, key=lambda x: x['cohesion'])
+        
+        # Phase 2: Fine search around promising regions
+        # Create a set of regions to search finely
+        fine_search_regions = set()
+        
+        # Add region around best composite score
+        fine_search_regions.update(self._get_fine_search_region(
+            best_coarse_composite['k'], min_clusters, max_clusters, coarse_step
+        ))
+        
+        # Add region around best separation (if different)
+        if best_coarse_separation['k'] != best_coarse_composite['k']:
+            fine_search_regions.update(self._get_fine_search_region(
+                best_coarse_separation['k'], min_clusters, max_clusters, coarse_step
+            ))
+        
+        # Add region around best cohesion (if different)
+        if best_coarse_cohesion['k'] != best_coarse_composite['k'] and best_coarse_cohesion['k'] != best_coarse_separation['k']:
+            fine_search_regions.update(self._get_fine_search_region(
+                best_coarse_cohesion['k'], min_clusters, max_clusters, coarse_step
+            ))
+        
+        # Remove values we already tested in coarse search
+        tested_coarse = {r['k'] for r in coarse_results}
+        fine_search_regions = fine_search_regions - tested_coarse
+        
+        print(f"Phase 2: Fine search around promising regions ({len(fine_search_regions)} additional points)")
+        
+        # Perform fine search
+        fine_results = []
+        for k in sorted(fine_search_regions):
+            labels = self.cluster_hierarchical(embeddings, k)
+            silhouette_score = self.calculate_cluster_quality(embeddings, labels)
+            inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
+            composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
+            
+            fine_results.append({
+                'k': k,
+                'silhouette': silhouette_score,
+                'separation': inter_sep,
+                'cohesion': intra_cohesion,
+                'composite': composite_score
+            })
+        
+        # Combine all results
+        all_results = coarse_results + fine_results
+        all_results.sort(key=lambda x: x['k'])  # Sort by cluster size
+        
+        print(f"Multi-resolution optimization complete: tested {len(all_results)} points vs {search_range} exhaustive")
+        
+        return self._process_optimization_results(all_results)
+
+    def _get_fine_search_region(self, center_k, min_clusters, max_clusters, coarse_step):
+        """Get the fine search region around a promising cluster size"""
+        # Search +/- half the coarse step around the center, but at least +/- 3
+        search_radius = max(3, coarse_step // 2)
+        
+        region_start = max(min_clusters, center_k - search_radius)
+        region_end = min(max_clusters, center_k + search_radius)
+        
+        return set(range(region_start, region_end + 1))
+
+    def _process_optimization_results(self, results_data):
+        """Process optimization results and return formatted output"""
         # Find truly optimal solutions
         best_silhouette = max(results_data, key=lambda x: x['silhouette'])
         best_separation = max(results_data, key=lambda x: x['separation'])
