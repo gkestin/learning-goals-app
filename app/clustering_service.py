@@ -462,16 +462,18 @@ class LearningGoalsClusteringService:
         return results, best_composite['k'], best_separation['k']
     
     def _calculate_composite_score(self, silhouette, separation, cohesion):
-        """Calculate a composite quality score that balances all metrics"""
+        """Calculate a composite quality score optimized for STEM content clustering"""
         if silhouette < 0:
             silhouette = 0
             
-        separation_weight = 0.4  # Most important - avoid redundant clusters
-        cohesion_weight = 0.4    # Important - meaningful clusters
+        # STEM-optimized weights: cohesion is more important than separation for domain-specific content
+        separation_weight = 0.3  # Reduced importance - STEM topics naturally closer
+        cohesion_weight = 0.5    # Increased importance - meaningful groupings within domain
         silhouette_weight = 0.2  # Validation - overall structure
         
-        # Normalize separation (0-2 range) to 0-1
-        norm_separation = min(separation / 2.0, 1.0)
+        # STEM-optimized normalization: separation scores of 0.2-0.4 are actually good
+        # Normalize separation using STEM-appropriate range (0-0.6 instead of 0-2.0)
+        norm_separation = min(separation / 0.6, 1.0)
         norm_cohesion = cohesion
         norm_silhouette = silhouette
         

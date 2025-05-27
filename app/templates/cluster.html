@@ -134,6 +134,7 @@
                                     <li><strong>Composite Score:</strong> Weighted combination of separation + cohesion + silhouette</li>
                                     <li><strong>Multiple Options:</strong> Best overall, best separation, best cohesion, best silhouette</li>
                                     <li><strong>Data-Driven:</strong> Finds cluster sizes that actually optimize your specific learning goals</li>
+                                    <li><strong>STEM-Optimized:</strong> Quality thresholds adjusted for domain-specific content similarity</li>
                                 </ul>
                             </div>
                         </div>
@@ -518,7 +519,8 @@ $(document).ready(function() {
             <div class="row">
                 <div class="col-12">
                     <small class="text-muted">
-                        <strong>Separation:</strong> How distinct clusters are from each other (higher = better) | 
+                        <strong>Silhouette:</strong> Overall clustering quality (STEM-optimized: 0.25+ is good) | 
+                        <strong>Separation:</strong> How distinct clusters are from each other (STEM-optimized: 0.2+ is good) | 
                         <strong>Cohesion:</strong> How similar goals within clusters are (higher = better)
                     </small>
                 </div>
@@ -605,18 +607,21 @@ $(document).ready(function() {
     }
     
     function getQualityLabel(score) {
-        if (score >= 0.7) return {class: 'bg-success', text: 'Excellent'};
-        if (score >= 0.5) return {class: 'bg-info', text: 'Good'};
-        if (score >= 0.3) return {class: 'bg-warning', text: 'Fair'};
-        if (score >= 0.1) return {class: 'bg-warning', text: 'Poor'};
+        // STEM-optimized thresholds: Domain-specific content has naturally higher semantic similarity
+        // Adjusted for educational content where 0.2-0.4 silhouette is actually good performance
+        if (score >= 0.4) return {class: 'bg-success', text: 'Excellent'};
+        if (score >= 0.25) return {class: 'bg-info', text: 'Good'};
+        if (score >= 0.15) return {class: 'bg-warning', text: 'Fair'};
+        if (score >= 0.05) return {class: 'bg-warning', text: 'Poor'};
         return {class: 'bg-secondary', text: 'N/A'};
     }
     
     function getSeparationLabel(score) {
-        // Higher distance = better separation between clusters
-        if (score >= 0.8) return {class: 'bg-success', text: 'Excellent'};
-        if (score >= 0.6) return {class: 'bg-info', text: 'Good'};
-        if (score >= 0.4) return {class: 'bg-warning', text: 'Fair'};
+        // STEM-optimized thresholds: STEM topics are naturally more similar
+        // Adjusted for domain-specific content where 0.2-0.4 separation is actually good
+        if (score >= 0.3) return {class: 'bg-success', text: 'Excellent'};
+        if (score >= 0.2) return {class: 'bg-info', text: 'Good'};
+        if (score >= 0.15) return {class: 'bg-warning', text: 'Fair'};
         return {class: 'bg-danger', text: 'Poor'};
     }
     
