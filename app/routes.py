@@ -361,4 +361,139 @@ def api_delete_document(document_id):
         return jsonify({
             'success': False,
             'message': f'Error: {str(e)}'
-        }), 500 
+        }), 500
+
+@main.route('/cluster')
+def cluster_page():
+    """Render the clustering sandbox page"""
+    return render_template('cluster.html')
+
+@main.route('/api/goals-overview')
+def api_goals_overview():
+    """API endpoint to get overview of available learning goals"""
+    try:
+        # Get all learning goals from Firebase
+        all_documents = search_documents(limit=1000)  # Get all documents
+        
+        # Extract all learning goals
+        all_goals = []
+        documents_count = 0
+        
+        for doc in all_documents:
+            if doc.learning_goals:  # Only count documents with learning goals
+                documents_count += 1
+                all_goals.extend(doc.learning_goals)
+        
+        return jsonify({
+            'success': True,
+            'total_goals': len(all_goals),
+            'total_documents': documents_count,
+            'unique_goals': len(set(all_goals)),  # Count unique goals
+            'avg_goals_per_doc': round(len(all_goals) / documents_count, 1) if documents_count > 0 else 0
+        })
+        
+    except Exception as e:
+        print(f"Error getting goals overview: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        })
+
+@main.route('/api/cluster', methods=['POST'])
+def api_cluster_goals():
+    """API endpoint for clustering learning goals"""
+    from app.clustering_service import LearningGoalsClusteringService
+    
+    # Get all learning goals from Firebase
+    all_documents = search_documents(limit=1000)  # Get all documents
+    
+    # Extract all learning goals
+    all_goals = []
+    goal_sources = []  # Track which document each goal came from
+    
+    for doc in all_documents:
+        for goal in doc.learning_goals:
+            all_goals.append(goal)
+            goal_sources.append({
+                'document_name': doc.name,
+                'document_id': doc.id,
+                'creator': doc.creator,
+                'course_name': doc.course_name
+            })
+    
+    if len(all_goals) < 2:
+        return jsonify({
+            'success': False,
+            'message': 'Need at least 2 learning goals to cluster'
+        })
+    
+    # Get clustering parameters
+    n_clusters = request.json.get('n_clusters', 5)
+    
+    # Initialize clustering service
+    clustering_service = LearningGoalsClusteringService()
+    
+    try:
+        # Generate embeddings
+        print(f"Generating embeddings for {len(all_goals)} learning goals...")
+        embeddings = clustering_service.generate_embeddings(all_goals)
+        
+        # Perform hierarchical clustering
+        n_clusters = min(n_clusters, len(all_goals))
+        print(f"Performing hierarchical clustering with {n_clusters} clusters...")
+        labels = clustering_service.cluster_hierarchical(embeddings, n_clusters)
+        
+        # Calculate quality metrics
+        silhouette_avg = clustering_service.calculate_cluster_quality(embeddings, labels)
+        
+        # Organize results
+        clusters = {}
+        for i, (goal, label, source) in enumerate(zip(all_goals, labels, goal_sources)):
+            # Convert numpy int64 to regular Python int
+            label = int(label) if label != -1 else f"outlier_{i}"
+            
+            if label not in clusters:
+                clusters[label] = {
+                    'goals': [],
+                    'sources': [],
+                    'size': 0
+                }
+            
+            clusters[label]['goals'].append(goal)
+            clusters[label]['sources'].append(source)
+            clusters[label]['size'] += 1
+        
+        # Format response
+        formatted_clusters = []
+        for cluster_id, cluster_data in clusters.items():
+            # Get representative goal (longest one)
+            representative_goal = max(cluster_data['goals'], key=len)
+            
+            formatted_clusters.append({
+                'id': int(cluster_id) if isinstance(cluster_id, (int, float)) else cluster_id,
+                'size': cluster_data['size'],
+                'goals': cluster_data['goals'],
+                'sources': cluster_data['sources'],
+                'representative_goal': representative_goal
+            })
+        
+        # Sort clusters by size (largest first)
+        formatted_clusters.sort(key=lambda x: x['size'], reverse=True)
+        
+        print(f"Clustering completed: {len(formatted_clusters)} clusters found")
+        
+        return jsonify({
+            'success': True,
+            'clusters': formatted_clusters,
+            'total_goals': len(all_goals),
+            'n_clusters': len(formatted_clusters),
+            'silhouette_score': round(float(silhouette_avg), 3),
+            'method_used': 'hierarchical'
+        })
+        
+    except Exception as e:
+        print(f"Clustering error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Clustering failed: {str(e)}'
+        }) 
