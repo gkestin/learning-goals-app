@@ -177,6 +177,7 @@
                                 <option value="Lecture">Lecture</option>
                                 <option value="Lab">Lab</option>
                                 <option value="Project">Project</option>
+                                <option value="Worksheet">Worksheet</option>
                                 <option value="Other">Other</option>
                             </select>
                         </div>
@@ -233,6 +234,7 @@
                                     <option value="Lecture">Lecture</option>
                                     <option value="Lab">Lab</option>
                                     <option value="Project">Project</option>
+                                    <option value="Worksheet">Worksheet</option>
                                     <option value="Other">Other</option>
                                 </select>
                             </div>
@@ -249,6 +251,24 @@
                             <div class="mb-3">
                                 <label for="document_name_{{ loop.index0 }}" class="form-label">Document Name:</label>
                                 <input type="text" class="form-control" id="document_name_{{ loop.index0 }}" name="document_name_{{ loop.index0 }}" value="{{ document.original_filename }}" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <div class="mb-3">
+                                <label for="lo_extraction_prompt_{{ loop.index0 }}" class="form-label">LO Extraction Prompt:</label>
+                                <div class="prompt-display" id="prompt_display_{{ loop.index0 }}">
+                                    <div class="prompt-preview" style="cursor: pointer; padding: 8px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;">
+                                        <span class="prompt-short">{{ (document.lo_extraction_prompt or '')[:50] }}{% if (document.lo_extraction_prompt or '')|length > 50 %}...{% endif %}</span>
+                                        <small class="text-muted ms-2">(click to expand)</small>
+                                    </div>
+                                    <div class="prompt-full" style="display: none; margin-top: 8px;">
+                                        <textarea class="form-control" readonly rows="8">{{ document.lo_extraction_prompt or '' }}</textarea>
+                                        <small class="text-muted" style="cursor: pointer;">(click to collapse)</small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -513,6 +533,19 @@
         
         // Initialize global field synchronization
         setupGlobalFieldSync();
+        
+        // Setup prompt expand/collapse functionality
+        $('.prompt-preview').click(function() {
+            const promptDisplay = $(this).closest('.prompt-display');
+            $(this).hide();
+            promptDisplay.find('.prompt-full').show();
+        });
+        
+        $('.prompt-full small').click(function() {
+            const promptDisplay = $(this).closest('.prompt-display');
+            $(this).closest('.prompt-full').hide();
+            promptDisplay.find('.prompt-preview').show();
+        });
     });
 </script>
 {% endblock %} 

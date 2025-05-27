@@ -1,7 +1,11 @@
 from sentence_transformers import SentenceTransformer
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics import silhouette_score
+from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
 import numpy as np
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # STEM context prefix for better embeddings
 STEM_CONTEXT = "In STEM education, students should be able to: "
@@ -11,18 +15,106 @@ class LearningGoalsClusteringService:
         # Load local sentence-transformer model
         self.model = SentenceTransformer('all-mpnet-base-v2')
         
+        # Performance optimizations - caching and precomputation
+        self._embedding_cache = {}
+        self._last_embeddings = None
+        self._last_similarity_matrix = None
+        self._last_distance_matrix = None
+        self._cache_lock = threading.Lock()
+        
     def prepare_goals_for_embedding(self, learning_goals):
         """Prepend STEM context to learning goals for better embeddings"""
         return [f"{STEM_CONTEXT}{goal}" for goal in learning_goals]
     
     def generate_embeddings(self, learning_goals):
-        """Generate embeddings for learning goals"""
+        """Generate embeddings for learning goals with caching and batch processing"""
+        # Create cache key from goals
+        cache_key = hash(tuple(learning_goals))
+        
+        with self._cache_lock:
+            if cache_key in self._embedding_cache:
+                print("✅ Using cached embeddings")
+                return self._embedding_cache[cache_key]
+        
+        print(f"🔄 Generating embeddings for {len(learning_goals)} goals...")
+        start_time = time.time()
+        
         prepared_goals = self.prepare_goals_for_embedding(learning_goals)
-        embeddings = self.model.encode(prepared_goals)
+        
+        # Use optimized batch processing for better performance
+        embeddings = self.model.encode(
+            prepared_goals,
+            batch_size=32,  # Process in batches for efficiency
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            normalize_embeddings=True  # Normalize for better cosine similarity
+        )
+        
+        # Cache the result (keep cache size reasonable)
+        with self._cache_lock:
+            self._embedding_cache[cache_key] = embeddings
+            # Limit cache size to prevent memory issues
+            if len(self._embedding_cache) > 3:
+                oldest_key = next(iter(self._embedding_cache))
+                del self._embedding_cache[oldest_key]
+        
+        elapsed = time.time() - start_time
+        print(f"⚡ Embedding generation completed in {elapsed:.2f} seconds")
         return embeddings
     
+    def _precompute_similarity_matrices(self, embeddings):
+        """Precompute similarity and distance matrices for reuse across multiple clustering operations"""
+        embeddings_id = id(embeddings)
+        
+        # Check if we already have matrices for these embeddings
+        if (self._last_embeddings is not None and 
+            id(self._last_embeddings) == embeddings_id):
+            return self._last_similarity_matrix, self._last_distance_matrix
+        
+        print("🔄 Precomputing similarity matrices...")
+        start_time = time.time()
+        
+        # Compute similarity matrix (normalized embeddings make this more efficient)
+        similarity_matrix = cosine_similarity(embeddings)
+        distance_matrix = 1 - similarity_matrix  # Convert to distance
+        
+        # Cache for reuse
+        self._last_embeddings = embeddings
+        self._last_similarity_matrix = similarity_matrix
+        self._last_distance_matrix = distance_matrix
+        
+        elapsed = time.time() - start_time
+        print(f"⚡ Matrix precomputation completed in {elapsed:.2f} seconds")
+        return similarity_matrix, distance_matrix
+    
+    def cluster_fast(self, embeddings, n_clusters):
+        """Adaptive clustering: KMeans for large datasets, hierarchical for small datasets"""
+        n_samples = len(embeddings)
+        
+        if n_samples > 500:
+            # Use KMeans for large datasets (much faster, good quality)
+            print(f"🚀 Using KMeans clustering for {n_samples} samples")
+            clustering = KMeans(
+                n_clusters=n_clusters,
+                random_state=42,
+                n_init=10,
+                max_iter=300,
+                algorithm='lloyd'  # Fastest algorithm
+            )
+            labels = clustering.fit_predict(embeddings)
+        else:
+            # Use hierarchical clustering for smaller datasets (better quality)
+            print(f"🔗 Using hierarchical clustering for {n_samples} samples")
+            clustering = AgglomerativeClustering(
+                n_clusters=n_clusters,
+                linkage='ward'
+            )
+            labels = clustering.fit_predict(embeddings)
+        
+        return labels
+    
     def cluster_hierarchical(self, embeddings, n_clusters):
-        """Agglomerative clustering"""
+        """Original hierarchical clustering method (kept for compatibility)"""
         clustering = AgglomerativeClustering(
             n_clusters=n_clusters,
             linkage='ward'
@@ -30,73 +122,99 @@ class LearningGoalsClusteringService:
         labels = clustering.fit_predict(embeddings)
         return labels
     
-
+    def calculate_cluster_quality_fast(self, embeddings, labels):
+        """Fast silhouette score calculation with intelligent sampling for large datasets"""
+        unique_labels = set(labels)
+        if len(unique_labels) <= 1 or len(unique_labels) >= len(labels):
+            return 0.0
+        
+        try:
+            n_samples = len(embeddings)
+            
+            # For large datasets, use stratified sampling to speed up silhouette calculation
+            if n_samples > 1000:
+                print(f"📊 Using sampling for silhouette calculation ({n_samples} samples)")
+                
+                # Stratified sampling to ensure all clusters are represented
+                sample_size = min(500, n_samples)
+                unique_labels_list = list(unique_labels)
+                samples_per_cluster = max(1, sample_size // len(unique_labels_list))
+                
+                sampled_indices = []
+                for label in unique_labels_list:
+                    label_indices = [i for i, l in enumerate(labels) if l == label]
+                    if len(label_indices) > samples_per_cluster:
+                        sampled_indices.extend(
+                            np.random.choice(label_indices, samples_per_cluster, replace=False)
+                        )
+                    else:
+                        sampled_indices.extend(label_indices)
+                
+                # Ensure we don't exceed sample_size
+                if len(sampled_indices) > sample_size:
+                    sampled_indices = np.random.choice(sampled_indices, sample_size, replace=False)
+                
+                sample_embeddings = embeddings[sampled_indices]
+                sample_labels = [labels[i] for i in sampled_indices]
+                
+                # Only calculate if we still have multiple clusters in sample
+                if len(set(sample_labels)) > 1:
+                    return silhouette_score(sample_embeddings, sample_labels)
+                else:
+                    return 0.0
+            else:
+                return silhouette_score(embeddings, labels)
+        except Exception as e:
+            print(f"⚠️ Silhouette calculation failed: {e}")
+            return 0.0
     
     def calculate_cluster_quality(self, embeddings, labels):
-        """Calculate clustering quality metrics"""
-        unique_labels = set(labels)
-        if len(unique_labels) > 1 and len(unique_labels) < len(labels):
-            try:
-                return silhouette_score(embeddings, labels)
-            except:
-                return 0.0
-        return 0.0
+        """Original quality calculation (kept for compatibility)"""
+        return self.calculate_cluster_quality_fast(embeddings, labels)
     
-    def calculate_cluster_separation_metrics(self, embeddings, labels):
-        """Calculate inter-cluster separation and intra-cluster cohesion"""
-        from sklearn.metrics.pairwise import cosine_similarity, cosine_distances
-        import numpy as np
-        
+    def calculate_cluster_separation_metrics_fast(self, embeddings, labels):
+        """Optimized separation metrics using precomputed matrices and vectorized operations"""
         if len(set(labels)) < 2:
-            return 0.0, 1.0  # No separation possible with single cluster
-            
-        # Calculate cluster centroids
-        cluster_centroids = {}
-        unique_labels = set(labels)
+            return 0.0, 1.0
         
-        for label in unique_labels:
-            cluster_mask = np.array(labels) == label
-            cluster_embeddings = embeddings[cluster_mask]
-            # Centroid is the mean of all embeddings in the cluster
-            cluster_centroids[label] = np.mean(cluster_embeddings, axis=0)
+        # Use precomputed matrices for efficiency
+        similarity_matrix, distance_matrix = self._precompute_similarity_matrices(embeddings)
         
-        # Calculate inter-cluster separation (distance between centroids)
-        centroid_list = list(cluster_centroids.values())
-        if len(centroid_list) > 1:
-            centroid_distances = cosine_distances(centroid_list)
-            # Get average distance between all pairs of centroids
-            n_centroids = len(centroid_list)
-            total_distance = 0
-            pair_count = 0
-            for i in range(n_centroids):
-                for j in range(i + 1, n_centroids):
-                    total_distance += centroid_distances[i][j]
-                    pair_count += 1
-            inter_cluster_separation = total_distance / pair_count if pair_count > 0 else 0
+        unique_labels = list(set(labels))
+        n_clusters = len(unique_labels)
+        
+        # Vectorized centroid calculation
+        centroids = np.zeros((n_clusters, embeddings.shape[1]))
+        for i, label in enumerate(unique_labels):
+            mask = np.array(labels) == label
+            centroids[i] = np.mean(embeddings[mask], axis=0)
+        
+        # Calculate inter-cluster separation efficiently
+        if n_clusters > 1:
+            centroid_distances = cosine_distances(centroids)
+            # Use upper triangle to avoid double counting
+            upper_triangle_mask = np.triu(np.ones_like(centroid_distances, dtype=bool), k=1)
+            inter_cluster_separation = np.mean(centroid_distances[upper_triangle_mask])
         else:
-            inter_cluster_separation = 0
+            inter_cluster_separation = 0.0
         
-        # Calculate intra-cluster cohesion (average similarity within clusters)
+        # Calculate intra-cluster cohesion efficiently using precomputed similarity matrix
         total_cohesion = 0
         cluster_count = 0
         
         for label in unique_labels:
-            cluster_mask = np.array(labels) == label
-            cluster_embeddings = embeddings[cluster_mask]
+            cluster_indices = [i for i, l in enumerate(labels) if l == label]
             
-            if len(cluster_embeddings) > 1:
-                cluster_similarities = cosine_similarity(cluster_embeddings)
-                # Get average similarity within cluster (excluding diagonal)
-                n = len(cluster_embeddings)
-                total_sim = 0
-                pair_count = 0
-                for i in range(n):
-                    for j in range(i + 1, n):
-                        total_sim += cluster_similarities[i][j]
-                        pair_count += 1
+            if len(cluster_indices) > 1:
+                # Extract similarities for this cluster using precomputed matrix
+                cluster_similarities = similarity_matrix[np.ix_(cluster_indices, cluster_indices)]
                 
-                if pair_count > 0:
-                    cluster_cohesion = total_sim / pair_count
+                # Get upper triangle (excluding diagonal) for efficiency
+                n = len(cluster_indices)
+                upper_triangle_mask = np.triu(np.ones((n, n), dtype=bool), k=1)
+                
+                if np.any(upper_triangle_mask):
+                    cluster_cohesion = np.mean(cluster_similarities[upper_triangle_mask])
                     total_cohesion += cluster_cohesion
                     cluster_count += 1
         
@@ -104,162 +222,222 @@ class LearningGoalsClusteringService:
         
         return float(inter_cluster_separation), float(avg_intra_cluster_cohesion)
     
-    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True):
-        """Find truly optimal cluster sizes by maximizing our actual quality metrics"""
+    def calculate_cluster_separation_metrics(self, embeddings, labels):
+        """Original separation metrics (kept for compatibility)"""
+        return self.calculate_cluster_separation_metrics_fast(embeddings, labels)
+    
+    def _evaluate_cluster_size_fast(self, embeddings, k):
+        """Fast evaluation of a single cluster size with all optimizations"""
+        start_time = time.time()
+        
+        # Use fast clustering
+        labels = self.cluster_fast(embeddings, k)
+        
+        # Calculate metrics efficiently
+        silhouette_score = self.calculate_cluster_quality_fast(embeddings, labels)
+        inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics_fast(embeddings, labels)
+        composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
+        
+        elapsed = time.time() - start_time
+        print(f"  ✅ k={k}: composite={composite_score:.3f}, silhouette={silhouette_score:.3f} ({elapsed:.1f}s)")
+        
+        return {
+            'k': k,
+            'silhouette': silhouette_score,
+            'separation': inter_sep,
+            'cohesion': intra_cohesion,
+            'composite': composite_score
+        }
+    
+    def _evaluate_cluster_size_original(self, embeddings, k):
+        """Original evaluation method (kept for compatibility/comparison)"""
+        labels = self.cluster_hierarchical(embeddings, k)
+        silhouette_score = self.calculate_cluster_quality(embeddings, labels)
+        inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
+        composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
+        
+        return {
+            'k': k,
+            'silhouette': silhouette_score,
+            'separation': inter_sep,
+            'cohesion': intra_cohesion,
+            'composite': composite_score
+        }
+    
+    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True, use_fast=True):
+        """Find optimal cluster sizes with full performance optimizations"""
         n_goals = len(embeddings)
         
         # Set reasonable bounds
         if max_clusters is None:
-            max_clusters = min(n_goals - 1, n_goals // 2 + 50)  # Test up to half + buffer
+            max_clusters = min(n_goals - 1, n_goals // 2 + 50)
         max_clusters = min(max_clusters, n_goals - 1)
         
         if max_clusters < min_clusters:
             return None, None, None
         
-        # Use multi-resolution optimization for larger datasets (>100 potential clusters to test)
+        # Precompute similarity matrices once for all operations
+        self._precompute_similarity_matrices(embeddings)
+        
         search_range = max_clusters - min_clusters + 1
+        optimization_method = "fast multi-resolution" if use_fast else "standard multi-resolution"
+        
         if use_multires and search_range > 100:
-            print(f"Using multi-resolution optimization for large search space ({search_range} clusters to test)")
-            return self._find_optimal_multires(embeddings, max_clusters, min_clusters)
+            print(f"🚀 Using {optimization_method} optimization for {search_range} clusters")
+            return self._find_optimal_multires_parallel(embeddings, max_clusters, min_clusters, use_fast)
         else:
-            print(f"Using exhaustive search for moderate search space ({search_range} clusters to test)")
-            return self._find_optimal_exhaustive(embeddings, max_clusters, min_clusters)
-
-    def _find_optimal_exhaustive(self, embeddings, max_clusters, min_clusters):
-        """Exhaustive search - test every cluster size (original brute force method)"""
-        # Test different cluster sizes
-        cluster_sizes = range(min_clusters, max_clusters + 1)
+            print(f"🚀 Using {optimization_method} exhaustive search for {search_range} clusters")
+            return self._find_optimal_exhaustive_parallel(embeddings, max_clusters, min_clusters, use_fast)
+    
+    def _find_optimal_exhaustive_parallel(self, embeddings, max_clusters, min_clusters, use_fast=True):
+        """Optimized exhaustive search with parallel processing"""
+        cluster_sizes = list(range(min_clusters, max_clusters + 1))
         
-        # Store all metrics
+        print(f"🔄 Testing {len(cluster_sizes)} cluster sizes with parallel processing...")
+        start_time = time.time()
+        
+        # Use parallel processing with optimal thread count
+        max_workers = min(4, len(cluster_sizes), 8)  # Limit threads to prevent overhead
+        
         results_data = []
-        
-        print(f"Testing cluster sizes from {min_clusters} to {max_clusters}...")
-        
-        for k in cluster_sizes:
-            # Perform clustering
-            labels = self.cluster_hierarchical(embeddings, k)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            if use_fast:
+                future_to_k = {
+                    executor.submit(self._evaluate_cluster_size_fast, embeddings, k): k 
+                    for k in cluster_sizes
+                }
+            else:
+                future_to_k = {
+                    executor.submit(self._evaluate_cluster_size_original, embeddings, k): k 
+                    for k in cluster_sizes
+                }
             
-            # Calculate all our metrics
-            silhouette_score = self.calculate_cluster_quality(embeddings, labels)
-            inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
-            
-            # Calculate composite quality score
-            composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
-            
-            results_data.append({
-                'k': k,
-                'silhouette': silhouette_score,
-                'separation': inter_sep,
-                'cohesion': intra_cohesion,
-                'composite': composite_score
-            })
+            # Collect results as they complete
+            for future in as_completed(future_to_k):
+                try:
+                    result = future.result()
+                    results_data.append(result)
+                except Exception as e:
+                    k = future_to_k[future]
+                    print(f"❌ Error evaluating k={k}: {e}")
         
+        # Sort results by k for consistency
+        results_data.sort(key=lambda x: x['k'])
+        
+        elapsed = time.time() - start_time
+        print(f"⚡ Exhaustive search completed in {elapsed:.2f} seconds")
         return self._process_optimization_results(results_data)
-
-    def _find_optimal_multires(self, embeddings, max_clusters, min_clusters):
-        """Multi-resolution search: coarse grid first, then fine search around best regions"""
-        
-        # Phase 1: Coarse search (test every 8th-12th value depending on range)
+    
+    def _find_optimal_multires_parallel(self, embeddings, max_clusters, min_clusters, use_fast=True):
+        """Optimized multi-resolution search with parallel processing"""
         search_range = max_clusters - min_clusters + 1
-        coarse_step = max(8, search_range // 15)  # Adaptive step size
+        coarse_step = max(8, search_range // 15)
         
         coarse_range = list(range(min_clusters, max_clusters + 1, coarse_step))
-        # Ensure we include the max value
         if coarse_range[-1] != max_clusters:
             coarse_range.append(max_clusters)
         
-        print(f"Phase 1: Coarse search with step size {coarse_step} ({len(coarse_range)} points)")
+        print(f"🔄 Phase 1: Parallel coarse search ({len(coarse_range)} points)")
+        start_time = time.time()
         
+        # Parallel coarse search
         coarse_results = []
-        for k in coarse_range:
-            labels = self.cluster_hierarchical(embeddings, k)
-            silhouette_score = self.calculate_cluster_quality(embeddings, labels)
-            inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
-            composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            if use_fast:
+                future_to_k = {
+                    executor.submit(self._evaluate_cluster_size_fast, embeddings, k): k 
+                    for k in coarse_range
+                }
+            else:
+                future_to_k = {
+                    executor.submit(self._evaluate_cluster_size_original, embeddings, k): k 
+                    for k in coarse_range
+                }
             
-            coarse_results.append({
-                'k': k,
-                'silhouette': silhouette_score,
-                'separation': inter_sep,
-                'cohesion': intra_cohesion,
-                'composite': composite_score
-            })
+            for future in as_completed(future_to_k):
+                try:
+                    result = future.result()
+                    coarse_results.append(result)
+                except Exception as e:
+                    k = future_to_k[future]
+                    print(f"❌ Error in coarse search k={k}: {e}")
         
-        # Find the best coarse results for each metric
+        # Find promising regions
         best_coarse_composite = max(coarse_results, key=lambda x: x['composite'])
         best_coarse_separation = max(coarse_results, key=lambda x: x['separation'])
         best_coarse_cohesion = max(coarse_results, key=lambda x: x['cohesion'])
         
         # Phase 2: Fine search around promising regions
-        # Create a set of regions to search finely
         fine_search_regions = set()
-        
-        # Add region around best composite score
         fine_search_regions.update(self._get_fine_search_region(
-            best_coarse_composite['k'], min_clusters, max_clusters, coarse_step
-        ))
+            best_coarse_composite['k'], min_clusters, max_clusters, coarse_step))
         
-        # Add region around best separation (if different)
         if best_coarse_separation['k'] != best_coarse_composite['k']:
             fine_search_regions.update(self._get_fine_search_region(
-                best_coarse_separation['k'], min_clusters, max_clusters, coarse_step
-            ))
+                best_coarse_separation['k'], min_clusters, max_clusters, coarse_step))
         
-        # Add region around best cohesion (if different)
-        if best_coarse_cohesion['k'] != best_coarse_composite['k'] and best_coarse_cohesion['k'] != best_coarse_separation['k']:
+        if (best_coarse_cohesion['k'] != best_coarse_composite['k'] and 
+            best_coarse_cohesion['k'] != best_coarse_separation['k']):
             fine_search_regions.update(self._get_fine_search_region(
-                best_coarse_cohesion['k'], min_clusters, max_clusters, coarse_step
-            ))
+                best_coarse_cohesion['k'], min_clusters, max_clusters, coarse_step))
         
-        # Remove values we already tested in coarse search
+        # Remove already tested values
         tested_coarse = {r['k'] for r in coarse_results}
         fine_search_regions = fine_search_regions - tested_coarse
         
-        print(f"Phase 2: Fine search around promising regions ({len(fine_search_regions)} additional points)")
+        print(f"🔄 Phase 2: Parallel fine search ({len(fine_search_regions)} points)")
         
-        # Perform fine search
+        # Parallel fine search
         fine_results = []
-        for k in sorted(fine_search_regions):
-            labels = self.cluster_hierarchical(embeddings, k)
-            silhouette_score = self.calculate_cluster_quality(embeddings, labels)
-            inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics(embeddings, labels)
-            composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
-            
-            fine_results.append({
-                'k': k,
-                'silhouette': silhouette_score,
-                'separation': inter_sep,
-                'cohesion': intra_cohesion,
-                'composite': composite_score
-            })
+        if fine_search_regions:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                if use_fast:
+                    future_to_k = {
+                        executor.submit(self._evaluate_cluster_size_fast, embeddings, k): k 
+                        for k in sorted(fine_search_regions)
+                    }
+                else:
+                    future_to_k = {
+                        executor.submit(self._evaluate_cluster_size_original, embeddings, k): k 
+                        for k in sorted(fine_search_regions)
+                    }
+                
+                for future in as_completed(future_to_k):
+                    try:
+                        result = future.result()
+                        fine_results.append(result)
+                    except Exception as e:
+                        k = future_to_k[future]
+                        print(f"❌ Error in fine search k={k}: {e}")
         
-        # Combine all results
+        # Combine and sort results
         all_results = coarse_results + fine_results
-        all_results.sort(key=lambda x: x['k'])  # Sort by cluster size
+        all_results.sort(key=lambda x: x['k'])
         
-        print(f"Multi-resolution optimization complete: tested {len(all_results)} points vs {search_range} exhaustive")
+        elapsed = time.time() - start_time
+        print(f"⚡ Multi-resolution search completed in {elapsed:.2f} seconds")
+        print(f"📊 Tested {len(all_results)} points vs {search_range} exhaustive ({100*(1-len(all_results)/search_range):.1f}% reduction)")
         
         return self._process_optimization_results(all_results)
 
     def _get_fine_search_region(self, center_k, min_clusters, max_clusters, coarse_step):
         """Get the fine search region around a promising cluster size"""
-        # Search +/- half the coarse step around the center, but at least +/- 3
         search_radius = max(3, coarse_step // 2)
-        
         region_start = max(min_clusters, center_k - search_radius)
         region_end = min(max_clusters, center_k + search_radius)
-        
         return set(range(region_start, region_end + 1))
 
     def _process_optimization_results(self, results_data):
         """Process optimization results and return formatted output"""
-        # Find truly optimal solutions
+        if not results_data:
+            return None, None, None
+            
         best_silhouette = max(results_data, key=lambda x: x['silhouette'])
         best_separation = max(results_data, key=lambda x: x['separation'])
         best_cohesion = max(results_data, key=lambda x: x['cohesion'])
         best_composite = max(results_data, key=lambda x: x['composite'])
         
-        # Create comprehensive results
         results = {
             'cluster_sizes': [r['k'] for r in results_data],
             'silhouette_scores': [r['silhouette'] for r in results_data],
@@ -276,33 +454,24 @@ class LearningGoalsClusteringService:
             'max_silhouette': best_silhouette['silhouette']
         }
         
-        print(f"Optimization complete:")
-        print(f"  Best composite score: {best_composite['k']} clusters (score: {best_composite['composite']:.3f})")
-        print(f"  Best separation: {best_separation['k']} clusters (score: {best_separation['separation']:.3f})")
-        print(f"  Best cohesion: {best_cohesion['k']} clusters (score: {best_cohesion['cohesion']:.3f})")
+        print(f"🎯 Optimization complete:")
+        print(f"  🏆 Best composite: {best_composite['k']} clusters (score: {best_composite['composite']:.3f})")
+        print(f"  🎯 Best separation: {best_separation['k']} clusters (score: {best_separation['separation']:.3f})")
+        print(f"  🤝 Best cohesion: {best_cohesion['k']} clusters (score: {best_cohesion['cohesion']:.3f})")
         
         return results, best_composite['k'], best_separation['k']
     
     def _calculate_composite_score(self, silhouette, separation, cohesion):
         """Calculate a composite quality score that balances all metrics"""
-        # Normalize scores to 0-1 range and weight them
-        # Separation is most important for avoiding redundancy
-        # Cohesion is important for meaningful clusters
-        # Silhouette provides overall structure validation
-        
-        # Handle edge cases
         if silhouette < 0:
             silhouette = 0
             
-        # Weight the metrics (can be tuned based on your priorities)
         separation_weight = 0.4  # Most important - avoid redundant clusters
         cohesion_weight = 0.4    # Important - meaningful clusters
         silhouette_weight = 0.2  # Validation - overall structure
         
         # Normalize separation (0-2 range) to 0-1
         norm_separation = min(separation / 2.0, 1.0)
-        
-        # Cohesion and silhouette are already 0-1 range
         norm_cohesion = cohesion
         norm_silhouette = silhouette
         

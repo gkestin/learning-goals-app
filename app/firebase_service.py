@@ -324,7 +324,7 @@ def get_document(doc_id):
         print(f"✅ REAL DATABASE: Document not found in Firestore: {doc_id}")
     return None
 
-def search_documents(search_terms=None, limit=10):
+def search_documents(search_terms=None, limit=1000):
     """Search for documents by learning goals"""
     global db, using_mock
     

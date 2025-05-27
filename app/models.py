@@ -3,7 +3,7 @@ from datetime import datetime
 class Document:
     def __init__(self, id=None, name="", original_filename="", creator="", course_name="", 
                  learning_goals=None, storage_path="", created_at=None, public_url=None, 
-                 institution="", doc_type="", notes=""):
+                 institution="", doc_type="", notes="", lo_extraction_prompt=""):
         self.id = id
         self.name = name 
         self.original_filename = original_filename
@@ -12,6 +12,7 @@ class Document:
         self.institution = institution
         self.doc_type = doc_type
         self.notes = notes
+        self.lo_extraction_prompt = lo_extraction_prompt
         self.learning_goals = learning_goals or []
         self.storage_path = storage_path
         self.created_at = created_at or datetime.now()
@@ -32,7 +33,8 @@ class Document:
             learning_goals=data.get('learning_goals', []),
             storage_path=data.get('storage_path', ''),
             created_at=data.get('created_at', datetime.now()),
-            public_url=data.get('public_url', None)
+            public_url=data.get('public_url', None),
+            lo_extraction_prompt=data.get('lo_extraction_prompt', '')
         )
         return doc
     
@@ -49,7 +51,8 @@ class Document:
             'learning_goals': self.learning_goals,
             'storage_path': self.storage_path,
             'created_at': self.created_at,
-            'public_url': self.public_url
+            'public_url': self.public_url,
+            'lo_extraction_prompt': self.lo_extraction_prompt
         }
         
     @property

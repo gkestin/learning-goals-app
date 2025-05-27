@@ -140,6 +140,26 @@
     .expanded .expand-icon {
         transform: rotate(90deg);
     }
+    
+    /* Batch delete button styles */
+    .batch-delete-btn {
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        margin-left: 8px;
+        font-size: 0.7rem;
+        padding: 0.2rem 0.4rem;
+        border: 1px solid #dc3545;
+        color: #dc3545;
+    }
+    .batch-delete-btn:hover {
+        opacity: 1;
+        background-color: #dc3545;
+        border-color: #dc3545;
+        color: white;
+    }
+    .stack-card:hover .batch-delete-btn {
+        opacity: 0.6;
+    }
 </style>
 {% endblock %}
 
@@ -231,7 +251,12 @@
                             <small class="text-muted institution-name"></small>
                         </div>
                     </div>
-                    <div class="stack-count document-count"></div>
+                    <div class="d-flex align-items-center">
+                        <div class="stack-count document-count"></div>
+                        <button class="btn btn-outline-danger btn-sm batch-delete-btn" title="Delete all documents by this user">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="stack-children" style="display: none;">
                     <!-- Course stacks will be inserted here -->
@@ -571,8 +596,19 @@
                 return;
             }
             
+            console.log(`Displaying ${documents.length} documents`);
+            
             // Group documents by creator (user)
             const userGroups = groupDocumentsByUser(documents);
+            console.log('User groups:', userGroups);
+            
+            // Verify all documents are accounted for
+            let totalDocsInGroups = 0;
+            Object.keys(userGroups).forEach(creator => {
+                totalDocsInGroups += userGroups[creator].length;
+                console.log(`User "${creator}": ${userGroups[creator].length} documents`);
+            });
+            console.log(`Total documents in groups: ${totalDocsInGroups}, Original count: ${documents.length}`);
             
             // Create user stacks
             Object.keys(userGroups).forEach(function(creator) {
@@ -590,7 +626,14 @@
             const groups = {};
             
             documents.forEach(function(doc) {
-                const creator = doc.creator || 'Unknown User';
+                // Handle null, undefined, empty string, or whitespace-only creators
+                let creator = doc.creator;
+                if (!creator || typeof creator !== 'string' || creator.trim() === '') {
+                    creator = 'Unknown User';
+                } else {
+                    creator = creator.trim();
+                }
+                
                 if (!groups[creator]) {
                     groups[creator] = [];
                 }
@@ -605,7 +648,14 @@
             const groups = {};
             
             documents.forEach(function(doc) {
-                const course = doc.course_name || 'Uncategorized';
+                // Handle null, undefined, empty string, or whitespace-only course names
+                let course = doc.course_name;
+                if (!course || typeof course !== 'string' || course.trim() === '') {
+                    course = 'Uncategorized';
+                } else {
+                    course = course.trim();
+                }
+                
                 if (!groups[course]) {
                     groups[course] = [];
                 }
@@ -625,8 +675,8 @@
             template.querySelector('.creator-name').textContent = creator;
             template.querySelector('.document-count').textContent = documents.length;
             
-            // Set institution (use the most common one if multiple)
-            const institutions = documents.map(d => d.institution).filter(Boolean);
+            // Set institution (use the most common one if multiple, handle missing data)
+            const institutions = documents.map(d => d.institution).filter(inst => inst && typeof inst === 'string' && inst.trim() !== '');
             const institution = getMostCommon(institutions) || 'Unknown Institution';
             template.querySelector('.institution-name').textContent = institution;
             
@@ -662,8 +712,8 @@
             template.querySelector('.course-name').textContent = course;
             template.querySelector('.course-count').textContent = documents.length;
             
-            // Set document type (use the most common one)
-            const docTypes = documents.map(d => d.doc_type).filter(Boolean);
+            // Set document type (use the most common one, handle missing data)
+            const docTypes = documents.map(d => d.doc_type).filter(type => type && typeof type === 'string' && type.trim() !== '');
             const docType = getMostCommon(docTypes) || 'Document';
             template.querySelector('.doc-type').textContent = docType;
             
@@ -681,13 +731,16 @@
         function createDocumentCard(doc) {
             const template = documentTemplate.content.cloneNode(true);
             
-            // Fill template
-            template.querySelector('.document-name').textContent = doc.name;
-            template.querySelector('.document-type').textContent = doc.doc_type || 'Document';
+            // Fill template with proper null handling
+            const docName = (doc.name && doc.name.trim()) ? doc.name.trim() : 'Untitled Document';
+            const docType = (doc.doc_type && doc.doc_type.trim()) ? doc.doc_type.trim() : 'Document';
+            
+            template.querySelector('.document-name').textContent = docName;
+            template.querySelector('.document-type').textContent = docType;
             
             // Add learning goals preview (first 2-3 goals)
             const goalsPreview = template.querySelector('.learning-goals-preview');
-            if (doc.learning_goals && doc.learning_goals.length > 0) {
+            if (doc.learning_goals && Array.isArray(doc.learning_goals) && doc.learning_goals.length > 0) {
                 const previewGoals = doc.learning_goals.slice(0, 3);
                 const goalText = previewGoals.join('; ');
                 const truncatedText = goalText.length > 100 ? goalText.substring(0, 100) + '...' : goalText;
@@ -704,7 +757,7 @@
             // Setup delete button
             const deleteButton = template.querySelector('.delete-document');
             deleteButton.setAttribute('data-document-id', doc.id);
-            deleteButton.setAttribute('data-document-name', doc.name);
+            deleteButton.setAttribute('data-document-name', docName);
             
             return template.firstElementChild;
         }
@@ -742,6 +795,9 @@
             
             // Delete button handlers
             setupDeleteButtons();
+            
+            // Batch delete button handlers
+            setupBatchDeleteButtons();
         }
         
         // Function to toggle user stack
@@ -807,6 +863,43 @@
                         error: function() {
                             loadingSpinner.hide();
                             alert('An error occurred while deleting the document. Please try again.');
+                        }
+                    });
+                }
+            });
+        }
+        
+        // Function to setup batch delete buttons
+        function setupBatchDeleteButtons() {
+            $('.batch-delete-btn').off('click').on('click', function(e) {
+                e.stopPropagation(); // Prevent stack expansion
+                
+                const creator = $(this).closest('.stack-card').data('creator');
+                const documentCount = $(this).closest('.stack-card').find('.document-count').text();
+                
+                if (confirm(`Are you sure you want to delete all ${documentCount} documents by "${creator}"? This action cannot be undone.`)) {
+                    // Show loading spinner
+                    loadingSpinner.show();
+                    
+                    // Send batch delete request
+                    $.ajax({
+                        url: "{{ url_for('main.api_delete_user_documents', creator='') }}" + encodeURIComponent(creator),
+                        type: 'POST',
+                        dataType: 'json',
+                        success: function(response) {
+                            loadingSpinner.hide();
+                            
+                            if (response.success) {
+                                alert(`Successfully deleted ${response.deleted_count || documentCount} documents by "${creator}"`);
+                                // Refresh the entire page to ensure proper cleanup
+                                window.location.reload();
+                            } else {
+                                alert('Error: ' + response.message);
+                            }
+                        },
+                        error: function() {
+                            loadingSpinner.hide();
+                            alert('An error occurred while deleting documents. Please try again.');
                         }
                     });
                 }

@@ -5,13 +5,39 @@ import httpx
 
 # Default system message
 DEFAULT_SYSTEM_MESSAGE = """
-You are an expert at extracting learning goals from educational documents.
-Your task is to identify and extract all learning goals from the provided text.
+All learning goals (aka skills) should be in the form:
+"<VERB> <OBJECT> <Optional method> <Optional context>"
 
-Each learning goal should be:
-1. Clear and concise
-2. Action-oriented (use verbs like 'understand', 'explain', 'analyze', etc.)
-3. Focused on a single concept or skill
+- Where the verbs are, for example:
+Evaluate
+Estimate
+Interpret
+Model (i.e., construct a model)
+Classify
+Compute
+Describe
+Visualize
+Identify
+Determine
+Relate (i.e., connect two things)
+Locate
+Represent
+Argue
+Justify
+Create
+Construct
+Analyze
+Draw
+Sketch
+Write
+Compare
+Explain
+
+- Where <Optional method> can be of the form "with ___ formula/technique/method.
+
+- Where  <Optional context> can be of the form "in the context of ___."
+
+NOTE: Restrict learning goals to those that are transferable to other problems or contexts. Omit specifics to the particular problem.
 
 IMPORTANT: Your response MUST be valid JSON with the following structure:
 {
@@ -84,8 +110,14 @@ Do not include any explanations or notes outside the JSON structure.
             # Fallback if the response is not valid JSON
             learning_goals = []
             
-        return learning_goals
+        return {
+            'learning_goals': learning_goals,
+            'system_message_used': system_message
+        }
     
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
-        return [] 
+        return {
+            'learning_goals': [],
+            'system_message_used': system_message
+        } 

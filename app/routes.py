@@ -55,13 +55,14 @@ def upload_file():
                 
             # Extract learning goals using OpenAI
             api_key = current_app.config['OPENAI_API_KEY']
-            learning_goals = extract_learning_goals(pdf_text, api_key, custom_system_message, model=model)
+            extraction_result = extract_learning_goals(pdf_text, api_key, custom_system_message, model=model)
             
             # Store file data
             processed_files.append({
                 'pdf_path': pdf_path,
                 'original_filename': file.filename,
-                'learning_goals': learning_goals
+                'learning_goals': extraction_result['learning_goals'],
+                'lo_extraction_prompt': extraction_result['system_message_used']
             })
     
     if not processed_files:
@@ -138,7 +139,8 @@ def save_document_data():
                 notes=notes,
                 learning_goals=learning_goals,
                 storage_path=result['storage_path'],
-                public_url=result.get('public_url')
+                public_url=result.get('public_url'),
+                lo_extraction_prompt=file_data.get('lo_extraction_prompt', '')
             )
             
             # Save to Firestore
@@ -192,9 +194,11 @@ def search_page():
 def api_search():
     """API endpoint for searching documents"""
     query = request.args.get('q', '')
+    # Set a high limit to fetch a large number of documents
+    # This will be controlled by the firebase_service.py default limit
     if not query:
         print("Searching for all documents in Firestore...")
-        results = search_documents(limit=20)
+        results = search_documents() 
     else:
         print(f"Searching for documents matching: {query}")
         search_terms = query.split()
@@ -363,6 +367,58 @@ def api_delete_document(document_id):
             'message': f'Error: {str(e)}'
         }), 500
 
+@main.route('/api/delete-user-documents/<creator>', methods=['POST'])
+def api_delete_user_documents(creator):
+    """API endpoint to delete all documents by a specific user/creator"""
+    print(f"Deleting all documents for creator: {creator}")
+    
+    try:
+        # First, get all documents by this creator
+        all_documents = search_documents(limit=1000)  # Get all documents
+        user_documents = [doc for doc in all_documents if doc.creator == creator]
+        
+        if not user_documents:
+            return jsonify({
+                'success': False,
+                'message': f'No documents found for creator: {creator}'
+            }), 404
+        
+        # Delete each document
+        deleted_count = 0
+        failed_deletions = []
+        
+        for doc in user_documents:
+            try:
+                success = delete_document(doc.id)
+                if success:
+                    deleted_count += 1
+                else:
+                    failed_deletions.append(doc.name)
+            except Exception as e:
+                print(f"Error deleting document {doc.id}: {e}")
+                failed_deletions.append(doc.name)
+        
+        if deleted_count == len(user_documents):
+            return jsonify({
+                'success': True,
+                'message': f'Successfully deleted all {deleted_count} documents for {creator}',
+                'deleted_count': deleted_count
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Deleted {deleted_count} of {len(user_documents)} documents. Failed to delete: {", ".join(failed_deletions)}',
+                'deleted_count': deleted_count,
+                'failed_count': len(failed_deletions)
+            }), 500
+            
+    except Exception as e:
+        print(f"Error in batch delete API: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
+
 @main.route('/cluster')
 def cluster_page():
     """Render the clustering sandbox page"""
@@ -438,14 +494,14 @@ def api_cluster_goals():
         print(f"Generating embeddings for {len(all_goals)} learning goals...")
         embeddings = clustering_service.generate_embeddings(all_goals)
         
-        # Perform hierarchical clustering
+        # Perform fast clustering
         n_clusters = min(n_clusters, len(all_goals))
-        print(f"Performing hierarchical clustering with {n_clusters} clusters...")
-        labels = clustering_service.cluster_hierarchical(embeddings, n_clusters)
+        print(f"Performing optimized clustering with {n_clusters} clusters...")
+        labels = clustering_service.cluster_fast(embeddings, n_clusters)
         
         # Calculate quality metrics
-        silhouette_avg = clustering_service.calculate_cluster_quality(embeddings, labels)
-        inter_cluster_separation, intra_cluster_cohesion = clustering_service.calculate_cluster_separation_metrics(embeddings, labels)
+        silhouette_avg = clustering_service.calculate_cluster_quality_fast(embeddings, labels)
+        inter_cluster_separation, intra_cluster_cohesion = clustering_service.calculate_cluster_separation_metrics_fast(embeddings, labels)
         
         # Organize results
         clusters = {}
@@ -491,7 +547,7 @@ def api_cluster_goals():
             'silhouette_score': round(float(silhouette_avg), 3),
             'inter_cluster_separation': round(float(inter_cluster_separation), 3),
             'intra_cluster_cohesion': round(float(intra_cluster_cohesion), 3),
-            'method_used': 'hierarchical'
+            'method_used': 'fast'
         })
         
     except Exception as e:
@@ -538,7 +594,8 @@ def api_find_optimal_clusters():
         results, best_composite_k, best_separation_k = clustering_service.find_optimal_cluster_sizes(
             embeddings, 
             max_clusters=min(len(all_goals) - 1, len(all_goals) // 2 + 50),  # Test broader range
-            use_multires=use_multires
+            use_multires=use_multires,
+            use_fast=True  # Use all performance optimizations
         )
         
         if results is None:

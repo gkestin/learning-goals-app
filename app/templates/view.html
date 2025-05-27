@@ -85,6 +85,17 @@
                         </div>
                     </div>
                     {% endif %}
+                    
+                    {% if document.lo_extraction_prompt %}
+                    <div class="row">
+                        <div class="col-md-12">
+                            <strong>LO Extraction Prompt:</strong>
+                            <div class="notes-box">
+                                <pre class="mb-0" style="white-space: pre-wrap; font-family: inherit;">{{ document.lo_extraction_prompt }}</pre>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
                 
                 <h3 class="h5 mb-3">Learning Goals:</h3>
