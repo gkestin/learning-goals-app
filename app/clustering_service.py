@@ -90,15 +90,27 @@ class LearningGoalsClusteringService:
     def cluster_fast(self, embeddings, n_clusters):
         """Adaptive clustering: KMeans for large datasets, hierarchical for small datasets"""
         n_samples = len(embeddings)
+        start_time = time.time()
         
         if n_samples > 500:
             # Use KMeans for large datasets (much faster, good quality)
             print(f"🚀 Using KMeans clustering for {n_samples} samples")
+            
+            # Optimize parameters based on cluster count for better performance
+            if n_clusters > 500:
+                # For very high cluster counts, use fewer iterations
+                n_init = 5
+                max_iter = 200
+                print(f"🔧 High cluster count ({n_clusters}), using optimized parameters: n_init={n_init}, max_iter={max_iter}")
+            else:
+                n_init = 10
+                max_iter = 300
+            
             clustering = KMeans(
                 n_clusters=n_clusters,
                 random_state=42,
-                n_init=10,
-                max_iter=300,
+                n_init=n_init,
+                max_iter=max_iter,
                 algorithm='lloyd'  # Fastest algorithm
             )
             labels = clustering.fit_predict(embeddings)
@@ -111,6 +123,8 @@ class LearningGoalsClusteringService:
             )
             labels = clustering.fit_predict(embeddings)
         
+        elapsed = time.time() - start_time
+        print(f"⚡ Clustering completed in {elapsed:.2f} seconds")
         return labels
     
     def cluster_hierarchical(self, embeddings, n_clusters):
@@ -130,38 +144,54 @@ class LearningGoalsClusteringService:
         
         try:
             n_samples = len(embeddings)
+            n_clusters = len(unique_labels)
             
             # For large datasets, use stratified sampling to speed up silhouette calculation
             if n_samples > 1000:
-                print(f"📊 Using sampling for silhouette calculation ({n_samples} samples)")
+                print(f"📊 Using sampling for silhouette calculation ({n_samples} samples, {n_clusters} clusters)")
+                
+                # Adaptive sample size based on cluster count
+                # Ensure we have enough samples to represent all clusters meaningfully
+                min_samples_needed = n_clusters * 2  # At least 2 samples per cluster
+                max_sample_size = min(1000, n_samples)  # Cap at 1000 for performance
+                sample_size = max(min_samples_needed, min(500, max_sample_size))
+                
+                # If we need more samples than available, use all samples
+                if sample_size >= n_samples * 0.8:
+                    print(f"📊 Using full dataset for silhouette ({n_samples} samples)")
+                    return silhouette_score(embeddings, labels)
                 
                 # Stratified sampling to ensure all clusters are represented
-                sample_size = min(500, n_samples)
                 unique_labels_list = list(unique_labels)
-                samples_per_cluster = max(1, sample_size // len(unique_labels_list))
+                samples_per_cluster = max(2, sample_size // len(unique_labels_list))  # At least 2 per cluster
                 
                 sampled_indices = []
                 for label in unique_labels_list:
                     label_indices = [i for i, l in enumerate(labels) if l == label]
-                    if len(label_indices) > samples_per_cluster:
+                    if len(label_indices) >= samples_per_cluster:
+                        # Sample from this cluster
                         sampled_indices.extend(
                             np.random.choice(label_indices, samples_per_cluster, replace=False)
                         )
                     else:
+                        # Use all samples from small clusters
                         sampled_indices.extend(label_indices)
                 
-                # Ensure we don't exceed sample_size
+                # Ensure we don't exceed our target sample size
                 if len(sampled_indices) > sample_size:
                     sampled_indices = np.random.choice(sampled_indices, sample_size, replace=False)
                 
                 sample_embeddings = embeddings[sampled_indices]
                 sample_labels = [labels[i] for i in sampled_indices]
                 
-                # Only calculate if we still have multiple clusters in sample
-                if len(set(sample_labels)) > 1:
+                # Verify we still have multiple clusters in sample
+                unique_sample_labels = len(set(sample_labels))
+                if unique_sample_labels > 1 and len(sample_labels) > unique_sample_labels:
+                    print(f"📊 Silhouette calculated on {len(sample_labels)} samples from {unique_sample_labels} clusters")
                     return silhouette_score(sample_embeddings, sample_labels)
                 else:
-                    return 0.0
+                    print(f"⚠️ Insufficient diversity in sample ({unique_sample_labels} clusters), using full dataset")
+                    return silhouette_score(embeddings, labels)
             else:
                 return silhouette_score(embeddings, labels)
         except Exception as e:

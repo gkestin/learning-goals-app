@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app, flash, session
 from app.models import Document
 from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
@@ -497,11 +498,18 @@ def api_cluster_goals():
         # Perform fast clustering
         n_clusters = min(n_clusters, len(all_goals))
         print(f"Performing optimized clustering with {n_clusters} clusters...")
+        clustering_start = time.time()
         labels = clustering_service.cluster_fast(embeddings, n_clusters)
         
         # Calculate quality metrics
+        metrics_start = time.time()
         silhouette_avg = clustering_service.calculate_cluster_quality_fast(embeddings, labels)
         inter_cluster_separation, intra_cluster_cohesion = clustering_service.calculate_cluster_separation_metrics_fast(embeddings, labels)
+        metrics_elapsed = time.time() - metrics_start
+        total_elapsed = time.time() - clustering_start
+        
+        print(f"⚡ Metrics calculation completed in {metrics_elapsed:.2f} seconds")
+        print(f"🎯 Total clustering + metrics time: {total_elapsed:.2f} seconds")
         
         # Organize results
         clusters = {}
