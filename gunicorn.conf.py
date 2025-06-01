@@ -6,9 +6,9 @@ backlog = 2048
 
 # Worker processes
 workers = 1
-worker_class = "sync"
+worker_class = "gthread"
 worker_connections = 1000
-timeout = 0
+timeout = 120
 keepalive = 2
 threads = 8
 
@@ -35,7 +35,7 @@ tmp_upload_dir = None
 keyfile = None
 certfile = None
 
-# Increase limits for large file uploads (50MB)
+# Increase limits for large file uploads (100MB)
 limit_request_line = 8190
 limit_request_field_size = 8190
 limit_request_fields = 200
