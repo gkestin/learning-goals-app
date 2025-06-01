@@ -47,6 +47,7 @@ gcloud run deploy $SERVICE_NAME \
   --cpu=2 \
   --timeout=3600 \
   --execution-environment=gen2 \
+  --use-http2 \
   --set-env-vars "SECRET_KEY=learning-goals-secret-key-production" \
   --set-env-vars "OPENAI_API_KEY=$OPENAI_API_KEY" \
   --set-env-vars "FIREBASE_STORAGE_BUCKET=learninggoals2.firebasestorage.app" \
