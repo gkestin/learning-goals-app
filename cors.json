@@ -1,0 +1,19 @@
+[
+  {
+    "origin": [
+      "https://learning-goals-app-wnmepu77xq-uc.a.run.app",
+      "https://learning-goals-app-375966757517.us-central1.run.app",
+      "http://localhost:5000",
+      "http://127.0.0.1:5000"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Access-Control-Allow-Origin",
+      "Access-Control-Allow-Methods",
+      "Access-Control-Allow-Headers",
+      "Access-Control-Max-Age"
+    ],
+    "maxAgeSeconds": 3600
+  }
+] 
