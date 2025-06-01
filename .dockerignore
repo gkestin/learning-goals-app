@@ -1,0 +1,58 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.egg-info
+dist
+build
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+
+# Documentation
+docs/
+*.md
+README.md
+
+# Deployment scripts
+deploy.sh
+deploy-fast.sh
+deploy-config.sh
+
+# Instance data
+instance/uploads/
+instance/*.db
+
+# Logs
+*.log 

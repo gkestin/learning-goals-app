@@ -1,3 +1,14 @@
+# ⚠️  IMPORTANT: When you modify this file, run ./deploy-base.sh to rebuild the base image!
+# 
+# This file contains heavy ML dependencies (PyTorch, scikit-learn, etc.) that take 
+# 10+ minutes to build. The base image caches these dependencies so regular deployments 
+# with ./deploy-ultra-fast.sh only take ~3 minutes.
+#
+# After changing this file:
+# 1. Run: ./deploy-base.sh      (rebuilds base image with new dependencies)
+# 2. Then: ./deploy-ultra-fast.sh  (deploys your app)
+#
+
 Flask==2.0.1
 python-dotenv==0.19.0
 gunicorn==20.1.0

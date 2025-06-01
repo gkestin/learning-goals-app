@@ -1,0 +1,15 @@
+# Cloud Build config for base image - run this only when requirements.txt changes
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build', 
+    '-f', 'docker/base.Dockerfile', 
+    '-t', 'gcr.io/learninggoals2/learning-goals-base:latest', 
+    '.'
+  ]
+  timeout: 1200s  # 20 minutes timeout for heavy build
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/learninggoals2/learning-goals-base:latest']
+
+timeout: 1500s  # 25 minutes total timeout 
