@@ -4,6 +4,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from app.models import Document
 import datetime as datetime_module  # For timedelta
+import uuid
 
 # Global variables
 db = None
@@ -451,3 +452,126 @@ def delete_document(doc_id):
     except Exception as e:
         print(f"Error deleting document: {e}")
         return False 
+
+def generate_signed_upload_url(filename, content_type='application/pdf'):
+    """Generate a signed URL for direct upload to Cloud Storage"""
+    global bucket, using_mock
+    
+    if not bucket:
+        print("Bucket not initialized, initializing mock services.")
+        init_mock_services()
+    
+    # Create a unique storage path
+    unique_id = str(uuid.uuid4())[:8]
+    storage_path = f"temp_uploads/{unique_id}_{filename}"
+    
+    if using_mock:
+        print(f"⚠️ MOCK STORAGE: Generating mock signed URL for {storage_path}")
+        return {
+            'upload_url': f"https://mock-storage.example.com/upload/{storage_path}",
+            'download_url': f"https://mock-storage.example.com/download/{storage_path}",
+            'storage_path': storage_path
+        }
+    
+    print(f"✅ REAL STORAGE: Generating signed upload URL for {storage_path}")
+    
+    blob = bucket.blob(storage_path)
+    
+    # Generate signed URL for upload (valid for 1 hour)
+    upload_url = blob.generate_signed_url(
+        version="v4",
+        expiration=datetime_module.timedelta(hours=1),
+        method="PUT",
+        content_type=content_type
+    )
+    
+    # Generate signed URL for download (valid for 1 hour)
+    download_url = blob.generate_signed_url(
+        version="v4",
+        expiration=datetime_module.timedelta(hours=1),
+        method="GET"
+    )
+    
+    print(f"Generated signed upload URL for: {storage_path}")
+    
+    return {
+        'upload_url': upload_url,
+        'download_url': download_url,
+        'storage_path': storage_path
+    }
+
+def download_from_storage(storage_path, local_path):
+    """Download a file from Cloud Storage to local path"""
+    global bucket, using_mock
+    
+    if not bucket:
+        print("Bucket not initialized, initializing mock services.")
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK STORAGE: Pretending to download {storage_path} to {local_path}")
+        # Create a mock file for testing
+        with open(local_path, 'w') as f:
+            f.write("Mock PDF content")
+        return
+    
+    print(f"✅ REAL STORAGE: Downloading {storage_path} to {local_path}")
+    
+    blob = bucket.blob(storage_path)
+    
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    
+    # Download the file
+    blob.download_to_filename(local_path)
+    
+    print(f"Successfully downloaded {storage_path} to {local_path}")
+
+def move_storage_file(source_path, destination_path):
+    """Move a file from one location to another in Cloud Storage"""
+    global bucket, using_mock
+    
+    if not bucket:
+        print("Bucket not initialized, initializing mock services.")
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK STORAGE: Pretending to move {source_path} to {destination_path}")
+        return {
+            'storage_path': destination_path,
+            'public_url': f"https://mock-storage.example.com/{destination_path}"
+        }
+    
+    print(f"✅ REAL STORAGE: Moving {source_path} to {destination_path}")
+    
+    source_blob = bucket.blob(source_path)
+    destination_blob = bucket.blob(destination_path)
+    
+    # Copy the blob to the new location
+    destination_blob.rewrite(source_blob)
+    
+    # Delete the source blob
+    source_blob.delete()
+    
+    # Generate public URL for the destination
+    try:
+        # Try to create a signed URL with longer expiration (1 week)
+        signed_url = destination_blob.generate_signed_url(
+            version="v4",
+            expiration=datetime_module.timedelta(weeks=1),
+            method="GET"
+        )
+        public_url = signed_url
+    except Exception as e:
+        print(f"Error generating signed URL: {e}")
+        # Fall back to regular URL
+        bucket_name = bucket.name
+        encoded_path = destination_path.replace('/', '%2F')
+        public_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/{encoded_path}?alt=media"
+    
+    print(f"Successfully moved {source_path} to {destination_path}")
+    
+    return {
+        'storage_path': destination_path,
+        'public_url': public_url
+    } 

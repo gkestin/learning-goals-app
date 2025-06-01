@@ -71,6 +71,39 @@
         color: #dc3545;
         font-weight: bold;
     }
+    .large-file-tag {
+        background-color: #fff3cd;
+        border-color: #ffeaa7;
+        color: #856404;
+    }
+    .error-file-tag {
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+        color: #721c24;
+    }
+    .upload-progress {
+        margin-top: 10px;
+        display: none;
+    }
+    .progress-bar {
+        transition: width 0.3s ease;
+    }
+    .file-size-info {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 5px;
+        display: none;
+    }
+    .file-size-info.warning {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+    }
+    .file-size-info.error {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
 </style>
 {% endblock %}
 
@@ -99,9 +132,18 @@
                         <div class="invalid-feedback">
                             Please select valid PDF files.
                         </div>
-                        <div class="form-text">Maximum file size: 50MB per file</div>
+                        <div class="form-text">Maximum file size: 100MB per file. Files over 32MB will use direct upload.</div>
                         <div id="fileCount" class="file-count"></div>
                         <div id="selectedFiles" class="selected-files"></div>
+                        <div id="fileSizeInfo" class="file-size-info"></div>
+                        <div id="uploadProgress" class="upload-progress">
+                            <div class="progress">
+                                <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <div class="mt-2">
+                                <small id="progressText">Uploading files...</small>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="mb-3">
@@ -154,20 +196,47 @@
 <script>
     // Create a FileList-like object that we can manipulate
     let selectedFiles = new DataTransfer();
+    const LARGE_FILE_THRESHOLD = 32 * 1024 * 1024; // 32MB - warning threshold
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB - hard limit
     
     // Track number of selected files and display them
     function updateFileDisplay() {
         const fileInput = document.getElementById('file');
         const fileCount = document.getElementById('fileCount');
         const selectedFilesContainer = document.getElementById('selectedFiles');
+        const fileSizeInfo = document.getElementById('fileSizeInfo');
         const numFiles = fileInput.files.length;
+        
+        let validFiles = 0;
+        let largeFiles = 0;
+        let oversizedFiles = 0;
+        
+        // Count file types
+        Array.from(fileInput.files).forEach(file => {
+            if (file.size > MAX_FILE_SIZE) {
+                oversizedFiles++;
+            } else if (file.size > LARGE_FILE_THRESHOLD) {
+                largeFiles++;
+                validFiles++;
+            } else {
+                validFiles++;
+            }
+        });
         
         // Update file count text
         if (numFiles > 0) {
-            fileCount.textContent = `${numFiles} file(s) selected`;
+            let countText = `${numFiles} file(s) selected`;
+            if (validFiles !== numFiles) {
+                countText += ` (${validFiles} valid, ${oversizedFiles} too large)`;
+            }
+            fileCount.textContent = countText;
+            
             if (numFiles > 10) {
                 fileCount.classList.add('warning-text');
                 fileCount.textContent += ' (maximum 10 files allowed)';
+                document.getElementById('uploadBtn').disabled = true;
+            } else if (validFiles === 0) {
+                fileCount.classList.add('warning-text');
                 document.getElementById('uploadBtn').disabled = true;
             } else {
                 fileCount.classList.remove('warning-text');
@@ -176,6 +245,26 @@
         } else {
             fileCount.textContent = '';
             document.getElementById('uploadBtn').disabled = false;
+        }
+        
+        // Show file size warnings/errors
+        fileSizeInfo.style.display = 'none';
+        fileSizeInfo.className = 'file-size-info';
+        
+        if (oversizedFiles > 0) {
+            fileSizeInfo.className += ' error';
+            fileSizeInfo.innerHTML = `
+                <strong>⚠️ ${oversizedFiles} file(s) exceed 100MB limit</strong><br>
+                Files over 100MB cannot be uploaded and will be skipped. Other files will still be processed.
+            `;
+            fileSizeInfo.style.display = 'block';
+        } else if (largeFiles > 0) {
+            fileSizeInfo.className += ' warning';
+            fileSizeInfo.innerHTML = `
+                <strong>📤 ${largeFiles} large file(s) detected (32MB-100MB)</strong><br>
+                These files will use direct upload to Cloud Storage, which may take longer.
+            `;
+            fileSizeInfo.style.display = 'block';
         }
         
         // Display selected files
@@ -187,9 +276,23 @@
             
             filesToShow.forEach((file, index) => {
                 const fileTag = document.createElement('div');
-                fileTag.className = 'file-tag';
+                let tagClass = 'file-tag';
+                let uploadMethod = '';
+                
+                if (file.size > MAX_FILE_SIZE) {
+                    tagClass += ' error-file-tag';
+                    uploadMethod = ' (TOO LARGE - WILL BE SKIPPED)';
+                } else if (file.size > LARGE_FILE_THRESHOLD) {
+                    tagClass += ' large-file-tag';
+                    uploadMethod = ' (direct upload)';
+                }
+                
+                fileTag.className = tagClass;
+                
+                const sizeText = formatFileSize(file.size);
+                
                 fileTag.innerHTML = `
-                    <span class="file-name" title="${file.name}">${file.name}</span>
+                    <span class="file-name" title="${file.name} - ${sizeText}${uploadMethod}">${file.name} (${sizeText}${uploadMethod})</span>
                     <span class="remove-file" data-index="${index}">×</span>
                 `;
                 selectedFilesContainer.appendChild(fileTag);
@@ -203,6 +306,14 @@
                 selectedFilesContainer.appendChild(warningTag);
             }
         }
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
     
     // Remove a file from the selection
@@ -222,28 +333,168 @@
         updateFileDisplay();
     }
     
-    // Form validation
+    // Filter out oversized files and return valid files
+    function getValidFiles(files) {
+        return files.filter(file => file.size <= MAX_FILE_SIZE);
+    }
+    
+    // Handle large file uploads using signed URLs
+    async function handleLargeFileUpload(files, systemMessage, model) {
+        const progressContainer = document.getElementById('uploadProgress');
+        const progressBar = progressContainer.querySelector('.progress-bar');
+        const progressText = document.getElementById('progressText');
+        
+        // Filter out oversized files
+        const validFiles = getValidFiles(files);
+        
+        if (validFiles.length === 0) {
+            alert('No valid files to upload. All files exceed the 100MB limit.');
+            return;
+        }
+        
+        if (validFiles.length < files.length) {
+            const skippedCount = files.length - validFiles.length;
+            alert(`${skippedCount} file(s) over 100MB will be skipped. Proceeding with ${validFiles.length} valid file(s).`);
+        }
+        
+        progressContainer.style.display = 'block';
+        
+        const uploadedFiles = [];
+        let completed = 0;
+        
+        for (const file of validFiles) {
+            try {
+                progressText.textContent = `Uploading ${file.name}...`;
+                
+                // Generate signed URL
+                const urlResponse = await fetch('/api/generate-upload-url', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        contentType: file.type || 'application/pdf',
+                        fileSize: file.size
+                    })
+                });
+                
+                if (!urlResponse.ok) {
+                    throw new Error(`Failed to generate upload URL for ${file.name}`);
+                }
+                
+                const urlData = await urlResponse.json();
+                
+                // Upload file directly to Cloud Storage
+                const uploadResponse = await fetch(urlData.uploadUrl, {
+                    method: 'PUT',
+                    body: file,
+                    headers: {
+                        'Content-Type': file.type || 'application/pdf'
+                    }
+                });
+                
+                if (!uploadResponse.ok) {
+                    throw new Error(`Failed to upload ${file.name}`);
+                }
+                
+                uploadedFiles.push({
+                    filename: file.name,
+                    storagePath: urlData.storagePath
+                });
+                
+                completed++;
+                const progress = (completed / validFiles.length) * 100;
+                progressBar.style.width = progress + '%';
+                
+            } catch (error) {
+                console.error(`Error uploading ${file.name}:`, error);
+                alert(`Failed to upload ${file.name}: ${error.message}`);
+            }
+        }
+        
+        if (uploadedFiles.length === 0) {
+            progressContainer.style.display = 'none';
+            return;
+        }
+        
+        // Process uploaded files
+        progressText.textContent = 'Processing uploaded files...';
+        
+        try {
+            const processResponse = await fetch('/api/process-uploaded-files', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    files: uploadedFiles,
+                    system_message: systemMessage,
+                    model: model
+                })
+            });
+            
+            if (!processResponse.ok) {
+                throw new Error('Failed to process uploaded files');
+            }
+            
+            const processData = await processResponse.json();
+            
+            if (processData.success) {
+                window.location.href = processData.redirect;
+            } else {
+                throw new Error(processData.message || 'Failed to process files');
+            }
+            
+        } catch (error) {
+            console.error('Error processing files:', error);
+            alert(`Failed to process files: ${error.message}`);
+            progressContainer.style.display = 'none';
+        }
+    }
+    
+    // Form validation and submission
     (function() {
         'use strict';
         var forms = document.querySelectorAll('.needs-validation');
         Array.prototype.slice.call(forms).forEach(function(form) {
-            form.addEventListener('submit', function(event) {
+            form.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                
                 if (!form.checkValidity()) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                } else {
-                    // Check if the number of files doesn't exceed 10
-                    const fileInput = document.getElementById('file');
-                    if (fileInput.files.length > 10) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        alert('Please select up to 10 files only.');
-                        return;
-                    }
-                    
-                    // Show loading overlay when form is valid and submitted
-                    document.querySelector('.loading-overlay').style.display = 'flex';
+                    form.classList.add('was-validated');
+                    return;
                 }
+                
+                // Check if the number of files doesn't exceed 10
+                const fileInput = document.getElementById('file');
+                if (fileInput.files.length > 10) {
+                    alert('Please select up to 10 files only.');
+                    return;
+                }
+                
+                const files = Array.from(fileInput.files);
+                const validFiles = getValidFiles(files);
+                
+                if (validFiles.length === 0) {
+                    alert('No valid files to upload. All selected files exceed the 100MB limit.');
+                    return;
+                }
+                
+                const largeFiles = validFiles.filter(file => file.size > LARGE_FILE_THRESHOLD);
+                const systemMessage = document.getElementById('system_message').value;
+                const model = document.getElementById('model').value;
+                
+                if (largeFiles.length > 0 || validFiles.length < files.length) {
+                    // Use signed URL upload for large files or when some files are oversized
+                    await handleLargeFileUpload(files, systemMessage, model);
+                } else {
+                    // Use regular form submission for smaller files
+                    document.querySelector('.loading-overlay').style.display = 'flex';
+                    form.submit();
+                }
+                
                 form.classList.add('was-validated');
             }, false);
         });

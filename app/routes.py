@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, jsonif
 from app.models import Document
 from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
 from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
-from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document
+from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document, move_storage_file
 
 main = Blueprint('main', __name__)
 
@@ -13,6 +13,112 @@ main = Blueprint('main', __name__)
 def index():
     """Render the main upload page"""
     return render_template('index.html', default_instructions=DEFAULT_SYSTEM_MESSAGE)
+
+@main.route('/api/generate-upload-url', methods=['POST'])
+def generate_upload_url():
+    """Generate a signed URL for direct upload to Cloud Storage"""
+    try:
+        data = request.get_json()
+        filename = data.get('filename')
+        content_type = data.get('contentType', 'application/pdf')
+        file_size = data.get('fileSize', 0)  # Optional file size for validation
+        
+        if not filename or not allowed_file(filename, current_app.config['ALLOWED_EXTENSIONS']):
+            return jsonify({'success': False, 'message': 'Invalid file type'}), 400
+        
+        # Check file size if provided (100MB limit)
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({
+                'success': False, 
+                'message': f'File size ({file_size / (1024*1024):.1f}MB) exceeds maximum allowed size (100MB)'
+            }), 413
+        
+        # Import here to avoid circular imports
+        from app.firebase_service import generate_signed_upload_url
+        
+        # Generate signed URL for upload
+        result = generate_signed_upload_url(filename, content_type)
+        
+        return jsonify({
+            'success': True,
+            'uploadUrl': result['upload_url'],
+            'downloadUrl': result['download_url'],
+            'storagePath': result['storage_path']
+        })
+        
+    except Exception as e:
+        print(f"Error generating upload URL: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@main.route('/api/process-uploaded-files', methods=['POST'])
+def process_uploaded_files():
+    """Process files that were uploaded directly to Cloud Storage"""
+    try:
+        data = request.get_json()
+        uploaded_files = data.get('files', [])
+        custom_system_message = data.get('system_message', None)
+        model = data.get('model', 'gpt-4o')
+        
+        if not uploaded_files:
+            return jsonify({'success': False, 'message': 'No files provided'}), 400
+        
+        # Import here to avoid circular imports
+        from app.firebase_service import download_from_storage
+        
+        processed_files = []
+        
+        for file_info in uploaded_files:
+            storage_path = file_info.get('storagePath')
+            original_filename = file_info.get('filename')
+            
+            if not storage_path or not original_filename:
+                continue
+            
+            try:
+                # Download file from Cloud Storage to temporary location
+                upload_folder = current_app.config['UPLOAD_FOLDER']
+                temp_path = os.path.join(upload_folder, f"temp_{original_filename}")
+                
+                download_from_storage(storage_path, temp_path)
+                
+                # Extract text from PDF
+                pdf_text = extract_text_from_pdf(temp_path)
+                
+                if not pdf_text:
+                    os.remove(temp_path)  # Clean up
+                    continue
+                
+                # Extract learning goals using OpenAI
+                api_key = current_app.config['OPENAI_API_KEY']
+                extraction_result = extract_learning_goals(pdf_text, api_key, custom_system_message, model=model)
+                
+                # Store file data
+                processed_files.append({
+                    'storage_path': storage_path,
+                    'original_filename': original_filename,
+                    'learning_goals': extraction_result['learning_goals'],
+                    'lo_extraction_prompt': extraction_result['system_message_used']
+                })
+                
+                # Clean up temporary file
+                os.remove(temp_path)
+                
+            except Exception as e:
+                print(f"Error processing file {original_filename}: {e}")
+                continue
+        
+        if not processed_files:
+            return jsonify({'success': False, 'message': 'No valid files were processed'}), 400
+        
+        # Store data in session for the edit page
+        session['processed_files'] = processed_files
+        
+        return jsonify({'success': True, 'redirect': url_for('main.edit_learning_goals')})
+        
+    except Exception as e:
+        print(f"Error processing uploaded files: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @main.route('/upload', methods=['POST'])
 def upload_file():
@@ -121,13 +227,25 @@ def save_document_data():
             # Get learning goals for this document
             learning_goals = request.form.getlist(f'learning_goals_{index}[]')
             
-            # Get file path
-            pdf_path = file_data['pdf_path']
             original_filename = file_data['original_filename']
             
-            # Upload PDF to Google Cloud Storage
-            destination_blob_name = f"pdfs/{creator}_{name}_{os.path.basename(pdf_path)}"
-            result = upload_pdf_to_storage(pdf_path, destination_blob_name)
+            # Handle both old format (pdf_path) and new format (storage_path)
+            if 'storage_path' in file_data:
+                # File was uploaded via signed URL - already in Cloud Storage
+                storage_path = file_data['storage_path']
+                
+                # Move from temp location to final location
+                result = move_storage_file(storage_path, f"pdfs/{creator}_{name}_{original_filename}")
+                
+            else:
+                # File was uploaded via regular form - need to upload to Cloud Storage
+                pdf_path = file_data['pdf_path']
+                destination_blob_name = f"pdfs/{creator}_{name}_{os.path.basename(pdf_path)}"
+                result = upload_pdf_to_storage(pdf_path, destination_blob_name)
+                
+                # Clean up the temporary file
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
             
             # Create document object
             doc = Document(
@@ -146,10 +264,6 @@ def save_document_data():
             
             # Save to Firestore
             doc_id = save_document(doc)
-            
-            # Clean up the temporary file
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
             
             success_count += 1
             results.append({

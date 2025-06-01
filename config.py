@@ -12,9 +12,9 @@ print("==== END CONFIG.PY ====\n")
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-key-for-learning-goals'
-    MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max upload size
+    MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB max upload size
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
     GOOGLE_APPLICATION_CREDENTIALS = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
     FIREBASE_STORAGE_BUCKET = os.environ.get('FIREBASE_STORAGE_BUCKET')
-    UPLOAD_FOLDER = os.path.join('instance', 'uploads')
+    UPLOAD_FOLDER = 'instance/uploads'
     ALLOWED_EXTENSIONS = {'pdf'} 
