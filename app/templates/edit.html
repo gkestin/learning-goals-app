@@ -75,6 +75,68 @@
     .document-card .card-body {
         padding: 20px;
     }
+    .global-metadata-header {
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px 8px 0 0;
+        margin-bottom: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .global-metadata-header h3 {
+        margin-bottom: 8px;
+        color: white;
+        font-size: 1.1rem;
+    }
+    .global-metadata-header .global-help-text {
+        margin-bottom: 0;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.85rem;
+    }
+    .global-metadata-fields {
+        background-color: #eff6ff;
+        padding: 20px;
+        border-radius: 0 0 8px 8px;
+        border: 1px solid #bfdbfe;
+        border-top: none;
+        margin-bottom: 30px;
+    }
+    .global-field {
+        border: 1px solid #93c5fd;
+        transition: all 0.2s ease;
+        background-color: rgba(255, 255, 255, 0.8);
+    }
+    .global-field:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+        background-color: white;
+    }
+    .metadata-field.inherited-from-global {
+        background-color: #f3f4f6;
+        color: #6b7280;
+        border-color: #d1d5db;
+        font-style: italic;
+    }
+    .metadata-field.inherited-from-global:focus {
+        background-color: white;
+        color: #374151;
+        font-style: normal;
+    }
+    .global-indicator {
+        color: #3b82f6;
+        font-weight: 500;
+        font-size: 0.75rem;
+        display: none;
+    }
+    .global-indicator.active {
+        display: inline;
+    }
+    .global-indicator.active::before {
+        content: "🌐 ";
+    }
+    .global-indicator.active::after {
+        content: " (from global)";
+    }
     .upload-progress-container {
         margin-top: 20px;
         width: 100%;
@@ -140,13 +202,14 @@
         text-align: center;
     }
     .no-upload-notice {
-        background-color: #d1ecf1;
-        border: 1px solid #bee5eb;
-        color: #0c5460;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 20px;
+        background-color: #e0f2fe;
+        border: 1px solid #b3e5fc;
+        color: #0277bd;
+        padding: 8px 12px;
+        border-radius: 4px;
+        margin-bottom: 15px;
         text-align: center;
+        font-size: 0.9rem;
     }
 </style>
 {% endblock %}
@@ -159,8 +222,7 @@
             <!-- Notice that files haven't been uploaded yet -->
             <div class="no-upload-notice">
                 <i class="bi bi-info-circle"></i>
-                <strong>Files haven't been uploaded yet!</strong> Your files are stored locally and will only be uploaded when you click "Save All Documents" below.
-                Feel free to edit the learning goals and metadata first.
+                <small>Files are stored locally and will be uploaded when you save below.</small>
         </div>
 
             <div class="card">
@@ -172,46 +234,50 @@
                 
                         <!-- Global Metadata Section -->
                         <div class="mb-5">
-                            <h3 class="h5 mb-3">Global Metadata (applies to all documents):</h3>
-                            <div class="row g-3">
-                    <div class="col-md-6">
-                            <label for="global_creator" class="form-label">Creator:</label>
-                                    <input type="text" class="form-control global-field" id="global_creator" name="global_creator" placeholder="Enter creator name">
-                    </div>
-                    <div class="col-md-6">
-                            <label for="global_course_name" class="form-label">Course Name:</label>
-                                    <input type="text" class="form-control global-field" id="global_course_name" name="global_course_name" placeholder="Enter course name">
-                </div>
-                    <div class="col-md-6">
-                            <label for="global_institution" class="form-label">Institution:</label>
-                                    <input type="text" class="form-control global-field" id="global_institution" name="global_institution" placeholder="Enter institution name">
-                    </div>
-                    <div class="col-md-6">
-                            <label for="global_doc_type" class="form-label">Document Type:</label>
-                                    <select class="form-select global-field" id="global_doc_type" name="global_doc_type">
-                                        <option value="">Select document type</option>
-                                        <option value="Syllabus">Syllabus</option>
-                                        <option value="Assignment">Assignment</option>
-                                <option value="Exam">Exam</option>
-                                        <option value="Lecture Notes">Lecture Notes</option>
-                                        <option value="Lab Manual">Lab Manual</option>
-                                        <option value="Project Description">Project Description</option>
-                                        <option value="Rubric">Rubric</option>
-                                        <option value="Curriculum Guide">Curriculum Guide</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                                <div class="col-md-12">
-                                    <label for="global_notes" class="form-label">Notes:</label>
-                                    <textarea class="form-control global-field" id="global_notes" name="global_notes" rows="2" placeholder="Enter any additional notes"></textarea>
-                    </div>
-                </div>
-                            <div class="mt-2">
-                                <small class="text-muted">
+                            <div class="global-metadata-header">
+                                <h3 class="h4 mb-3">
+                                    <i class="bi bi-globe2"></i> Global Metadata
+                                    <small class="text-muted ms-2">(applies to all documents below)</small>
+                                </h3>
+                                <p class="global-help-text">
                                     <i class="bi bi-info-circle"></i>
-                                    Changes to global fields will automatically apply to all documents below. 
-                                    Double-click any field below to revert it to the global value.
-                                </small>
+                                    Set values here to automatically apply them to all documents. Individual documents can override these values if needed.
+                                </p>
+                            </div>
+                            <div class="global-metadata-fields">
+                                <div class="row g-3">
+                        <div class="col-md-6">
+                                <label for="global_creator" class="form-label">Creator:</label>
+                                        <input type="text" class="form-control global-field" id="global_creator" name="global_creator" placeholder="Enter creator name">
+                        </div>
+                        <div class="col-md-6">
+                                <label for="global_course_name" class="form-label">Course Name:</label>
+                                        <input type="text" class="form-control global-field" id="global_course_name" name="global_course_name" placeholder="Enter course name">
+                    </div>
+                        <div class="col-md-6">
+                                <label for="global_institution" class="form-label">Institution:</label>
+                                        <input type="text" class="form-control global-field" id="global_institution" name="global_institution" placeholder="Enter institution name">
+                        </div>
+                        <div class="col-md-6">
+                                <label for="global_doc_type" class="form-label">Document Type:</label>
+                                        <select class="form-select global-field" id="global_doc_type" name="global_doc_type">
+                                            <option value="">Select document type</option>
+                                            <option value="Syllabus">Syllabus</option>
+                                            <option value="Assignment">Assignment</option>
+                                    <option value="Exam">Exam</option>
+                                            <option value="Lecture Notes">Lecture Notes</option>
+                                            <option value="Lab Manual">Lab Manual</option>
+                                            <option value="Project Description">Project Description</option>
+                                            <option value="Rubric">Rubric</option>
+                                            <option value="Curriculum Guide">Curriculum Guide</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                                    <div class="col-md-12">
+                                        <label for="global_notes" class="form-label">Notes:</label>
+                                        <textarea class="form-control global-field" id="global_notes" name="global_notes" rows="2" placeholder="Enter any additional notes"></textarea>
+                        </div>
+                    </div>
                             </div>
                         </div>
             
@@ -229,36 +295,40 @@
                                 <!-- Document Metadata -->
                     <div class="row mb-4">
                         <div class="col-md-6">
-                                        <label for="document_name_{{ loop.index0 }}" class="form-label">Document Name:</label>
-                                        <input type="text" class="form-control metadata-field" 
-                                               id="document_name_{{ loop.index0 }}" 
-                                               name="document_name_{{ loop.index0 }}" 
-                                               value="{{ document.original_filename }}"
-                                               data-field-type="name">
-                                    </div>
-                                    <div class="col-md-6">
-                                <label for="creator_{{ loop.index0 }}" class="form-label">Creator:</label>
+                                <label for="creator_{{ loop.index0 }}" class="form-label">
+                                    Creator:
+                                    <small class="global-indicator" id="creator_indicator_{{ loop.index0 }}"></small>
+                                </label>
                                         <input type="text" class="form-control metadata-field" 
                                                id="creator_{{ loop.index0 }}" 
                                                name="creator_{{ loop.index0 }}" 
                                                data-field-type="creator">
                         </div>
                         <div class="col-md-6">
-                                <label for="course_name_{{ loop.index0 }}" class="form-label">Course Name:</label>
+                                <label for="course_name_{{ loop.index0 }}" class="form-label">
+                                    Course Name:
+                                    <small class="global-indicator" id="course_name_indicator_{{ loop.index0 }}"></small>
+                                </label>
                                         <input type="text" class="form-control metadata-field" 
                                                id="course_name_{{ loop.index0 }}" 
                                                name="course_name_{{ loop.index0 }}" 
                                                data-field-type="course_name">
                     </div>
                         <div class="col-md-6">
-                                <label for="institution_{{ loop.index0 }}" class="form-label">Institution:</label>
+                                <label for="institution_{{ loop.index0 }}" class="form-label">
+                                    Institution:
+                                    <small class="global-indicator" id="institution_indicator_{{ loop.index0 }}"></small>
+                                </label>
                                         <input type="text" class="form-control metadata-field" 
                                                id="institution_{{ loop.index0 }}" 
                                                name="institution_{{ loop.index0 }}" 
                                                data-field-type="institution">
                         </div>
                         <div class="col-md-6">
-                                <label for="doc_type_{{ loop.index0 }}" class="form-label">Document Type:</label>
+                                <label for="doc_type_{{ loop.index0 }}" class="form-label">
+                                    Document Type:
+                                    <small class="global-indicator" id="doc_type_indicator_{{ loop.index0 }}"></small>
+                                </label>
                                         <select class="form-select metadata-field" 
                                                 id="doc_type_{{ loop.index0 }}" 
                                                 name="doc_type_{{ loop.index0 }}" 
@@ -276,13 +346,24 @@
                                 </select>
                             </div>
                                     <div class="col-md-12">
-                                        <label for="notes_{{ loop.index0 }}" class="form-label">Notes:</label>
+                                        <label for="notes_{{ loop.index0 }}" class="form-label">
+                                            Notes:
+                                            <small class="global-indicator" id="notes_indicator_{{ loop.index0 }}"></small>
+                                        </label>
                                         <textarea class="form-control metadata-field" 
                                                   id="notes_{{ loop.index0 }}" 
                                                   name="notes_{{ loop.index0 }}" 
                                                   rows="2" 
                                                   data-field-type="notes"></textarea>
                         </div>
+                        <div class="col-md-12">
+                                        <label for="document_name_{{ loop.index0 }}" class="form-label">Document Name (unique per document):</label>
+                                        <input type="text" class="form-control metadata-field" 
+                                               id="document_name_{{ loop.index0 }}" 
+                                               name="document_name_{{ loop.index0 }}" 
+                                               value="{{ document.original_filename }}"
+                                               data-field-type="name">
+                                    </div>
                     </div>
                     
                                 <!-- LO Extraction Prompt Display -->
@@ -332,6 +413,14 @@
                 </div>
             </div>
             {% endfor %}
+            
+            <div class="interaction-help mb-4">
+                <small class="text-muted">
+                    <i class="bi bi-lightbulb"></i>
+                    <strong>Tips:</strong> Fields with 🌐 are inherited from global metadata above. 
+                    Click any field to override the global value, or double-click to restore the global value.
+                </small>
+            </div>
             
             <div class="d-grid gap-2 col-md-6 mx-auto mt-4 mb-5">
                 <button type="submit" class="btn btn-success btn-lg">
@@ -403,37 +492,52 @@
                 const value = $(this).val();
                 
                 $(`.metadata-field[data-field-type="${fieldType}"]`).each(function() {
-                    if (!$(this).hasClass('manually-edited')) {
-                        $(this).val(value);
-                            $(this).addClass('disabled-input').prop('readonly', true);
+                    const $field = $(this);
+                    const $indicator = $(`#${fieldType}_indicator_${$field.attr('id').split('_').pop()}`);
                     
-                    if ($(this).is('select')) {
-                            const fieldName = $(this).attr('name');
+                    if (!$field.hasClass('manually-edited')) {
+                        $field.val(value);
+                        
+                        if (value) {
+                            $field.addClass('inherited-from-global');
+                            $indicator.addClass('active');
+                        } else {
+                            $field.removeClass('inherited-from-global');
+                            $indicator.removeClass('active');
+                        }
+                    
+                    if ($field.is('select')) {
+                            const fieldName = $field.attr('name');
                             let hiddenInput = $(`input[name="${fieldName}_hidden"]`);
                             if (hiddenInput.length === 0) {
                                 hiddenInput = $(`<input type="hidden" name="${fieldName}" value="${value}">`);
-                                $(this).after(hiddenInput);
-                                $(this).attr('name', `${fieldName}_display`);
+                                $field.after(hiddenInput);
+                                $field.attr('name', `${fieldName}_display`);
                             } else {
                                 hiddenInput.val(value);
                             }
-                            $(this).prop('disabled', true);
+                            $field.prop('disabled', true);
                     }
                 }
             });
         });
         
         $('.metadata-field').on('focus click', function() {
-            if (!$(this).hasClass('manually-edited')) {
-                $(this).removeClass('disabled-input').prop('readonly', false);
-                $(this).addClass('manually-edited');
+            const $field = $(this);
+            const fieldType = $field.data('field-type');
+            const $indicator = $(`#${fieldType}_indicator_${$field.attr('id').split('_').pop()}`);
+            
+            if (!$field.hasClass('manually-edited')) {
+                $field.removeClass('inherited-from-global');
+                $field.addClass('manually-edited');
+                $indicator.removeClass('active');
                 
-                if ($(this).is('select')) {
-                    $(this).prop('disabled', false);
-                    const hiddenInput = $(`input[name="${$(this).attr('name').replace('_display', '')}_hidden"]`);
+                if ($field.is('select')) {
+                    $field.prop('disabled', false);
+                    const hiddenInput = $(`input[name="${$field.attr('name').replace('_display', '')}_hidden"]`);
                     if (hiddenInput.length > 0) {
                         hiddenInput.remove();
-                        $(this).attr('name', $(this).attr('name').replace('_display', ''));
+                        $field.attr('name', $field.attr('name').replace('_display', ''));
                     }
                 }
             }
@@ -441,28 +545,35 @@
     }
         
         $('.metadata-field').on('dblclick', function() {
-            $(this).removeClass('manually-edited');
+            const $field = $(this);
+            const fieldType = $field.data('field-type');
+            const $indicator = $(`#${fieldType}_indicator_${$field.attr('id').split('_').pop()}`);
+            
+            $field.removeClass('manually-edited');
             
             // Re-apply global value
-            const fieldType = $(this).data('field-type');
             const globalValue = $(`#global_${fieldType}`).val();
             
             if (globalValue) {
-                $(this).val(globalValue);
-                $(this).addClass('disabled-input').prop('readonly', true);
+                $field.val(globalValue);
+                $field.addClass('inherited-from-global');
+                $indicator.addClass('active');
                 
-                if ($(this).is('select')) {
-                    const fieldName = $(this).attr('name');
+                if ($field.is('select')) {
+                    const fieldName = $field.attr('name');
                     let hiddenInput = $(`input[name="${fieldName}_hidden"]`);
                     if (hiddenInput.length === 0) {
                         hiddenInput = $(`<input type="hidden" name="${fieldName}" value="${globalValue}">`);
-                        $(this).after(hiddenInput);
-                        $(this).attr('name', `${fieldName}_display`);
+                        $field.after(hiddenInput);
+                        $field.attr('name', `${fieldName}_display`);
                     } else {
                         hiddenInput.val(globalValue);
                     }
-                    $(this).prop('disabled', true);
+                    $field.prop('disabled', true);
                 }
+            } else {
+                $field.removeClass('inherited-from-global');
+                $indicator.removeClass('active');
             }
         });
         
