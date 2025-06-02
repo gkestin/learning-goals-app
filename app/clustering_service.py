@@ -329,15 +329,19 @@ class LearningGoalsClusteringService:
         inter_sep, intra_cohesion = self.calculate_cluster_separation_metrics_fast(embeddings, labels)
         composite_score = self._calculate_composite_score(silhouette_score, inter_sep, intra_cohesion)
         
+        # Calculate inertia (WCSS) for elbow plots
+        inertia = self._calculate_inertia(embeddings, labels)
+        
         elapsed = time.time() - start_time
-        print(f"  ✅ k={k}: composite={composite_score:.3f}, silhouette={silhouette_score:.3f} ({elapsed:.1f}s)")
+        print(f"  ✅ k={k}: composite={composite_score:.3f}, silhouette={silhouette_score:.3f}, inertia={inertia:.0f} ({elapsed:.1f}s)")
         
         return {
             'k': k,
             'silhouette': silhouette_score,
             'separation': inter_sep,
             'cohesion': intra_cohesion,
-            'composite': composite_score
+            'composite': composite_score,
+            'inertia': inertia
         }
     
     def _evaluate_cluster_size_original(self, embeddings, k):
@@ -355,7 +359,7 @@ class LearningGoalsClusteringService:
             'composite': composite_score
         }
     
-    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True, use_fast=True, progress_callback=None):
+    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True, use_fast=True, progress_callback=None, use_elbow_detection=True, use_binary_search=False):
         """Find optimal cluster sizes with full performance optimizations and progress tracking"""
         n_goals = len(embeddings)
         
@@ -367,6 +371,15 @@ class LearningGoalsClusteringService:
         if max_clusters < min_clusters:
             return None, None, None
         
+        # Use elbow detection by default for better curve mapping
+        if use_elbow_detection:
+            return self.find_optimal_cluster_sizes_elbow(embeddings, max_clusters, min_clusters, progress_callback)
+        
+        # Fallback to binary search (for testing/comparison)
+        if use_binary_search:
+            return self.find_optimal_cluster_sizes_binary(embeddings, max_clusters, min_clusters, progress_callback)
+        
+        # Fallback to original multi-resolution method
         # Precompute similarity matrices once for all operations
         self._precompute_similarity_matrices(embeddings)
         
@@ -424,7 +437,7 @@ class LearningGoalsClusteringService:
                     # Send progress update with completed test result
                     if progress_callback:
                         progress_callback(
-                            f"completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f}",
+                            f"completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
                             completed_count, total_tests, int((completed_count / total_tests) * 100)
                         )
                     
@@ -490,7 +503,7 @@ class LearningGoalsClusteringService:
                     # Send coarse search progress with coarse totals
                     if progress_callback:
                         progress_callback(
-                            f"phase:coarse,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f}",
+                            f"phase:coarse,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
                             completed_count, coarse_tests, int((completed_count / coarse_tests) * 100)
                         )
                         
@@ -559,7 +572,7 @@ class LearningGoalsClusteringService:
                         
                         if progress_callback:
                             progress_callback(
-                                f"phase:fine,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f}",
+                                f"completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
                                 completed_count, actual_total_tests, int((completed_count / actual_total_tests) * 100)
                             )
                             
@@ -715,4 +728,287 @@ class LearningGoalsClusteringService:
                 key=len
             )
         
-        return clusters 
+        return clusters
+
+    def find_optimal_cluster_sizes_binary(self, embeddings, max_clusters=None, min_clusters=2, progress_callback=None):
+        """Find optimal cluster sizes using efficient binary search approach"""
+        n_goals = len(embeddings)
+        
+        # Set reasonable bounds
+        if max_clusters is None:
+            max_clusters = min(n_goals - 1, n_goals // 2 + 50)
+        max_clusters = min(max_clusters, n_goals - 1)
+        
+        if max_clusters < min_clusters:
+            return None, None, None
+        
+        # Precompute similarity matrices once for all operations
+        self._precompute_similarity_matrices(embeddings)
+        
+        print(f"🎯 Using efficient binary search optimization for {n_goals} goals")
+        print(f"   Search range: {min_clusters} to {max_clusters} clusters")
+        
+        if progress_callback:
+            progress_callback(f"Starting efficient binary search optimization...", 0, 0, 0)
+        
+        # Binary search optimization
+        results_data = []
+        test_count = 0
+        
+        # Phase 1: Initial broad sampling (thirds)
+        initial_points = [
+            min_clusters + int((max_clusters - min_clusters) * 1/3),  # 1/3 point
+            min_clusters + int((max_clusters - min_clusters) * 2/3),  # 2/3 point
+        ]
+        
+        # Always include min and max for boundary reference
+        test_points = [min_clusters, max_clusters] + initial_points
+        test_points = sorted(list(set(test_points)))  # Remove duplicates and sort
+        
+        if progress_callback:
+            progress_callback(f"binary_search:initial,planned_tests:{','.join(map(str, test_points))}", 0, 0, 0)
+        
+        print(f"🔄 Phase 1: Testing initial points: {test_points}")
+        
+        # Test initial points
+        for k in test_points:
+            result = self._evaluate_cluster_size_fast(embeddings, k)
+            results_data.append(result)
+            test_count += 1
+            
+            if progress_callback:
+                progress_callback(
+                    f"binary_search:initial,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
+                    test_count, 0, 0
+                )
+        
+        # Find the best initial point
+        best_result = max(results_data, key=lambda x: x['composite'])
+        best_k = best_result['k']
+        
+        print(f"   📊 Best initial point: k={best_k} (composite={best_result['composite']:.3f})")
+        
+        # Phase 2: Binary search refinement
+        search_iterations = 0
+        max_iterations = 6  # Limit iterations to prevent infinite loop
+        convergence_threshold = 2  # Stop when search range is <= 2
+        
+        # Determine search boundaries around the best point
+        left_bound = min_clusters
+        right_bound = max_clusters
+        
+        # Find the position of best_k and set initial bounds
+        for i, result in enumerate(sorted(results_data, key=lambda x: x['k'])):
+            if result['k'] == best_k:
+                sorted_results = sorted(results_data, key=lambda x: x['k'])
+                if i > 0:
+                    left_bound = sorted_results[i-1]['k']
+                if i < len(sorted_results) - 1:
+                    right_bound = sorted_results[i+1]['k']
+                break
+        
+        if progress_callback:
+            progress_callback(f"Starting binary search refinement around k={best_k}...", test_count, 0, 0)
+        
+        while search_iterations < max_iterations and (right_bound - left_bound) > convergence_threshold:
+            search_iterations += 1
+            
+            # Calculate midpoints for binary search
+            mid_left = left_bound + int((best_k - left_bound) / 2)
+            mid_right = best_k + int((right_bound - best_k) / 2)
+            
+            # Remove already tested points
+            tested_ks = {r['k'] for r in results_data}
+            new_test_points = []
+            
+            if mid_left not in tested_ks and mid_left != best_k and mid_left > left_bound:
+                new_test_points.append(mid_left)
+            if mid_right not in tested_ks and mid_right != best_k and mid_right < right_bound:
+                new_test_points.append(mid_right)
+            
+            if not new_test_points:
+                print(f"   ✅ Converged: No new points to test in range [{left_bound}, {right_bound}]")
+                break
+            
+            print(f"   🔄 Iteration {search_iterations}: Testing points {new_test_points} around k={best_k}")
+            
+            if progress_callback:
+                progress_callback(f"binary_search:refine,planned_tests:{','.join(map(str, new_test_points))}", test_count, 0, 0)
+            
+            # Test new points
+            iteration_results = []
+            for k in new_test_points:
+                result = self._evaluate_cluster_size_fast(embeddings, k)
+                results_data.append(result)
+                iteration_results.append(result)
+                test_count += 1
+                
+                if progress_callback:
+                    progress_callback(
+                        f"binary_search:refine,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
+                        test_count, 0, 0
+                    )
+            
+            # Find the best result from this iteration
+            all_candidates = [best_result] + iteration_results
+            new_best = max(all_candidates, key=lambda x: x['composite'])
+            
+            # Update search bounds and best point
+            if new_best['k'] != best_k:
+                print(f"   📈 Found better point: k={new_best['k']} (composite={new_best['composite']:.3f}) vs k={best_k} (composite={best_result['composite']:.3f})")
+                best_result = new_best
+                best_k = new_best['k']
+                
+                # Adjust bounds around new best point
+                left_candidates = [r['k'] for r in results_data if r['k'] < best_k]
+                right_candidates = [r['k'] for r in results_data if r['k'] > best_k]
+                
+                left_bound = max(left_candidates) if left_candidates else min_clusters
+                right_bound = min(right_candidates) if right_candidates else max_clusters
+            else:
+                # Current best is still best, narrow the search range
+                print(f"   ✅ Current best k={best_k} remains optimal, narrowing search...")
+                if iteration_results:
+                    # Adjust bounds based on tested points
+                    left_candidates = [r['k'] for r in iteration_results if r['k'] < best_k]
+                    right_candidates = [r['k'] for r in iteration_results if r['k'] > best_k]
+                    
+                    if left_candidates:
+                        left_bound = max(left_candidates)
+                    if right_candidates:
+                        right_bound = min(right_candidates)
+        
+        print(f"⚡ Binary search completed in {search_iterations} iterations, {test_count} total tests")
+        
+        if progress_callback:
+            progress_callback(f"Binary search completed! Found optimal in {test_count} tests vs traditional ~{max_clusters-min_clusters} tests", test_count, test_count, 100)
+        
+        return self._process_optimization_results(results_data)
+
+    def find_optimal_cluster_sizes_elbow(self, embeddings, max_clusters=None, min_clusters=2, progress_callback=None):
+        """Find optimal cluster sizes using interactive elbow detection approach"""
+        n_goals = len(embeddings)
+        
+        # Set reasonable bounds
+        if max_clusters is None:
+            max_clusters = min(n_goals - 1, n_goals // 2 + 50)
+        max_clusters = min(max_clusters, n_goals - 1)
+        
+        if max_clusters < min_clusters:
+            return None, None, None
+        
+        # Precompute similarity matrices once for all operations
+        self._precompute_similarity_matrices(embeddings)
+        
+        print(f"🎯 Using interactive elbow detection for {n_goals} goals")
+        print(f"   Search range: {min_clusters} to {max_clusters} clusters")
+        
+        if progress_callback:
+            progress_callback(f"Starting minimal elbow exploration...", 0, 0, 0)
+        
+        results_data = []
+        test_count = 0
+        search_range = max_clusters - min_clusters + 1
+        
+        # Phase 1: Minimal initial sampling (3-4 points max)
+        # Start with just the bounds and 1-2 strategic middle points
+        initial_points = [min_clusters, max_clusters]
+        
+        # Add 1-2 strategic middle points
+        if search_range > 10:
+            mid1 = min_clusters + int(search_range * 0.3)  # ~30% point
+            mid2 = min_clusters + int(search_range * 0.7)  # ~70% point
+            initial_points.extend([mid1, mid2])
+        elif search_range > 4:
+            mid = min_clusters + int(search_range * 0.5)  # 50% point
+            initial_points.append(mid)
+        
+        initial_points = sorted(list(set(initial_points)))  # Remove duplicates and sort
+        
+        if progress_callback:
+            progress_callback(f"elbow_search:initial,planned_tests:{','.join(map(str, initial_points))}", 0, 0, 0)
+        
+        print(f"🔄 Phase 1: Quick sampling with {len(initial_points)} points: {initial_points}")
+        print(f"   Each test may take several minutes with {n_goals} goals...")
+        
+        # Test initial points
+        for k in initial_points:
+            result = self._evaluate_cluster_size_fast(embeddings, k)
+            results_data.append(result)
+            test_count += 1
+            
+            if progress_callback:
+                progress_callback(
+                    f"elbow_search:initial,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
+                    test_count, 0, 0
+                )
+        
+        print(f"⚡ Initial sampling completed with {test_count} tests")
+        print(f"📊 Ready for user interaction - they can add more points as needed")
+        
+        if progress_callback:
+            progress_callback(f"Initial curve ready! Add more points around areas of interest, or select a point to use.", test_count, test_count, 100)
+        
+        return self._process_optimization_results(results_data)
+    
+    def add_elbow_refinement_points(self, embeddings, existing_results, target_region_center, region_radius=None, max_clusters=None, min_clusters=2, progress_callback=None):
+        """Add more points around a target region for elbow refinement"""
+        n_goals = len(embeddings)
+        
+        if max_clusters is None:
+            max_clusters = min(n_goals - 1, n_goals // 2 + 50)
+        max_clusters = min(max_clusters, n_goals - 1)
+        
+        if region_radius is None:
+            search_range = max_clusters - min_clusters + 1
+            region_radius = max(3, search_range // 20)  # Adaptive radius
+        
+        # Define refinement region around target
+        region_start = max(min_clusters, target_region_center - region_radius)
+        region_end = min(max_clusters, target_region_center + region_radius)
+        
+        # Get already tested points
+        tested_ks = {r['k'] for r in existing_results}
+        
+        # Generate new test points in the region
+        new_test_points = []
+        for k in range(region_start, region_end + 1):
+            if k not in tested_ks:
+                new_test_points.append(k)
+        
+        # Limit to reasonable number of new points
+        if len(new_test_points) > 6:
+            # Sample evenly across the region
+            step = len(new_test_points) // 6
+            new_test_points = new_test_points[::step][:6]
+        
+        if not new_test_points:
+            print(f"   No new points to test in region {region_start}-{region_end}")
+            return existing_results
+        
+        print(f"🔄 Adding {len(new_test_points)} refinement points around k={target_region_center}: {new_test_points}")
+        
+        if progress_callback:
+            progress_callback(f"elbow_search:refine,planned_tests:{','.join(map(str, new_test_points))}", 0, 0, 0)
+        
+        # Test new points
+        new_results = []
+        for i, k in enumerate(new_test_points):
+            result = self._evaluate_cluster_size_fast(embeddings, k)
+            new_results.append(result)
+            
+            if progress_callback:
+                progress_callback(
+                    f"elbow_search:refine,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f},inertia={result['inertia']:.0f}",
+                    i + 1, len(new_test_points), int(((i + 1) / len(new_test_points)) * 100)
+                )
+        
+        # Combine with existing results
+        all_results = existing_results + new_results
+        
+        print(f"⚡ Refinement completed, now have {len(all_results)} total points")
+        
+        if progress_callback:
+            progress_callback(f"Refinement complete! Added {len(new_test_points)} points around k={target_region_center}", len(new_test_points), len(new_test_points), 100)
+        
+        return all_results 

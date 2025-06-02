@@ -105,7 +105,20 @@
     #progress-tracker {
         margin-bottom: 20px;
     }
+    
+    /* Pulse animation for Accept Best button */
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    
+    .pulse {
+        animation: pulse 2s infinite;
+    }
 </style>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -132,6 +145,36 @@
                     </div>
                     <div id="overview-content" style="display: none;">
                         <!-- Overview content will be populated here -->
+                    </div>
+                </div>
+                
+                <!-- Course Filter -->
+                <div class="mb-4">
+                    <div class="card border-secondary">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="bi bi-funnel"></i> Course Filter</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <label for="course-selector" class="form-label"><strong>Select Course:</strong></label>
+                                    <select id="course-selector" class="form-select">
+                                        <option value="">All Courses (Default)</option>
+                                        <!-- Course options will be populated dynamically -->
+                                    </select>
+                                    <div class="form-text">
+                                        Choose a specific course to cluster only its learning goals, or select "All Courses" to cluster learning goals from all courses together.
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div id="course-stats" class="text-muted">
+                                        <small><strong>Selected:</strong> <span id="selected-course-info">All courses</span></small><br>
+                                        <small><strong>Learning Goals:</strong> <span id="selected-goals-count">Loading...</span></small><br>
+                                        <small><strong>Documents:</strong> <span id="selected-docs-count">Loading...</span></small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -248,7 +291,7 @@
                                         <div id="step-embeddings" class="step-indicator">
                                             <i class="bi bi-cpu-fill fs-3"></i>
                                             <div>Embeddings</div>
-                                            <small class="text-muted">—</small>
+                                            <small class="text-muted" id="embeddings-status-text">—</small>
                                         </div>
                                     </div>
                                 </div>
@@ -285,16 +328,43 @@
                                 <small id="progress-detail-text"></small>
                                 <div id="optimization-progress" style="display: none;" class="mt-2">
                                     <div class="alert alert-warning mb-2">
-                                        <i class="bi bi-clock"></i> <strong>Note:</strong> Optimization may take a long time - potentially several minutes per test depending on your dataset size.
+                                        <i class="bi bi-clock"></i> <strong>Note:</strong> Each test may take several minutes with large datasets. Start with a few points, then add more resolution as needed.
                                     </div>
+                                    
+                                    <!-- Real-time Results Plot -->
+                                    <div class="card mb-3">
+                                        <div class="card-header bg-light">
+                                            <h6 class="mb-0"><i class="bi bi-graph-up"></i> Interactive Elbow Curve</h6>
+                                        </div>
+                                        <div class="card-body p-2">
+                                            <div style="position: relative; height: 300px; width: 100%;">
+                                                <canvas id="optimization-chart"></canvas>
+                                            </div>
+                                            <small class="text-muted d-block mt-1">
+                                                <i class="bi bi-info-circle"></i> Blue dots show composite quality, teal dots show silhouette scores (higher = better). Red line shows inertia (lower = better). Gray dashed line at 0.2 indicates "fair" silhouette threshold. Look for the "elbow" where improvement plateaus.
+                                            </small>
+                                        </div>
+                                    </div>
+                                    
                                     <div class="row">
                                         <div class="col-md-6">
-                                            <small><strong>Tests Completed:</strong> <span id="tests-completed">0</span> / <span id="tests-total">0</span></small>
+                                            <small><strong>Tests Completed:</strong> <span id="tests-completed">0</span></small><br>
+                                            <small><strong>Search Phase:</strong> <span id="search-phase">Initial sampling</span></small>
                                         </div>
-                                        <div class="col-md-6">
-                                            <small><strong>Progress:</strong> <span id="optimization-percentage">0%</span></small>
+                                        <div class="col-md-6 text-end">
+                                            <button id="add-more-points-btn" class="btn btn-info btn-sm me-2" onclick="addMorePoints()" disabled>
+                                                <i class="bi bi-plus-circle"></i> Add More Points
+                                            </button>
+                                            <button id="use-selected-btn" class="btn btn-primary btn-sm" onclick="useSelectedPoint()" disabled>
+                                                <i class="bi bi-check-circle"></i> Use Selected Point
+                                            </button>
+                                            <button id="cancel-optimization-btn" class="btn btn-outline-secondary btn-sm ms-2" onclick="cancelOptimization()" style="display: none;">
+                                                <i class="bi bi-x-circle"></i> Cancel
+                                            </button>
+                                            <br><small id="selection-status" class="text-muted">Initial sampling in progress...</small>
                                         </div>
                                     </div>
+                                    
                                     <div class="mt-2">
                                         <div id="latest-test-result" class="text-info mb-1"></div>
                                         <div id="best-so-far" class="text-success"></div>
@@ -340,6 +410,13 @@
 // Global variables to track active processes
 let activeEventSource = null;
 let activeFetch = null;
+let embeddingsSessionId = null; // Store session ID for embeddings download
+let optimizationChart = null; // Chart.js instance
+let optimizationData = []; // Store optimization results
+let selectedPoint = null; // Track selected point for clustering
+let bestResult = null; // Track best result found so far (for reference)
+let availableCourses = []; // Store available courses
+let selectedCourse = null; // Track currently selected course
 
 // Global functions for modal button clicks
 function applyOptimalClusters(optimalK) {
@@ -351,6 +428,23 @@ function applyOptimalClusters(optimalK) {
     
     // Auto-trigger clustering with the optimal size
     window.performClustering(optimalK);
+}
+
+// Download embeddings as CSV
+function downloadEmbeddings() {
+    if (!embeddingsSessionId) {
+        alert('No embeddings data available for download');
+        return;
+    }
+    
+    // Create a temporary link to download the CSV
+    const downloadUrl = `/api/download-embeddings/${embeddingsSessionId}`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = 'learning_goals_embeddings.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 // Clean up function to stop any running processes
@@ -373,6 +467,17 @@ $(window).on('beforeunload', function() {
 $(document).ready(function() {
     // Load overview on page load
     loadGoalsOverview();
+    
+    // Load available courses
+    loadAvailableCourses();
+    
+    // Course selector change handler
+    $('#course-selector').change(function() {
+        const selectedCourseValue = $(this).val();
+        selectedCourse = selectedCourseValue || null;
+        updateCourseStats();
+        updateGoalsOverviewForCourse();
+    });
     
     // Input validation for number field (on blur to avoid interfering with typing)
     $('#n-clusters-input').on('blur', function() {
@@ -492,6 +597,116 @@ $(document).ready(function() {
         });
     }
     
+    function loadAvailableCourses() {
+        $.ajax({
+            url: '{{ url_for("main.api_available_courses") }}',
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    availableCourses = response.courses;
+                    
+                    // Populate course selector
+                    const courseSelector = $('#course-selector');
+                    courseSelector.empty();
+                    courseSelector.append('<option value="">All Courses (Default)</option>');
+                    
+                    response.courses.forEach(function(course) {
+                        courseSelector.append(
+                            `<option value="${course.name}">${course.name} (${course.total_goals} goals, ${course.documents} docs)</option>`
+                        );
+                    });
+                    
+                    // Update initial course stats
+                    updateCourseStats();
+                    
+                } else {
+                    console.error('Failed to load courses:', response.message);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Failed to load courses:', error);
+            }
+        });
+    }
+    
+    function updateCourseStats() {
+        if (!selectedCourse) {
+            // All courses selected
+            $('#selected-course-info').text('All courses');
+            $('#selected-goals-count').text('Loading...');
+            $('#selected-docs-count').text('Loading...');
+            
+            // Load total stats (this could be cached from overview)
+            loadGoalsOverview();
+        } else {
+            // Specific course selected
+            const courseData = availableCourses.find(c => c.name === selectedCourse);
+            if (courseData) {
+                $('#selected-course-info').text(`"${courseData.name}"`);
+                $('#selected-goals-count').text(courseData.total_goals);
+                $('#selected-docs-count').text(courseData.documents);
+            }
+        }
+    }
+    
+    function updateGoalsOverviewForCourse() {
+        // Update the main overview to reflect the selected course
+        if (!selectedCourse) {
+            // Reload full overview
+            loadGoalsOverview();
+        } else {
+            // Show course-specific overview
+            const courseData = availableCourses.find(c => c.name === selectedCourse);
+            if (courseData) {
+                const overviewHtml = `
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Course Goals:</strong> <span class="badge bg-primary">${courseData.total_goals}</span>
+                                    </div>
+                        <div class="col-md-3">
+                            <strong>Course Documents:</strong> <span class="badge bg-secondary">${courseData.documents}</span>
+                                                 </div>
+                        <div class="col-md-3">
+                            <strong>Course:</strong> <span class="badge bg-info">"${courseData.name}"</span>
+                                                 </div>
+                        <div class="col-md-3">
+                            <strong>Avg Goals/Doc:</strong> <span class="badge bg-success">${Math.round(courseData.total_goals / courseData.documents * 10) / 10}</span>
+                                             </div>
+                                                 </div>
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            📚 Ready to cluster goals from course "${courseData.name}"!
+                        </small>
+                        </div>
+                    `;
+                $('#overview-content').html(overviewHtml);
+                
+                // Update clustering controls for this course
+                if (courseData.total_goals >= 2) {
+                    $('#cluster-btn').prop('disabled', false);
+                    if (courseData.total_goals >= 4) {
+                        $('#find-optimal-btn').prop('disabled', false);
+                    }
+                    
+                    // Set max clusters and suggested default
+                    const maxClusters = courseData.total_goals;
+                    $('#n-clusters-input').attr('max', maxClusters);
+                    const suggestedClusters = Math.max(2, Math.min(Math.floor(courseData.total_goals * 0.2), 100));
+                    $('#n-clusters-input').val(suggestedClusters);
+                } else {
+                    $('#cluster-btn').prop('disabled', true);
+                    $('#find-optimal-btn').prop('disabled', true);
+                    $('#goals-overview').removeClass('alert-info').addClass('alert-warning');
+                    $('#overview-content').html(`
+                        <p class="mb-0">
+                            ⚠️ Course "${courseData.name}" only has ${courseData.total_goals} learning goals. Need at least 2 for clustering.
+                        </p>
+                    `);
+                }
+            }
+        }
+    }
+    
     function performClustering(explicitClusters = null) {
         const nClusters = explicitClusters || $('#n-clusters-input').val();
         
@@ -518,8 +733,13 @@ $(document).ready(function() {
             coarse: { planned: [], completed: 0, total: 0 },
             fine: { planned: [], completed: 0, total: 0 }
         };
+        embeddingsSessionId = null; // Reset embeddings session
+        optimizationData = []; // Reset optimization data
+        selectedPoint = null; // Reset selected point
+        bestResult = null; // Reset best result
         $('#best-so-far').empty();
         $('#latest-test-result').empty();
+        $('#embeddings-download').hide(); // Hide download button
         
         // Clean up any existing processes
         cleanupActiveProcesses();
@@ -537,7 +757,8 @@ $(document).ready(function() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                n_clusters: parseInt(nClusters)
+                n_clusters: parseInt(nClusters),
+                course_filter: selectedCourse  // Add course filter parameter
             }),
             signal: abortController.signal
         }).then(response => {
@@ -571,8 +792,8 @@ $(document).ready(function() {
                 }).catch(error => {
                     console.error('Stream error:', error);
                     $('#progress-tracker').hide();
-                    $('#loading-spinner').hide();
-                    $('#cluster-btn').prop('disabled', false);
+                $('#loading-spinner').hide();
+                $('#cluster-btn').prop('disabled', false);
                     alert('Clustering failed: ' + error.message);
                 });
             }
@@ -614,7 +835,13 @@ $(document).ready(function() {
                 
             case 'embeddings_complete':
                 $('#step-embeddings').removeClass('active').addClass('completed');
-                $('#step-embeddings small').text('✓ Complete');
+                // Inline download button next to complete text
+                let downloadBtn = '';
+                if (data.embeddings_session_id) {
+                    embeddingsSessionId = data.embeddings_session_id;
+                    downloadBtn = `<button class=\"btn btn-link p-0 m-0 text-muted\" style=\"font-size:0.9em;opacity:0.5;text-decoration:underline dotted;vertical-align:middle;\" onclick=\"downloadEmbeddings()\" title=\"Download embeddings as CSV\"><i class=\"bi bi-download\"></i><span class=\"visually-hidden\">Download embeddings as CSV</span></button>`;
+                }
+                $('#embeddings-status-text').html('✓ Complete ' + downloadBtn);
                 $('#overall-progress').css('width', '40%');
                 $('#progress-text').text('Embeddings Ready');
                 break;
@@ -714,8 +941,13 @@ $(document).ready(function() {
             coarse: { planned: [], completed: 0, total: 0 },
             fine: { planned: [], completed: 0, total: 0 }
         };
+        embeddingsSessionId = null; // Reset embeddings session
+        optimizationData = []; // Reset optimization data
+        selectedPoint = null; // Reset selected point
+        bestResult = null; // Reset best result
         $('#best-so-far').empty();
         $('#latest-test-result').empty();
+        $('#embeddings-download').hide(); // Hide download button
         
         // Clean up any existing processes
         cleanupActiveProcesses();
@@ -733,7 +965,9 @@ $(document).ready(function() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({
+                course_filter: selectedCourse  // Add course filter parameter
+            }),
             signal: abortController.signal
         }).then(response => {
             const reader = response.body.getReader();
@@ -765,6 +999,8 @@ $(document).ready(function() {
                     $('#progress-tracker').hide();
                     $('#find-optimal-btn').prop('disabled', false);
                     $('#cluster-btn').prop('disabled', false);
+                    $('#cancel-optimization-btn').hide();
+                    cleanupActiveProcesses();
                     alert('Optimization failed: ' + error.message);
                 });
             }
@@ -775,6 +1011,8 @@ $(document).ready(function() {
             $('#progress-tracker').hide();
             $('#find-optimal-btn').prop('disabled', false);
             $('#cluster-btn').prop('disabled', false);
+            $('#cancel-optimization-btn').hide();
+            cleanupActiveProcesses();
             alert('Failed to start optimization: ' + error.message);
         });
     }
@@ -815,7 +1053,9 @@ $(document).ready(function() {
     function parseOptimizationMessage(message) {
         // Parse structured messages
         if (message.includes('planned_tests:')) {
-            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : null;
+            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : 
+                         message.includes('binary_search:') ? message.split('binary_search:')[1].split(',')[0] :
+                         message.includes('elbow_search:') ? message.split('elbow_search:')[1].split(',')[0] : null;
             const testsStr = message.split('planned_tests:')[1];
             return {
                 type: 'planned',
@@ -827,16 +1067,22 @@ $(document).ready(function() {
             const k = parseInt(parts.find(p => p.includes('k=')).split('=')[1]);
             const silhouette = parseFloat(parts.find(p => p.includes('silhouette=')).split('=')[1]);
             const composite = parseFloat(parts.find(p => p.includes('composite=')).split('=')[1]);
-            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : null;
+            const inertia = parseFloat(parts.find(p => p.includes('inertia=')).split('=')[1]);
+            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : 
+                         message.includes('binary_search:') ? message.split('binary_search:')[1].split(',')[0] :
+                         message.includes('elbow_search:') ? message.split('elbow_search:')[1].split(',')[0] : null;
             return {
                 type: 'completed',
                 phase: phase,
                 k: k,
                 silhouette: silhouette,
-                composite: composite
+                composite: composite,
+                inertia: inertia
             };
-        } else if (message.includes('phase:')) {
-            const phase = message.split('phase:')[1].split(',')[0];
+        } else if (message.includes('phase:') || message.includes('binary_search:') || message.includes('elbow_search:')) {
+            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : 
+                         message.includes('binary_search:') ? message.split('binary_search:')[1].split(',')[0] :
+                         message.split('elbow_search:')[1].split(',')[0];
             return {
                 type: 'phase',
                 phase: phase
@@ -871,7 +1117,13 @@ $(document).ready(function() {
                 
             case 'embeddings_complete':
                 $('#step-embeddings').removeClass('active').addClass('completed');
-                $('#step-embeddings small').text('✓ Complete');
+                // Inline download button next to complete text
+                let downloadBtn = '';
+                if (data.embeddings_session_id) {
+                    embeddingsSessionId = data.embeddings_session_id;
+                    downloadBtn = `<button class=\"btn btn-link p-0 m-0 text-muted\" style=\"font-size:0.9em;opacity:0.5;text-decoration:underline dotted;vertical-align:middle;\" onclick=\"downloadEmbeddings()\" title=\"Download embeddings as CSV\"><i class=\"bi bi-download\"></i><span class=\"visually-hidden\">Download embeddings as CSV</span></button>`;
+                }
+                $('#embeddings-status-text').html('✓ Complete ' + downloadBtn);
                 $('#overall-progress').css('width', '40%');
                 $('#progress-text').text('Embeddings Ready');
                 break;
@@ -881,6 +1133,17 @@ $(document).ready(function() {
                 $('#overall-progress').css('width', '45%');
                 $('#progress-text').text('Starting...');
                 $('#optimization-progress').show();
+                
+                // Initialize the optimization chart
+                initializeOptimizationChart();
+                optimizationData = [];
+                selectedPoint = null;
+                bestResult = null;
+                $('#use-selected-btn').prop('disabled', true).removeClass('btn-success').addClass('btn-primary');
+                $('#add-more-points-btn').prop('disabled', true);
+                $('#cancel-optimization-btn').hide(); // Hide cancel button during initial phase
+                $('#selection-status').text('Initial sampling in progress...');
+                $('#search-phase').text('Initial sampling');
                 break;
                 
             case 'optimizing':
@@ -891,108 +1154,62 @@ $(document).ready(function() {
                 
                 if (parsed.type === 'planned') {
                     // Store planned tests for the phase
-                    const phase = parsed.phase || 'coarse';
-                    if (phase === 'fine') {
-                        phaseProgress.fine.planned = parsed.tests;
-                        phaseProgress.fine.total = parsed.tests.length;
-                        currentPhase = 'fine';
-                    } else {
-                        phaseProgress.coarse.planned = parsed.tests;
-                        phaseProgress.coarse.total = parsed.tests.length;
-                        phaseProgress.coarse.completed = 0;
-                        currentPhase = 'coarse';
-                        plannedTests = parsed.tests;
-                        completedTests = [];
+                    const phase = parsed.phase || 'initial';
+                    currentPhase = phase;
+                    plannedTests = parsed.tests;
+                    completedTests = [];
+                    
+                    if (phase === 'initial') {
+                        $('#search-phase').text('Initial sampling');
+                        $('#selection-status').text(`Testing ${parsed.tests.length} initial points...`);
+                    } else if (phase === 'refine') {
+                        $('#search-phase').text('Adding detail');
+                        $('#selection-status').text(`Adding ${parsed.tests.length} refinement points...`);
                     }
                 } else if (parsed.type === 'completed') {
                     // Add to completed tests and update displays
                     completedTests.push(parsed);
                     
-                    const phase = parsed.phase || currentPhase || 'coarse';
-                    if (phase === 'fine') {
-                        phaseProgress.fine.completed++;
-                    } else {
-                        phaseProgress.coarse.completed++;
+                    // Store result for chart and tracking
+                    const result = {
+                        k: parsed.k,
+                        composite: parsed.composite,
+                        silhouette: parsed.silhouette,
+                        inertia: parsed.inertia
+                    };
+                    optimizationData.push(result);
+                    
+                    // Track best for reference (but don't auto-select)
+                    if (!bestResult || parsed.composite > bestResult.composite) {
+                        bestResult = result;
                     }
                     
-                    // Update best so far
+                    // Add point to chart
+                    addOptimizationPoint(parsed.k, parsed.composite, parsed.inertia, parsed.silhouette);
+                    
+                    // Update best so far for reference
                     updateBestSoFar(parsed.k, parsed.composite, parsed.silhouette);
-                    
-                    // Find next test in planned sequence
-                    const currentPlanned = phase === 'fine' ? phaseProgress.fine.planned : phaseProgress.coarse.planned;
-                    const completedKs = completedTests.filter(t => t.phase === phase).map(t => t.k);
-                    const nextTest = currentPlanned.find(k => !completedKs.includes(k));
-                    
-                    // Update displays
-                    const phaseLabel = phase === 'fine' ? 'Fine search' : 'Coarse search';
                     
                     // Latest completed test
                     $('#latest-test-result').html(
                         `<small><strong>Latest completed:</strong> ${parsed.k} clusters - ` +
-                        `silhouette=${parsed.silhouette.toFixed(3)}, composite=${parsed.composite.toFixed(3)}</small>`
+                        `composite=${parsed.composite.toFixed(3)}, inertia=${parsed.inertia.toFixed(0)}</small>`
                     );
                     
-                    // Current running test (if any)
-                    if (nextTest !== undefined) {
-                        $('#current-step').text(`${phaseLabel}: Currently testing ${nextTest} clusters...`);
-                    } else {
-                        $('#current-step').text(`${phaseLabel}: Completing analysis...`);
-                    }
+                    // Update current step
+                    $('#current-step').text(`Analyzed ${parsed.k} clusters...`);
                     
-                    // Update progress counts based on current phase or overall if provided
-                    if (data.completed !== undefined && data.total !== undefined && data.total > 0) {
-                        // Use provided totals (could be phase-specific or overall)
-                        $('#tests-completed').text(data.completed);
-                        $('#tests-total').text(data.total);
-                        $('#optimization-percentage').text(data.percentage + '%');
-                        
-                        const overallProgress = 45 + (data.percentage * 0.45); // 45% to 90%
-                        $('#overall-progress').css('width', overallProgress + '%');
-                        $('#progress-text').text(`Testing Clusters...`);
-                    } else {
-                        // Calculate from phase progress
-                        const currentProgress = phaseProgress[phase];
-                        if (currentProgress.total > 0) {
-                            const percentage = Math.round((currentProgress.completed / currentProgress.total) * 100);
-                            $('#tests-completed').text(currentProgress.completed);
-                            $('#tests-total').text(currentProgress.total);
-                            $('#optimization-percentage').text(percentage + '%');
-                            
-                            // Adjust overall progress based on phase
-                            let overallProgress;
-                            if (phase === 'coarse') {
-                                overallProgress = 45 + (percentage * 0.25); // Coarse is ~25% of optimization
-                            } else {
-                                overallProgress = 70 + (percentage * 0.20); // Fine is ~20% of optimization
-                            }
-                            $('#overall-progress').css('width', overallProgress + '%');
-                            $('#progress-text').text(`${phaseLabel}...`);
-                        }
-                    }
-                } else if (parsed.type === 'phase' || data.message.includes('Phase')) {
-                    // Phase transition message
-                    if (data.message.includes('Phase 1: Completed')) {
-                        $('#current-step').text('Coarse search completed! Analyzing results...');
-                        currentPhase = 'transition';
-                        // Show coarse phase summary
-                        const coarseTotal = phaseProgress.coarse.total;
-                        $('#latest-test-result').html(
-                            `<small><strong>Phase 1 Complete:</strong> Tested ${coarseTotal} cluster sizes in coarse search</small>`
-                        );
-                    } else if (data.message.includes('phase:fine,planned_tests:')) {
-                        // Starting fine phase
-                        $('#current-step').text('Starting fine search around promising regions...');
-                        currentPhase = 'fine';
-                    } else {
-                        $('#current-step').text(data.message);
-                        $('#latest-test-result').html(`<small><strong>Status:</strong> ${data.message}</small>`);
-                    }
-                } else {
-                    // Other messages
-                    if (data.message.includes('Phase 1: Completed')) {
-                        $('#current-step').text('Coarse search completed, starting fine search...');
-                    } else {
-                        $('#current-step').text(data.message);
+                    // Update simple test count
+                    $('#tests-completed').text(completedTests.length);
+                    
+                    // Update overall progress based on number of tests
+                    const progressPercent = Math.min(90, 45 + (completedTests.length * 5)); // Gradually increase
+                    $('#overall-progress').css('width', progressPercent + '%');
+                    $('#progress-text').text(`Elbow Detection...`);
+                    
+                    // After initial sampling is complete, enable interactions
+                    if (currentPhase === 'initial' && completedTests.length >= plannedTests.length) {
+                        enableInteractiveMode();
                     }
                 }
                 break;
@@ -1003,79 +1220,274 @@ $(document).ready(function() {
                 $('#step-metrics').addClass('completed');
                 $('#step-metrics small').text('✓ Complete');
                 $('#overall-progress').css('width', '100%');
-                $('#progress-text').text('Analysis Complete!');
-                $('#optimization-progress').hide();
+                $('#progress-text').text('Ready for Selection!');
+                
+                // Enable final selection mode
+                enableInteractiveMode();
+                $('#selection-status').html('<strong style="color: #28a745;">✓ Ready!</strong> Click any point to select, or add more points for detail');
                 break;
                 
             case 'results':
+                // In interactive elbow detection mode, don't immediately cleanup
+                // Keep the session alive for user interaction
+                const response = data.results;
+                if (response.success) {
+                    // Enable final interactive mode but don't cleanup yet
+                    enableInteractiveMode();
+                    $('#selection-status').html('<strong style="color: #28a745;">✓ Initial analysis complete!</strong> Click any point to select, or add more points for detail');
+                    $('#current-step').text('Interactive mode ready - select a point to proceed');
+                    $('#progress-text').text('Ready for Selection!');
+                    
+                    // Update UI to show completion but keep interactive
+                    $('#step-clustering').removeClass('active').addClass('completed');
+                    $('#step-clustering small').text('✓ Complete');
+                    $('#step-metrics').addClass('completed');
+                    $('#step-metrics small').text('✓ Complete');
+                    $('#overall-progress').css('width', '100%');
+                } else {
+                    // Only cleanup on actual errors
+                    $('#progress-tracker').hide();
+                    $('#find-optimal-btn').prop('disabled', false);
+                    $('#cluster-btn').prop('disabled', false);
+                    cleanupActiveProcesses();
+                    alert('Error: ' + response.message);
+                }
+                break;
+                
+            case 'error':
+                // Handle optimization errors with proper cleanup
+                $('.step-indicator.active').removeClass('active').addClass('error');
+                $('#current-step').text('Error: ' + data.message);
                 $('#progress-tracker').hide();
                 $('#find-optimal-btn').prop('disabled', false);
                 $('#cluster-btn').prop('disabled', false);
+                $('#cancel-optimization-btn').hide();
                 cleanupActiveProcesses();
                 
-                // Show optimization results modal
-                const response = data.results;
-                if (response.success) {
-                    // Show optimization results (existing modal code)
-                    const modalHtml = `
-                        <div class="modal fade" id="optimizationModal" tabindex="-1" aria-hidden="true">
-                            <div class="modal-dialog modal-lg">
-                                <div class="modal-content">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title">🎯 Optimal Cluster Size Analysis</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                                                                 <div class="alert alert-success">
-                                             <h6>🎯 True Optimization Results for ${response.total_goals} Learning Goals</h6>
-                                             <div class="row mt-3">
-                                                 <div class="col-md-6">
-                                                     <strong>🏆 Best Overall (Composite):</strong> 
-                                                     <span class="badge bg-success fs-6">${response.best_composite_k} clusters</span>
-                                                     <br><small>Optimized composite score: ${response.max_composite_score}</small>
-                                                     <br><small class="text-muted">Balances separation, cohesion & silhouette</small>
-                                                 </div>
-                                                 <div class="col-md-6">
-                                                     <strong>🎯 Best Separation:</strong> 
-                                                     <span class="badge bg-info fs-6">${response.best_separation_k} clusters</span>
-                                                     <br><small>Max separation score: ${response.max_separation_score}</small>
-                                                     <br><small class="text-muted">Most distinct clusters (least redundancy)</small>
-                                                 </div>
-                                             </div>
-                                             <div class="row mt-2">
-                                                 <div class="col-md-6">
-                                                     <small><strong>Best Cohesion:</strong> ${response.best_cohesion_k} clusters (${response.max_cohesion_score})</small>
-                                                 </div>
-                                                 <div class="col-md-6">
-                                                     <small><strong>Best Silhouette:</strong> ${response.best_silhouette_k} clusters (${response.max_silhouette_score})</small>
-                                                 </div>
-                                             </div>
-                                         </div>
-                                        <p class="text-muted">${response.recommendation.explanation}</p>
-                                                                                 <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                             <button class="btn btn-success" onclick="applyOptimalClusters(${response.best_composite_k})">
-                                                 🏆 Use ${response.best_composite_k} clusters (Best Overall)
-                                             </button>
-                                             <button class="btn btn-outline-info" onclick="applyOptimalClusters(${response.best_separation_k})">
-                                                 🎯 Use ${response.best_separation_k} clusters (Max Separation)
-                                             </button>
-                                             <button class="btn btn-outline-secondary" data-bs-dismiss="modal">
-                                                 🎮 Use Manual Approach Instead
-                                             </button>
-                                         </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Remove existing modal and add new one
-                    $('#optimizationModal').remove();
-                    $('body').append(modalHtml);
-                    $('#optimizationModal').modal('show');
-                } else {
-                    alert('Error: ' + response.message);
+                // Reset optimization state
+                optimizationData = [];
+                selectedPoint = null;
+                bestResult = null;
+                
+                if (data.message.includes('Need at least')) {
+                        $('#no-goals').show();
+                    } else {
+                    alert('Optimization error: ' + data.message);
                 }
+                break;
+        }
+    }
+    
+    function enableInteractiveMode() {
+        // Enable the "Add More Points" button
+        $('#add-more-points-btn').prop('disabled', false);
+        
+        // Show the cancel button for user to abort if needed
+        $('#cancel-optimization-btn').show();
+        
+        // Update selection status
+        if (optimizationData.length > 0) {
+            $('#selection-status').text('Click any blue dot to select, or add more points for detail');
+        }
+        
+        // If we have data, user can select points
+        if (optimizationChart && optimizationChart.data.datasets[0].data.length > 0) {
+            $('#use-selected-btn').prop('disabled', false);
+        }
+    }
+    
+    // Cancel the optimization session
+    function cancelOptimization() {
+        // Clean up the optimization stream
+        cleanupActiveProcesses();
+        
+        // Hide progress tracker and re-enable buttons
+        $('#progress-tracker').hide();
+        $('#find-optimal-btn').prop('disabled', false);
+                $('#cluster-btn').prop('disabled', false);
+        
+        // Reset optimization state
+        optimizationData = [];
+        selectedPoint = null;
+        bestResult = null;
+        
+        // Hide cancel button
+        $('#cancel-optimization-btn').hide();
+        
+        console.log('Optimization session cancelled by user');
+    }
+
+    // Add more points around areas of interest
+    function addMorePoints() {
+        if (optimizationData.length === 0) {
+            alert('No initial data available. Please run initial optimization first.');
+            return;
+        }
+        
+        // Prompt user for target region
+        const currentPoints = optimizationData.map(d => d.k).sort((a, b) => a - b);
+        const minK = Math.min(...currentPoints);
+        const maxK = Math.max(...currentPoints);
+        
+        let targetK;
+        if (selectedPoint) {
+            // Default to area around selected point
+            targetK = selectedPoint.k;
+        } else if (bestResult) {
+            // Default to area around best result
+            targetK = bestResult.k;
+        } else {
+            // Default to middle of range
+            targetK = Math.round((minK + maxK) / 2);
+        }
+        
+        // Ask user where to add more points
+        const userInput = prompt(
+            `Add more points around which cluster size?\n\n` +
+            `Current range: ${minK} to ${maxK} clusters\n` +
+            `Suggestion: ${targetK} (around ${selectedPoint ? 'selected' : bestResult ? 'best' : 'middle'} point)`,
+            targetK
+        );
+        
+        if (!userInput) return;
+        
+        const targetRegionCenter = parseInt(userInput);
+        if (isNaN(targetRegionCenter) || targetRegionCenter < 2) {
+            alert('Please enter a valid cluster size (minimum 2)');
+            return;
+        }
+        
+        // Disable the button during refinement
+        $('#add-more-points-btn').prop('disabled', true).text('Adding Points...');
+        $('#selection-status').text(`Adding refinement points around ${targetRegionCenter} clusters...`);
+        
+        // Clean up any existing processes
+        cleanupActiveProcesses();
+        
+        // Start refinement request
+        const abortController = new AbortController();
+        activeFetch = abortController;
+        
+        fetch('/api/add-elbow-refinement', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                target_region_center: targetRegionCenter,
+                existing_results: optimizationData,
+                region_radius: null,  // Let backend decide
+                course_filter: selectedCourse  // Add course filter parameter
+            }),
+            signal: abortController.signal
+        }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            function processRefinementStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) return;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop();
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                handleRefinementProgress(data);
+                            } catch (e) {
+                                console.error('Error parsing refinement SSE data:', e);
+                            }
+                        }
+                    }
+                    
+                    processRefinementStream();
+                }).catch(error => {
+                    console.error('Refinement stream error:', error);
+                    $('#add-more-points-btn').prop('disabled', false).text('Add More Points');
+                    $('#selection-status').text('Error adding points. Try again.');
+                });
+            }
+            
+            processRefinementStream();
+        }).catch(error => {
+            console.error('Refinement fetch error:', error);
+            $('#add-more-points-btn').prop('disabled', false).text('Add More Points');
+            $('#selection-status').text('Error adding points. Try again.');
+        });
+    }
+    
+    function handleRefinementProgress(data) {
+        switch(data.status) {
+            case 'starting':
+            case 'loading':
+            case 'loaded':
+            case 'embeddings':
+            case 'embeddings_complete':
+                // These are quick, just update status
+                $('#selection-status').text(data.message);
+                break;
+                
+            case 'refining':
+                // Parse refinement progress like optimization progress
+                const parsed = parseOptimizationMessage(data.message);
+                
+                if (parsed.type === 'planned') {
+                    $('#selection-status').text(`Adding ${parsed.tests.length} new points...`);
+                } else if (parsed.type === 'completed') {
+                    // Add new point to chart and data
+                    const result = {
+                        k: parsed.k,
+                        composite: parsed.composite,
+                        silhouette: parsed.silhouette,
+                        inertia: parsed.inertia
+                    };
+                    
+                    // Check if this is truly a new point
+                    const existingPoint = optimizationData.find(d => d.k === parsed.k);
+                    if (!existingPoint) {
+                        optimizationData.push(result);
+                        addOptimizationPoint(parsed.k, parsed.composite, parsed.inertia, parsed.silhouette);
+                        
+                        // Update latest test
+                        $('#latest-test-result').html(
+                            `<small><strong>New point added:</strong> ${parsed.k} clusters - ` +
+                            `composite=${parsed.composite.toFixed(3)}, inertia=${parsed.inertia.toFixed(0)}</small>`
+                        );
+                        
+                        // Update total count
+                        $('#tests-completed').text(optimizationData.length);
+                    }
+                }
+                break;
+                
+            case 'refinement_complete':
+                $('#add-more-points-btn').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> Add More Points');
+                $('#selection-status').text('Refinement complete! Click any point to select, or add more points.');
+                break;
+                
+            case 'results':
+                const results = data.results;
+                if (results.success) {
+                    $('#latest-test-result').html(
+                        `<small><strong>Success:</strong> Added ${results.new_points_added} new points ` +
+                        `(${results.total_points} total)</small>`
+                    );
+                } else {
+                    $('#latest-test-result').html(
+                        `<small class="text-warning"><strong>Note:</strong> ${data.message}</small>`
+                    );
+                }
+                $('#add-more-points-btn').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> Add More Points');
+                $('#selection-status').text('Click any point to select, or add more points for detail.');
+                break;
+                
+            case 'error':
+                $('#add-more-points-btn').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> Add More Points');
+                $('#selection-status').html(`<span class="text-danger">Error: ${data.message}</span>`);
                 break;
         }
     }
@@ -1226,9 +1638,292 @@ $(document).ready(function() {
         return text.substring(0, maxLength) + '...';
     }
     
+    // Initialize optimization chart
+    function initializeOptimizationChart() {
+        const ctx = document.getElementById('optimization-chart').getContext('2d');
+        
+        if (optimizationChart) {
+            optimizationChart.destroy();
+        }
+        
+        optimizationChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Composite Quality',
+                    data: [],
+                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    pointRadius: 6,
+                    pointHoverRadius: 8,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Silhouette Score',
+                    data: [],
+                    backgroundColor: 'rgba(75, 192, 192, 0.7)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Inertia (WCSS)',
+                    data: [],
+                    type: 'line',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y1'
+                }, {
+                    label: 'Fair Silhouette (0.2)',
+                    data: [],
+                    type: 'line',
+                    borderColor: 'rgba(128, 128, 128, 0.5)',
+                    backgroundColor: 'rgba(128, 128, 128, 0.1)',
+                    borderWidth: 1,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    fill: false,
+                    yAxisID: 'y'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Number of Clusters'
+                        },
+                        min: undefined, // Auto-scale
+                        max: undefined  // Auto-scale
+                    },
+                    y: {
+                        type: 'linear',
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Quality Scores (Composite & Silhouette)',
+                            color: 'rgba(54, 162, 235, 1)'
+                        },
+                        min: 0,
+                        max: 1,
+                        grid: {
+                            drawOnChartArea: true,
+                        },
+                        ticks: {
+                            color: 'rgba(54, 162, 235, 1)'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Inertia (Within-Cluster Sum of Squares)',
+                            color: 'rgba(255, 99, 132, 1)'
+                        },
+                        min: undefined, // Auto-scale
+                        max: undefined, // Auto-scale
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        ticks: {
+                            color: 'rgba(255, 99, 132, 1)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const value = context.parsed.y;
+                                const datasetIndex = context.datasetIndex;
+                                
+                                if (datasetIndex === 0) {
+                                    return `Composite Quality: ${value.toFixed(3)} (${context.parsed.x} clusters)`;
+                                } else if (datasetIndex === 1) {
+                                    return `Silhouette Score: ${value.toFixed(3)} (${context.parsed.x} clusters)`;
+                                } else if (datasetIndex === 2) {
+                                    return `Inertia: ${value.toFixed(0)} (${context.parsed.x} clusters)`;
+                                } else if (datasetIndex === 3) {
+                                    return `Fair Silhouette Threshold: 0.2`;
+                                }
+                                return `${context.dataset.label}: ${value.toFixed(3)}`;
+                            }
+                        }
+                    }
+                },
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                onClick: function(event, elements) {
+                    if (elements.length > 0) {
+                        const elementIndex = elements[0].index;
+                        const datasetIndex = elements[0].datasetIndex;
+                        
+                        // Allow selection of composite quality points (dataset 0) or silhouette points (dataset 1)
+                        if (datasetIndex === 0 || datasetIndex === 1) {
+                            const point = optimizationChart.data.datasets[datasetIndex].data[elementIndex];
+                            const clusters = point.x;
+                            
+                            // Find the full result data for this cluster count
+                            const resultData = optimizationData.find(r => r.k === clusters);
+                            if (resultData) {
+                                selectPoint(resultData);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Add point to optimization chart
+    function addOptimizationPoint(clusters, quality, inertia, silhouette) {
+        if (!optimizationChart) return;
+        
+        // Add composite quality point (dataset 0)
+        optimizationChart.data.datasets[0].data.push({
+            x: clusters,
+            y: quality
+        });
+        
+        // Add silhouette score point (dataset 1)
+        optimizationChart.data.datasets[1].data.push({
+            x: clusters,
+            y: silhouette
+        });
+        
+        // Add inertia point (dataset 2 - line chart)
+        optimizationChart.data.datasets[2].data.push({
+            x: clusters,
+            y: inertia
+        });
+        
+        // Sort inertia data by x-axis for proper line connection
+        optimizationChart.data.datasets[2].data.sort((a, b) => a.x - b.x);
+        
+        // Update reference line to span the current x-axis range
+        const allXValues = optimizationChart.data.datasets[0].data.map(point => point.x);
+        if (allXValues.length > 0) {
+            const minX = Math.min(...allXValues);
+            const maxX = Math.max(...allXValues);
+            
+            // Update reference line (dataset 3) to span full range
+            optimizationChart.data.datasets[3].data = [
+                { x: minX, y: 0.2 },
+                { x: maxX, y: 0.2 }
+            ];
+            
+            // Auto-scale x-axis
+            const xPadding = (maxX - minX) * 0.1; // 10% padding
+            optimizationChart.options.scales.x.min = Math.max(0, minX - xPadding);
+            optimizationChart.options.scales.x.max = maxX + xPadding;
+        }
+        
+        // Auto-scale inertia axis
+        const allInertiaValues = optimizationChart.data.datasets[2].data.map(point => point.y);
+        if (allInertiaValues.length > 0) {
+            const minInertia = Math.min(...allInertiaValues);
+            const maxInertia = Math.max(...allInertiaValues);
+            const inertiaPadding = (maxInertia - minInertia) * 0.1; // 10% padding
+            
+            optimizationChart.options.scales.y1.min = Math.max(0, minInertia - inertiaPadding);
+            optimizationChart.options.scales.y1.max = maxInertia + inertiaPadding;
+        }
+        
+        optimizationChart.update('none'); // Fast update without animation
+    }
+
+    // Select a point on the chart for clustering
+    function selectPoint(resultData) {
+        selectedPoint = resultData;
+        
+        // Update UI to show selection
+        $('#use-selected-btn').prop('disabled', false).removeClass('btn-primary').addClass('btn-success');
+        $('#selection-status').html(`<strong>Selected:</strong> ${resultData.k} clusters (composite: ${resultData.composite.toFixed(3)}, silhouette: ${resultData.silhouette.toFixed(3)}, inertia: ${resultData.inertia.toFixed(0)})`);
+        
+        // Highlight selected point on chart
+        updateChartSelection(resultData.k);
+        
+        console.log('Selected point:', resultData);
+    }
+
+    // Update chart to highlight selected point
+    function updateChartSelection(selectedK) {
+        if (!optimizationChart) return;
+        
+        // Reset all point styles for composite quality points (dataset 0)
+        optimizationChart.data.datasets[0].pointBackgroundColor = optimizationChart.data.datasets[0].data.map(() => 'rgba(54, 162, 235, 0.7)');
+        optimizationChart.data.datasets[0].pointBorderColor = optimizationChart.data.datasets[0].data.map(() => 'rgba(54, 162, 235, 1)');
+        optimizationChart.data.datasets[0].pointRadius = optimizationChart.data.datasets[0].data.map(() => 6);
+        
+        // Reset all point styles for silhouette score points (dataset 1)
+        optimizationChart.data.datasets[1].pointBackgroundColor = optimizationChart.data.datasets[1].data.map(() => 'rgba(75, 192, 192, 0.7)');
+        optimizationChart.data.datasets[1].pointBorderColor = optimizationChart.data.datasets[1].data.map(() => 'rgba(75, 192, 192, 1)');
+        optimizationChart.data.datasets[1].pointRadius = optimizationChart.data.datasets[1].data.map(() => 5);
+        
+        // Highlight selected points for both datasets
+        const selectedCompositeIndex = optimizationChart.data.datasets[0].data.findIndex(point => point.x === selectedK);
+        const selectedSilhouetteIndex = optimizationChart.data.datasets[1].data.findIndex(point => point.x === selectedK);
+        
+        if (selectedCompositeIndex !== -1) {
+            optimizationChart.data.datasets[0].pointBackgroundColor[selectedCompositeIndex] = 'rgba(40, 167, 69, 0.9)';
+            optimizationChart.data.datasets[0].pointBorderColor[selectedCompositeIndex] = 'rgba(40, 167, 69, 1)';
+            optimizationChart.data.datasets[0].pointRadius[selectedCompositeIndex] = 10;
+        }
+        
+        if (selectedSilhouetteIndex !== -1) {
+            optimizationChart.data.datasets[1].pointBackgroundColor[selectedSilhouetteIndex] = 'rgba(40, 167, 69, 0.9)';
+            optimizationChart.data.datasets[1].pointBorderColor[selectedSilhouetteIndex] = 'rgba(40, 167, 69, 1)';
+            optimizationChart.data.datasets[1].pointRadius[selectedSilhouetteIndex] = 8;
+        }
+        
+        optimizationChart.update('none');
+    }
+
+    // Use selected point for clustering
+    function useSelectedPoint() {
+        if (!selectedPoint) {
+            alert('No point selected. Click on a point in the chart first.');
+            return;
+        }
+        
+        // Clean up the optimization stream now that user has made selection
+        cleanupActiveProcesses();
+        
+        // Hide progress tracker and re-enable buttons
+        $('#progress-tracker').hide();
+        $('#find-optimal-btn').prop('disabled', false);
+        $('#cluster-btn').prop('disabled', false);
+        
+        // Hide cancel button since user is proceeding
+        $('#cancel-optimization-btn').hide();
+        
+        // Apply the selected cluster size
+        $('#optimizationModal').modal('hide');
+        $('#n-clusters-input').val(selectedPoint.k);
+        window.performClustering(selectedPoint.k);
+    }
+    
     // Make functions globally accessible for modal buttons
     window.applyOptimalClusters = applyOptimalClusters;
     window.performClustering = performClustering;
+    window.useSelectedPoint = useSelectedPoint;
+    window.addMorePoints = addMorePoints;
+    window.cancelOptimization = cancelOptimization;
 });
 </script>
 {% endblock %} 
