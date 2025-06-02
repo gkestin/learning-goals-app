@@ -134,9 +134,20 @@
             </div>
             <div class="card-body">
                 
-                <!-- Learning Goals Overview -->
+                <!-- Learning Goals Overview & Course Selection -->
                 <div id="goals-overview" class="alert alert-info mb-4">
-                    <h5>ℹ️ Learning Goals Overview</h5>
+                    <div class="row align-items-center mb-3">
+                        <div class="col-md-8">
+                            <h5 class="mb-0">ℹ️ Learning Goals Overview & Course Selection</h5>
+                        </div>
+                        <div class="col-md-4">
+                            <select id="course-selector" class="form-select">
+                                <option value="">All Courses (Default)</option>
+                                <!-- Course options will be populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+                    
                     <div id="overview-loading">
                         <div class="spinner-border spinner-border-sm" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -145,36 +156,6 @@
                     </div>
                     <div id="overview-content" style="display: none;">
                         <!-- Overview content will be populated here -->
-                    </div>
-                </div>
-                
-                <!-- Course Filter -->
-                <div class="mb-4">
-                    <div class="card border-secondary">
-                        <div class="card-header bg-light">
-                            <h6 class="mb-0"><i class="bi bi-funnel"></i> Course Filter</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row align-items-center">
-                                <div class="col-md-6">
-                                    <label for="course-selector" class="form-label"><strong>Select Course:</strong></label>
-                                    <select id="course-selector" class="form-select">
-                                        <option value="">All Courses (Default)</option>
-                                        <!-- Course options will be populated dynamically -->
-                                    </select>
-                                    <div class="form-text">
-                                        Choose a specific course to cluster only its learning goals, or select "All Courses" to cluster learning goals from all courses together.
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div id="course-stats" class="text-muted">
-                                        <small><strong>Selected:</strong> <span id="selected-course-info">All courses</span></small><br>
-                                        <small><strong>Learning Goals:</strong> <span id="selected-goals-count">Loading...</span></small><br>
-                                        <small><strong>Documents:</strong> <span id="selected-docs-count">Loading...</span></small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 
@@ -193,19 +174,11 @@
                 <!-- Approach 1: Automatic Optimization -->
                 <div id="optimize-approach" class="clustering-controls border border-2 border-info" style="display: none;">
                     <h4 class="text-info mb-3">🎯 Automatic Optimization</h4>
-                    <p class="text-muted mb-3">Let the AI find the optimal cluster size using data-driven analysis methods.</p>
+                    <p class="text-muted mb-3">Let AI find the optimal cluster size using data-driven analysis.</p>
                     <div class="row">
                         <div class="col-md-8">
                             <div class="mb-3">
-                                <p><strong>How it works:</strong></p>
-                                <ul class="mb-0">
-                                    <li><strong>Smart Optimization:</strong> Multi-resolution search for large datasets, exhaustive for smaller ones</li>
-                                    <li><strong>True Optimization:</strong> Tests multiple sizes to maximize our actual quality metrics</li>
-                                    <li><strong>Composite Score:</strong> Weighted combination of separation + cohesion + silhouette</li>
-                                    <li><strong>Multiple Options:</strong> Best overall, best separation, best cohesion, best silhouette</li>
-                                    <li><strong>Data-Driven:</strong> Finds cluster sizes that actually optimize your specific learning goals</li>
-                                    <li><strong>STEM-Optimized:</strong> Quality thresholds adjusted for domain-specific content similarity</li>
-                                </ul>
+                                <p><strong>What it does:</strong> Tests multiple cluster sizes to find the best grouping of your learning goals based on quality metrics.</p>
                             </div>
                         </div>
                         
@@ -215,7 +188,7 @@
                                     🎯 Find Optimal Size & Cluster
                                 </button>
                                 <small class="text-muted">
-                                    Recommended for first-time analysis or when unsure about cluster size
+                                    Recommended for first-time analysis
                                 </small>
                             </div>
                         </div>
@@ -225,7 +198,7 @@
                 <!-- Approach 2: Manual Configuration -->
                 <div id="manual-approach" class="clustering-controls border border-2 border-primary">
                     <h4 class="text-primary mb-3">🎮 Manual Configuration</h4>
-                    <p class="text-muted mb-3">Specify exact number of clusters for precise control over granularity.</p>
+                    <p class="text-muted mb-3">Choose the exact number of clusters for precise control.</p>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -234,10 +207,8 @@
                                     <input type="number" class="form-control form-control-lg text-center" id="n-clusters-input" min="2" max="1000" value="50">
                                     <span class="input-group-text">clusters</span>
                                 </div>
-                                <div class="form-text">
-                                    More clusters = smaller, more specific groups<br>
-                                    Fewer clusters = broader, more general themes<br>
-                                    <strong>Suggested starting point:</strong> ~20% of total goals
+                                <div id="manual-cluster-help" class="form-text">
+                                    More clusters = smaller groups. Fewer clusters = broader themes.
                                 </div>
                             </div>
                         </div>
@@ -248,7 +219,7 @@
                                     🧠 Analyze with Manual Size
                                 </button>
                                 <small class="text-muted">
-                                    Good for fine-tuning or when you have specific clustering requirements
+                                    Good for fine-tuning results
                                 </small>
                             </div>
                         </div>
@@ -516,23 +487,24 @@ $(document).ready(function() {
                 if (response.success) {
                     const overviewHtml = `
                         <div class="row">
-                            <div class="col-md-3">
-                                <strong>Total Learning Goals:</strong> <span class="badge bg-primary">${response.total_goals}</span>
+                            <div class="col-md-2">
+                                <strong>Dataset:</strong> <span class="badge bg-secondary">All Courses</span>
                             </div>
-                            <div class="col-md-3">
-                                <strong>From Documents:</strong> <span class="badge bg-secondary">${response.total_documents}</span>
+                            <div class="col-md-2">
+                                <strong>Learning Goals:</strong> <span class="badge bg-primary">${response.total_goals}</span>
                             </div>
-                            <div class="col-md-3">
-                                <strong>Unique Goals:</strong> <span class="badge bg-info">${response.unique_goals}</span>
+                            <div class="col-md-2">
+                                <strong>Documents:</strong> <span class="badge bg-info">${response.total_documents}</span>
                             </div>
-                            <div class="col-md-3">
-                                <strong>Avg Goals/Doc:</strong> <span class="badge bg-success">${response.avg_goals_per_doc}</span>
+                            <div class="col-md-2">
+                                <strong>Unique Goals:</strong> <span class="badge bg-success">${response.unique_goals}</span>
                             </div>
-                        </div>
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                💡 Ready to cluster! Choose your parameters below and click "Analyze Learning Goals".
-                            </small>
+                            <div class="col-md-2">
+                                <strong>Avg Goals/Doc:</strong> <span class="badge bg-warning">${response.avg_goals_per_doc}</span>
+                            </div>
+                            <div class="col-md-2">
+                                <span class="badge bg-light text-dark">Ready to cluster!</span>
+                            </div>
                         </div>
                     `;
                     $('#overview-content').html(overviewHtml);
@@ -550,17 +522,27 @@ $(document).ready(function() {
                         const maxClusters = response.total_goals;
                         $('#n-clusters-input').attr('max', maxClusters);
                         
-                        // Set a reasonable default: ~20% of total goals for fine-grained clustering
-                        const suggestedClusters = Math.max(2, Math.min(Math.floor(response.total_goals * 0.2), 100));
+                        // Smart scaling: 20% for small datasets, but scale down percentage for very large datasets
+                        let suggestedClusters;
+                        if (response.total_goals <= 500) {
+                            // 20% for smaller datasets (up to 100 clusters)
+                            suggestedClusters = Math.floor(response.total_goals * 0.2);
+                        } else if (response.total_goals <= 2000) {
+                            // 15% for medium datasets (75-300 clusters)
+                            suggestedClusters = Math.floor(response.total_goals * 0.15);
+                        } else if (response.total_goals <= 5000) {
+                            // 10% for large datasets (200-500 clusters)
+                            suggestedClusters = Math.floor(response.total_goals * 0.1);
+                        } else {
+                            // 5% for very large datasets (250+ clusters)
+                            suggestedClusters = Math.floor(response.total_goals * 0.05);
+                        }
+                        // Ensure minimum of 2 clusters and reasonable maximum
+                        suggestedClusters = Math.max(2, Math.min(suggestedClusters, Math.floor(response.total_goals / 3)));
                         $('#n-clusters-input').val(suggestedClusters);
                         
                         // Update the help text with specific recommendation
-                        $('.form-text').html(`
-                            More clusters = smaller, more specific groups<br>
-                            Fewer clusters = broader, more general themes<br>
-                            <strong>Suggested starting point for ${response.total_goals} goals:</strong> ${suggestedClusters} clusters 
-                            (Range: 2-${maxClusters})
-                        `);
+                        updateManualClusterHelp(response.total_goals);
                     } else {
                         $('#goals-overview').removeClass('alert-info').addClass('alert-warning');
                         $('#overview-content').html(`
@@ -571,6 +553,9 @@ $(document).ready(function() {
                         `);
                         $('#overview-loading').hide();
                         $('#overview-content').show();
+                        
+                        // Update manual cluster help text for insufficient goals
+                        updateManualClusterHelp(response.total_goals);
                     }
                 } else {
                     $('#overview-content').html(`
@@ -631,21 +616,46 @@ $(document).ready(function() {
     
     function updateCourseStats() {
         if (!selectedCourse) {
-            // All courses selected
-            $('#selected-course-info').text('All courses');
-            $('#selected-goals-count').text('Loading...');
-            $('#selected-docs-count').text('Loading...');
-            
-            // Load total stats (this could be cached from overview)
+            // All courses selected - reload full overview
             loadGoalsOverview();
         } else {
-            // Specific course selected
-            const courseData = availableCourses.find(c => c.name === selectedCourse);
-            if (courseData) {
-                $('#selected-course-info').text(`"${courseData.name}"`);
-                $('#selected-goals-count').text(courseData.total_goals);
-                $('#selected-docs-count').text(courseData.documents);
+            // Specific course selected - update overview for this course
+            updateGoalsOverviewForCourse();
+        }
+    }
+    
+    // Helper function to update manual cluster help text based on goal count
+    function updateManualClusterHelp(totalGoals) {
+        if (totalGoals >= 2) {
+            const maxClusters = totalGoals;
+            // Smart scaling: 20% for small datasets, but scale down percentage for very large datasets
+            let suggestedClusters;
+            if (totalGoals <= 500) {
+                // 20% for smaller datasets (up to 100 clusters)
+                suggestedClusters = Math.floor(totalGoals * 0.2);
+            } else if (totalGoals <= 2000) {
+                // 15% for medium datasets (75-300 clusters)
+                suggestedClusters = Math.floor(totalGoals * 0.15);
+            } else if (totalGoals <= 5000) {
+                // 10% for large datasets (200-500 clusters)
+                suggestedClusters = Math.floor(totalGoals * 0.1);
+            } else {
+                // 5% for very large datasets (250+ clusters)
+                suggestedClusters = Math.floor(totalGoals * 0.05);
             }
+            // Ensure minimum of 2 clusters and reasonable maximum
+            suggestedClusters = Math.max(2, Math.min(suggestedClusters, Math.floor(totalGoals / 3)));
+            
+            $('#manual-cluster-help').html(`
+                More clusters = smaller, more specific groups<br>
+                Fewer clusters = broader, more general themes<br>
+                <strong>Suggested starting point for ${totalGoals} goals:</strong> ${suggestedClusters} clusters 
+                (Range: 2-${maxClusters})
+            `);
+        } else {
+            $('#manual-cluster-help').html(`
+                More clusters = smaller groups. Fewer clusters = broader themes.
+            `);
         }
     }
     
@@ -660,25 +670,28 @@ $(document).ready(function() {
             if (courseData) {
                 const overviewHtml = `
                     <div class="row">
-                        <div class="col-md-3">
-                            <strong>Course Goals:</strong> <span class="badge bg-primary">${courseData.total_goals}</span>
-                                    </div>
-                        <div class="col-md-3">
-                            <strong>Course Documents:</strong> <span class="badge bg-secondary">${courseData.documents}</span>
-                                                 </div>
-                        <div class="col-md-3">
-                            <strong>Course:</strong> <span class="badge bg-info">"${courseData.name}"</span>
-                                                 </div>
-                        <div class="col-md-3">
-                            <strong>Avg Goals/Doc:</strong> <span class="badge bg-success">${Math.round(courseData.total_goals / courseData.documents * 10) / 10}</span>
-                                             </div>
-                                                 </div>
-                    <div class="mt-2">
-                        <small class="text-muted">
-                            📚 Ready to cluster goals from course "${courseData.name}"!
-                        </small>
+                        <div class="col-md-2">
+                            <strong>Dataset:</strong> <span class="badge bg-info">${courseData.name}</span>
                         </div>
-                    `;
+                        <div class="col-md-2">
+                            <strong>Learning Goals:</strong> <span class="badge bg-primary">${courseData.total_goals}</span>
+                        </div>
+                        <div class="col-md-2">
+                            <strong>Documents:</strong> <span class="badge bg-secondary">${courseData.documents}</span>
+                        </div>
+                        <div class="col-md-2">
+                            <strong>Avg Goals/Doc:</strong> <span class="badge bg-warning">${Math.round(courseData.total_goals / courseData.documents * 10) / 10}</span>
+                        </div>
+                        <div class="col-md-2">
+                            <span class="badge bg-light text-dark">Course selected!</span>
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="$('#course-selector').val('').change()">
+                                <i class="bi bi-x"></i> Clear filter
+                            </button>
+                        </div>
+                    </div>
+                `;
                 $('#overview-content').html(overviewHtml);
                 
                 // Update clustering controls for this course
@@ -691,8 +704,27 @@ $(document).ready(function() {
                     // Set max clusters and suggested default
                     const maxClusters = courseData.total_goals;
                     $('#n-clusters-input').attr('max', maxClusters);
-                    const suggestedClusters = Math.max(2, Math.min(Math.floor(courseData.total_goals * 0.2), 100));
+                    // Smart scaling: 20% for small datasets, but scale down percentage for very large datasets
+                    let suggestedClusters;
+                    if (courseData.total_goals <= 500) {
+                        // 20% for smaller datasets (up to 100 clusters)
+                        suggestedClusters = Math.floor(courseData.total_goals * 0.2);
+                    } else if (courseData.total_goals <= 2000) {
+                        // 15% for medium datasets (75-300 clusters)
+                        suggestedClusters = Math.floor(courseData.total_goals * 0.15);
+                    } else if (courseData.total_goals <= 5000) {
+                        // 10% for large datasets (200-500 clusters)
+                        suggestedClusters = Math.floor(courseData.total_goals * 0.1);
+                    } else {
+                        // 5% for very large datasets (250+ clusters)
+                        suggestedClusters = Math.floor(courseData.total_goals * 0.05);
+                    }
+                    // Ensure minimum of 2 clusters and reasonable maximum
+                    suggestedClusters = Math.max(2, Math.min(suggestedClusters, Math.floor(courseData.total_goals / 3)));
                     $('#n-clusters-input').val(suggestedClusters);
+                    
+                    // Update manual cluster help text for this course
+                    updateManualClusterHelp(courseData.total_goals);
                 } else {
                     $('#cluster-btn').prop('disabled', true);
                     $('#find-optimal-btn').prop('disabled', true);
@@ -702,6 +734,9 @@ $(document).ready(function() {
                             ⚠️ Course "${courseData.name}" only has ${courseData.total_goals} learning goals. Need at least 2 for clustering.
                         </p>
                     `);
+                    
+                    // Update manual cluster help text for insufficient goals
+                    updateManualClusterHelp(courseData.total_goals);
                 }
             }
         }
