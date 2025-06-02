@@ -62,6 +62,67 @@ class LearningGoalsClusteringService:
         print(f"⚡ Embedding generation completed in {elapsed:.2f} seconds")
         return embeddings
     
+    def generate_embeddings_with_progress(self, learning_goals, progress_callback=None):
+        """Generate embeddings with progress callback for very large datasets"""
+        # Check cache first
+        cache_key = hash(tuple(learning_goals))
+        
+        with self._cache_lock:
+            if cache_key in self._embedding_cache:
+                print("✅ Using cached embeddings")
+                if progress_callback:
+                    progress_callback(100, "Using cached embeddings")
+                return self._embedding_cache[cache_key]
+        
+        print(f"🔄 Generating embeddings for {len(learning_goals)} goals with progress tracking...")
+        start_time = time.time()
+        
+        prepared_goals = self.prepare_goals_for_embedding(learning_goals)
+        n_goals = len(prepared_goals)
+        
+        # For very large datasets, process in chunks with progress updates
+        if n_goals > 1000 and progress_callback:
+            chunk_size = 100
+            embeddings_list = []
+            
+            for i in range(0, n_goals, chunk_size):
+                chunk = prepared_goals[i:i+chunk_size]
+                chunk_embeddings = self.model.encode(
+                    chunk,
+                    batch_size=32,
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                    normalize_embeddings=True
+                )
+                embeddings_list.append(chunk_embeddings)
+                
+                # Calculate and report progress
+                progress = min((i + chunk_size) / n_goals * 100, 100)
+                if progress_callback:
+                    progress_callback(progress, f"Processing embeddings: {min(i+chunk_size, n_goals)}/{n_goals} goals")
+            
+            embeddings = np.vstack(embeddings_list)
+        else:
+            # Regular processing for smaller datasets
+            embeddings = self.model.encode(
+                prepared_goals,
+                batch_size=32,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=True
+            )
+        
+        # Cache the result
+        with self._cache_lock:
+            self._embedding_cache[cache_key] = embeddings
+            if len(self._embedding_cache) > 3:
+                oldest_key = next(iter(self._embedding_cache))
+                del self._embedding_cache[oldest_key]
+        
+        elapsed = time.time() - start_time
+        print(f"⚡ Embedding generation completed in {elapsed:.2f} seconds")
+        return embeddings
+    
     def _precompute_similarity_matrices(self, embeddings):
         """Precompute similarity and distance matrices for reuse across multiple clustering operations"""
         embeddings_id = id(embeddings)
@@ -294,8 +355,8 @@ class LearningGoalsClusteringService:
             'composite': composite_score
         }
     
-    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True, use_fast=True):
-        """Find optimal cluster sizes with full performance optimizations"""
+    def find_optimal_cluster_sizes(self, embeddings, max_clusters=None, min_clusters=2, use_multires=True, use_fast=True, progress_callback=None):
+        """Find optimal cluster sizes with full performance optimizations and progress tracking"""
         n_goals = len(embeddings)
         
         # Set reasonable bounds
@@ -314,22 +375,32 @@ class LearningGoalsClusteringService:
         
         if use_multires and search_range > 100:
             print(f"🚀 Using {optimization_method} optimization for {search_range} clusters")
-            return self._find_optimal_multires_parallel(embeddings, max_clusters, min_clusters, use_fast)
+            return self._find_optimal_multires_parallel(embeddings, max_clusters, min_clusters, use_fast, progress_callback)
         else:
             print(f"🚀 Using {optimization_method} exhaustive search for {search_range} clusters")
-            return self._find_optimal_exhaustive_parallel(embeddings, max_clusters, min_clusters, use_fast)
+            return self._find_optimal_exhaustive_parallel(embeddings, max_clusters, min_clusters, use_fast, progress_callback)
     
-    def _find_optimal_exhaustive_parallel(self, embeddings, max_clusters, min_clusters, use_fast=True):
-        """Optimized exhaustive search with parallel processing"""
+    def _find_optimal_exhaustive_parallel(self, embeddings, max_clusters, min_clusters, use_fast=True, progress_callback=None):
+        """Optimized exhaustive search with parallel processing and progress tracking"""
         cluster_sizes = list(range(min_clusters, max_clusters + 1))
+        total_tests = len(cluster_sizes)
         
-        print(f"🔄 Testing {len(cluster_sizes)} cluster sizes with parallel processing...")
+        print(f"🔄 Testing {total_tests} cluster sizes with parallel processing...")
         start_time = time.time()
+        
+        if progress_callback:
+            progress_callback(f"Starting exhaustive search of {total_tests} cluster sizes...", 0, total_tests, 0)
         
         # Use parallel processing with optimal thread count
         max_workers = min(4, len(cluster_sizes), 8)  # Limit threads to prevent overhead
         
         results_data = []
+        completed_count = 0
+        
+        # Send list of planned tests
+        if progress_callback:
+            progress_callback(f"planned_tests:{','.join(map(str, cluster_sizes))}", 0, total_tests, 0)
+        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             if use_fast:
@@ -348,19 +419,35 @@ class LearningGoalsClusteringService:
                 try:
                     result = future.result()
                     results_data.append(result)
+                    completed_count += 1
+                    
+                    # Send progress update with completed test result
+                    if progress_callback:
+                        progress_callback(
+                            f"completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f}",
+                            completed_count, total_tests, int((completed_count / total_tests) * 100)
+                        )
+                    
                 except Exception as e:
                     k = future_to_k[future]
                     print(f"❌ Error evaluating k={k}: {e}")
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback(f"error:k={k},error={str(e)}", completed_count, total_tests, int((completed_count / total_tests) * 100))
         
         # Sort results by k for consistency
         results_data.sort(key=lambda x: x['k'])
         
         elapsed = time.time() - start_time
         print(f"⚡ Exhaustive search completed in {elapsed:.2f} seconds")
+        
+        if progress_callback:
+            progress_callback(f"Exhaustive search completed! Tested {total_tests} cluster sizes in {elapsed:.1f}s", total_tests, total_tests, 100)
+        
         return self._process_optimization_results(results_data)
     
-    def _find_optimal_multires_parallel(self, embeddings, max_clusters, min_clusters, use_fast=True):
-        """Optimized multi-resolution search with parallel processing"""
+    def _find_optimal_multires_parallel(self, embeddings, max_clusters, min_clusters, use_fast=True, progress_callback=None):
+        """Optimized multi-resolution search with parallel processing and progress tracking"""
         search_range = max_clusters - min_clusters + 1
         coarse_step = max(8, search_range // 15)
         
@@ -368,10 +455,19 @@ class LearningGoalsClusteringService:
         if coarse_range[-1] != max_clusters:
             coarse_range.append(max_clusters)
         
-        print(f"🔄 Phase 1: Parallel coarse search ({len(coarse_range)} points)")
+        # Phase 1: coarse search
+        coarse_tests = len(coarse_range)
+        
+        print(f"🔄 Phase 1: Parallel coarse search ({coarse_tests} points)")
         start_time = time.time()
         
-        # Parallel coarse search
+        completed_count = 0
+        
+        # Send planned coarse tests
+        if progress_callback:
+            progress_callback(f"phase:coarse,planned_tests:{','.join(map(str, coarse_range))}", 0, 0, 0)
+        
+        # Run coarse search first
         coarse_results = []
         with ThreadPoolExecutor(max_workers=4) as executor:
             if use_fast:
@@ -389,16 +485,26 @@ class LearningGoalsClusteringService:
                 try:
                     result = future.result()
                     coarse_results.append(result)
+                    completed_count += 1
+                    
+                    # Send coarse search progress with coarse totals
+                    if progress_callback:
+                        progress_callback(
+                            f"phase:coarse,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f}",
+                            completed_count, coarse_tests, int((completed_count / coarse_tests) * 100)
+                        )
+                        
                 except Exception as e:
                     k = future_to_k[future]
                     print(f"❌ Error in coarse search k={k}: {e}")
+                    completed_count += 1
         
-        # Find promising regions
+        # Find promising regions after coarse search
         best_coarse_composite = max(coarse_results, key=lambda x: x['composite'])
         best_coarse_separation = max(coarse_results, key=lambda x: x['separation'])
         best_coarse_cohesion = max(coarse_results, key=lambda x: x['cohesion'])
         
-        # Phase 2: Fine search around promising regions
+        # Calculate actual fine search regions
         fine_search_regions = set()
         fine_search_regions.update(self._get_fine_search_region(
             best_coarse_composite['k'], min_clusters, max_clusters, coarse_step))
@@ -416,7 +522,19 @@ class LearningGoalsClusteringService:
         tested_coarse = {r['k'] for r in coarse_results}
         fine_search_regions = fine_search_regions - tested_coarse
         
-        print(f"🔄 Phase 2: Parallel fine search ({len(fine_search_regions)} points)")
+        # Now we know the actual total tests - send initial progress with real numbers
+        actual_fine_tests = len(fine_search_regions)
+        actual_total_tests = coarse_tests + actual_fine_tests
+        
+        if progress_callback:
+            progress_callback(f"Phase 1: Completed coarse search ({coarse_tests} tests)", coarse_tests, actual_total_tests, int((coarse_tests / actual_total_tests) * 100))
+        
+        print(f"🔄 Phase 2: Parallel fine search ({actual_fine_tests} points)")
+        if progress_callback:
+            progress_callback(
+                f"phase:fine,planned_tests:{','.join(map(str, sorted(fine_search_regions)))}", 
+                completed_count, actual_total_tests, int((completed_count / actual_total_tests) * 100)
+            )
         
         # Parallel fine search
         fine_results = []
@@ -437,9 +555,18 @@ class LearningGoalsClusteringService:
                     try:
                         result = future.result()
                         fine_results.append(result)
+                        completed_count += 1
+                        
+                        if progress_callback:
+                            progress_callback(
+                                f"phase:fine,completed:k={result['k']},silhouette={result['silhouette']:.3f},composite={result['composite']:.3f}",
+                                completed_count, actual_total_tests, int((completed_count / actual_total_tests) * 100)
+                            )
+                            
                     except Exception as e:
                         k = future_to_k[future]
                         print(f"❌ Error in fine search k={k}: {e}")
+                        completed_count += 1
         
         # Combine and sort results
         all_results = coarse_results + fine_results
@@ -448,6 +575,9 @@ class LearningGoalsClusteringService:
         elapsed = time.time() - start_time
         print(f"⚡ Multi-resolution search completed in {elapsed:.2f} seconds")
         print(f"📊 Tested {len(all_results)} points vs {search_range} exhaustive ({100*(1-len(all_results)/search_range):.1f}% reduction)")
+        
+        if progress_callback:
+            progress_callback(f"Multi-resolution search completed! Tested {actual_total_tests} cluster sizes in {elapsed:.1f}s", actual_total_tests, actual_total_tests, 100)
         
         return self._process_optimization_results(all_results)
 

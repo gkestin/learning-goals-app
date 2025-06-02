@@ -78,6 +78,33 @@
     .clustering-controls {
         transition: all 0.3s ease;
     }
+
+    /* Progress Tracker Styles */
+    .step-indicator {
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        transition: all 0.3s ease;
+    }
+    
+    .step-indicator.active {
+        background-color: #e3f2fd;
+        color: #1976d2;
+    }
+    
+    .step-indicator.completed {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+    }
+    
+    .step-indicator.error {
+        background-color: #ffebee;
+        color: #c62828;
+    }
+    
+    #progress-tracker {
+        margin-bottom: 20px;
+    }
 </style>
 {% endblock %}
 
@@ -111,17 +138,17 @@
                 <!-- Approach Toggle -->
                 <div class="mb-3">
                     <div class="btn-group" role="group" aria-label="Clustering approach toggle">
-                        <input type="radio" class="btn-check" name="approach-toggle" id="optimize-toggle" autocomplete="off" checked>
+                        <input type="radio" class="btn-check" name="approach-toggle" id="optimize-toggle" autocomplete="off">
                         <label class="btn btn-outline-info" for="optimize-toggle">🎯 Auto-Optimize</label>
                         
-                        <input type="radio" class="btn-check" name="approach-toggle" id="manual-toggle" autocomplete="off">
+                        <input type="radio" class="btn-check" name="approach-toggle" id="manual-toggle" autocomplete="off" checked>
                         <label class="btn btn-outline-primary" for="manual-toggle">🎮 Manual Config</label>
                     </div>
                     <small class="text-muted ms-3">Choose your clustering approach</small>
                 </div>
 
                 <!-- Approach 1: Automatic Optimization -->
-                <div id="optimize-approach" class="clustering-controls border border-2 border-info">
+                <div id="optimize-approach" class="clustering-controls border border-2 border-info" style="display: none;">
                     <h4 class="text-info mb-3">🎯 Automatic Optimization</h4>
                     <p class="text-muted mb-3">Let the AI find the optimal cluster size using data-driven analysis methods.</p>
                     <div class="row">
@@ -153,7 +180,7 @@
                 </div>
 
                 <!-- Approach 2: Manual Configuration -->
-                <div id="manual-approach" class="clustering-controls border border-2 border-primary" style="display: none;">
+                <div id="manual-approach" class="clustering-controls border border-2 border-primary">
                     <h4 class="text-primary mb-3">🎮 Manual Configuration</h4>
                     <p class="text-muted mb-3">Specify exact number of clusters for precise control over granularity.</p>
                     <div class="row">
@@ -194,6 +221,95 @@
                     <small class="text-muted">Generating semantic embeddings and clustering...</small>
                 </div>
 
+                <!-- Progress Tracker -->
+                <div id="progress-tracker" style="display: none;">
+                    <div class="card border-primary">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0"><i class="bi bi-gear-fill"></i> Processing Progress</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="progress-message" class="mb-3">
+                                <strong>Current Step:</strong> <span id="current-step">Initializing...</span>
+                            </div>
+                            
+                            <!-- Step Progress Indicators -->
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-loading" class="step-indicator">
+                                            <i class="bi bi-database-fill fs-3"></i>
+                                            <div>Loading Data</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-embeddings" class="step-indicator">
+                                            <i class="bi bi-cpu-fill fs-3"></i>
+                                            <div>Embeddings</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-clustering" class="step-indicator">
+                                            <i class="bi bi-diagram-3-fill fs-3"></i>
+                                            <div>Clustering</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-metrics" class="step-indicator">
+                                            <i class="bi bi-graph-up fs-3"></i>
+                                            <div>Quality Metrics</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Overall Progress Bar -->
+                            <div class="progress" style="height: 25px;">
+                                <div id="overall-progress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" style="width: 0%">
+                                    <span id="progress-text">Starting...</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Detailed Progress Info -->
+                            <div id="progress-details" class="mt-3 text-muted">
+                                <small id="progress-detail-text"></small>
+                                <div id="optimization-progress" style="display: none;" class="mt-2">
+                                    <div class="alert alert-warning mb-2">
+                                        <i class="bi bi-clock"></i> <strong>Note:</strong> Optimization may take a long time - potentially several minutes per test depending on your dataset size.
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <small><strong>Tests Completed:</strong> <span id="tests-completed">0</span> / <span id="tests-total">0</span></small>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <small><strong>Progress:</strong> <span id="optimization-percentage">0%</span></small>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <div id="latest-test-result" class="text-info mb-1"></div>
+                                        <div id="best-so-far" class="text-success"></div>
+                                    </div>
+                                </div>
+                                <div id="clustering-time-warning" style="display: none;" class="mt-2">
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-hourglass-split"></i> <strong>Please wait:</strong> Clustering may take several minutes depending on the number of learning goals.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Clustering Results -->
                 <div id="results-section" style="display: none;">
                     <!-- Stats Section -->
@@ -221,6 +337,10 @@
 
 {% block scripts %}
 <script>
+// Global variables to track active processes
+let activeEventSource = null;
+let activeFetch = null;
+
 // Global functions for modal button clicks
 function applyOptimalClusters(optimalK) {
     // Close modal first
@@ -232,6 +352,23 @@ function applyOptimalClusters(optimalK) {
     // Auto-trigger clustering with the optimal size
     window.performClustering(optimalK);
 }
+
+// Clean up function to stop any running processes
+function cleanupActiveProcesses() {
+    if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+    }
+    if (activeFetch && activeFetch.abort) {
+        activeFetch.abort();
+        activeFetch = null;
+    }
+}
+
+// Clean up on page unload
+$(window).on('beforeunload', function() {
+    cleanupActiveProcesses();
+});
 
 $(document).ready(function() {
     // Load overview on page load
@@ -355,27 +492,531 @@ $(document).ready(function() {
         });
     }
     
+    function performClustering(explicitClusters = null) {
+        const nClusters = explicitClusters || $('#n-clusters-input').val();
+        
+        // Show progress tracker instead of simple loading spinner
+        $('#loading-spinner').hide();
+        $('#progress-tracker').show();
+        $('#results-section').hide();
+        $('#no-goals').hide();
+        $('#cluster-btn').prop('disabled', true);
+        
+        // Reset progress indicators
+        $('.step-indicator').removeClass('active completed error');
+        $('#overall-progress').css('width', '0%');
+        $('#current-step').text('Initializing...');
+        
+        // Reset optimization tracking state
+        plannedTests = [];
+        completedTests = [];
+        currentTestIndex = 0;
+        bestComposite = { clusters: 0, score: 0 };
+        bestSilhouette = { clusters: 0, score: 0 };
+        currentPhase = null;
+        phaseProgress = {
+            coarse: { planned: [], completed: 0, total: 0 },
+            fine: { planned: [], completed: 0, total: 0 }
+        };
+        $('#best-so-far').empty();
+        $('#latest-test-result').empty();
+        
+        // Clean up any existing processes
+        cleanupActiveProcesses();
+        
+        // Show time warning for clustering
+        $('#clustering-time-warning').show();
+        
+        // Use fetch with streaming and store abort controller
+        const abortController = new AbortController();
+        activeFetch = abortController;
+        
+        fetch('/api/cluster-stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                n_clusters: parseInt(nClusters)
+            }),
+            signal: abortController.signal
+        }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            function processStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        console.log('Stream complete');
+                        return;
+                    }
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                handleClusteringProgress(data);
+                            } catch (e) {
+                                console.error('Error parsing SSE data:', e);
+                            }
+                        }
+                    }
+                    
+                    processStream(); // Continue reading
+                }).catch(error => {
+                    console.error('Stream error:', error);
+                    $('#progress-tracker').hide();
+                    $('#loading-spinner').hide();
+                    $('#cluster-btn').prop('disabled', false);
+                    alert('Clustering failed: ' + error.message);
+                });
+            }
+            
+            processStream();
+        }).catch(error => {
+            console.error('Fetch error:', error);
+            $('#progress-tracker').hide();
+            $('#loading-spinner').hide();
+            $('#cluster-btn').prop('disabled', false);
+            alert('Failed to start clustering: ' + error.message);
+        });
+    }
+    
+    function handleClusteringProgress(data) {
+        $('#current-step').text(data.message);
+        
+        // Update step indicators based on status
+        switch(data.status) {
+            case 'loading':
+                $('.step-indicator').removeClass('active completed');
+                $('#step-loading').addClass('active');
+                $('#overall-progress').css('width', '10%');
+                $('#progress-text').text('Loading...');
+                break;
+                
+            case 'loaded':
+                $('#step-loading').removeClass('active').addClass('completed');
+                $('#step-loading small').text(`✓ ${data.totalGoals} goals`);
+                $('#overall-progress').css('width', '20%');
+                $('#progress-text').text('Data Loaded');
+                break;
+                
+            case 'embeddings':
+                $('#step-embeddings').addClass('active');
+                $('#overall-progress').css('width', '30%');
+                $('#progress-text').text('Generating...');
+                break;
+                
+            case 'embeddings_complete':
+                $('#step-embeddings').removeClass('active').addClass('completed');
+                $('#step-embeddings small').text('✓ Complete');
+                $('#overall-progress').css('width', '40%');
+                $('#progress-text').text('Embeddings Ready');
+                break;
+                
+            case 'clustering':
+                $('#step-clustering').addClass('active');
+                $('#overall-progress').css('width', '50%');
+                $('#progress-text').text('Clustering...');
+                break;
+                
+            case 'clustering_complete':
+                $('#step-clustering').removeClass('active').addClass('completed');
+                $('#step-clustering small').text('✓ Complete');
+                $('#overall-progress').css('width', '70%');
+                $('#progress-text').text('Clustering Done');
+                $('#clustering-time-warning').hide();
+                break;
+                
+            case 'metrics':
+                $('#step-metrics').addClass('active');
+                if (data.progress) {
+                    const overallProgress = 70 + (data.progress * 0.2);
+                    $('#overall-progress').css('width', overallProgress + '%');
+                    $('#progress-text').text('Calculating...');
+                }
+                break;
+                
+            case 'metrics_complete':
+                $('#step-metrics').removeClass('active').addClass('completed');
+                $('#step-metrics small').text('✓ Complete');
+                $('#overall-progress').css('width', '90%');
+                $('#progress-text').text('Metrics Done');
+                break;
+                
+            case 'organizing':
+                if (data.progress) {
+                    const overallProgress = 90 + (data.progress * 0.1);
+                    $('#overall-progress').css('width', overallProgress + '%');
+                    // Don't duplicate the message in progress-detail-text
+                    $('#progress-text').text('Organizing...');
+                }
+                break;
+                
+            case 'complete':
+                $('#overall-progress').css('width', '100%');
+                $('#progress-text').text('Complete!');
+                $('#current-step').text('Processing complete!');
+                $('#clustering-time-warning').hide();
+                
+                // Hide progress tracker and show results
+                setTimeout(() => {
+                    $('#progress-tracker').hide();
+                    displayResults(data.results);
+                    $('#cluster-btn').prop('disabled', false);
+                }, 1000);
+                break;
+                
+            case 'error':
+                $('.step-indicator.active').removeClass('active').addClass('error');
+                $('#current-step').text('Error: ' + data.message);
+                $('#progress-tracker').hide();
+                $('#cluster-btn').prop('disabled', false);
+                $('#clustering-time-warning').hide();
+                cleanupActiveProcesses();
+                
+                if (data.message.includes('Need at least')) {
+                    $('#no-goals').show();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+                break;
+        }
+    }
+    
     function findOptimalClusters() {
-        // Show loading
-        $('#loading-spinner').show();
+        // Show progress tracker
+        $('#loading-spinner').hide();
+        $('#progress-tracker').show();
         $('#results-section').hide();
         $('#no-goals').hide();
         $('#find-optimal-btn').prop('disabled', true);
         $('#cluster-btn').prop('disabled', true);
         
-        // Update loading text
-        $('#loading-spinner p').text('Finding optimal cluster size...');
-        $('#loading-spinner small').text('Testing different cluster sizes with elbow method and silhouette analysis...');
+        // Reset progress indicators
+        $('.step-indicator').removeClass('active completed error');
+        $('#overall-progress').css('width', '0%');
+        $('#current-step').text('Starting optimization...');
         
-        // API call
-        $.ajax({
-            url: '{{ url_for("main.api_find_optimal_clusters") }}',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({}),
-            success: function(response) {
+        // Reset optimization tracking state
+        plannedTests = [];
+        completedTests = [];
+        currentTestIndex = 0;
+        bestComposite = { clusters: 0, score: 0 };
+        bestSilhouette = { clusters: 0, score: 0 };
+        currentPhase = null;
+        phaseProgress = {
+            coarse: { planned: [], completed: 0, total: 0 },
+            fine: { planned: [], completed: 0, total: 0 }
+        };
+        $('#best-so-far').empty();
+        $('#latest-test-result').empty();
+        
+        // Clean up any existing processes
+        cleanupActiveProcesses();
+        
+        // Adjust step indicators for optimization
+        $('#step-clustering').find('div').eq(0).text('Optimization');
+        $('#step-metrics').find('div').eq(0).text('Analysis');
+        
+        // Use fetch with streaming and store abort controller
+        const abortController = new AbortController();
+        activeFetch = abortController;
+        
+        fetch('/api/find-optimal-clusters-stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({}),
+            signal: abortController.signal
+        }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            function processOptimizationStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) return;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop();
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                handleOptimizationProgress(data);
+                            } catch (e) {
+                                console.error('Error parsing SSE data:', e);
+                            }
+                        }
+                    }
+                    
+                    processOptimizationStream();
+                }).catch(error => {
+                    console.error('Stream error:', error);
+                    $('#progress-tracker').hide();
+                    $('#find-optimal-btn').prop('disabled', false);
+                    $('#cluster-btn').prop('disabled', false);
+                    alert('Optimization failed: ' + error.message);
+                });
+            }
+            
+            processOptimizationStream();
+        }).catch(error => {
+            console.error('Fetch error:', error);
+            $('#progress-tracker').hide();
+            $('#find-optimal-btn').prop('disabled', false);
+            $('#cluster-btn').prop('disabled', false);
+            alert('Failed to start optimization: ' + error.message);
+        });
+    }
+    
+    // Track optimization state
+    let plannedTests = [];
+    let completedTests = [];
+    let currentTestIndex = 0;
+    let bestComposite = { clusters: 0, score: 0 };
+    let bestSilhouette = { clusters: 0, score: 0 };
+    let currentPhase = null;
+    let phaseProgress = {
+        coarse: { planned: [], completed: 0, total: 0 },
+        fine: { planned: [], completed: 0, total: 0 }
+    };
+    
+    function updateBestSoFar(k, composite, silhouette) {
+        let updated = false;
+        
+        if (composite > bestComposite.score) {
+            bestComposite = { clusters: k, score: composite };
+            updated = true;
+        }
+        
+        if (silhouette > bestSilhouette.score) {
+            bestSilhouette = { clusters: k, score: silhouette };
+            updated = true;
+        }
+        
+        if (updated) {
+            $('#best-so-far').html(
+                `<small><strong>Best result so far:</strong> ` +
+                `${bestComposite.clusters} clusters (composite score: ${bestComposite.score.toFixed(3)})</small>`
+            );
+        }
+    }
+    
+    function parseOptimizationMessage(message) {
+        // Parse structured messages
+        if (message.includes('planned_tests:')) {
+            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : null;
+            const testsStr = message.split('planned_tests:')[1];
+            return {
+                type: 'planned',
+                phase: phase,
+                tests: testsStr.split(',').map(k => parseInt(k))
+            };
+        } else if (message.includes('completed:')) {
+            const parts = message.split(',');
+            const k = parseInt(parts.find(p => p.includes('k=')).split('=')[1]);
+            const silhouette = parseFloat(parts.find(p => p.includes('silhouette=')).split('=')[1]);
+            const composite = parseFloat(parts.find(p => p.includes('composite=')).split('=')[1]);
+            const phase = message.includes('phase:') ? message.split('phase:')[1].split(',')[0] : null;
+            return {
+                type: 'completed',
+                phase: phase,
+                k: k,
+                silhouette: silhouette,
+                composite: composite
+            };
+        } else if (message.includes('phase:')) {
+            const phase = message.split('phase:')[1].split(',')[0];
+            return {
+                type: 'phase',
+                phase: phase
+            };
+        }
+        return { type: 'other', message: message };
+    }
+    
+    function handleOptimizationProgress(data) {
+        $('#current-step').text(data.message);
+        
+        switch(data.status) {
+            case 'loading':
+                $('.step-indicator').removeClass('active completed');
+                $('#step-loading').addClass('active');
+                $('#overall-progress').css('width', '10%');
+                $('#progress-text').text('Loading...');
+                break;
+                
+            case 'loaded':
+                $('#step-loading').removeClass('active').addClass('completed');
+                $('#step-loading small').text(`✓ ${data.totalGoals} goals`);
+                $('#overall-progress').css('width', '20%');
+                $('#progress-text').text('Data Loaded');
+                break;
+                
+            case 'embeddings':
+                $('#step-embeddings').addClass('active');
+                $('#overall-progress').css('width', '30%');
+                $('#progress-text').text('Generating...');
+                break;
+                
+            case 'embeddings_complete':
+                $('#step-embeddings').removeClass('active').addClass('completed');
+                $('#step-embeddings small').text('✓ Complete');
+                $('#overall-progress').css('width', '40%');
+                $('#progress-text').text('Embeddings Ready');
+                break;
+                
+            case 'optimization_start':
+                $('#step-clustering').addClass('active');
+                $('#overall-progress').css('width', '45%');
+                $('#progress-text').text('Starting...');
+                $('#optimization-progress').show();
+                break;
+                
+            case 'optimizing':
+                $('#step-clustering').addClass('active'); // Keep it active, not completed
+                
+                // Parse the structured message
+                const parsed = parseOptimizationMessage(data.message);
+                
+                if (parsed.type === 'planned') {
+                    // Store planned tests for the phase
+                    const phase = parsed.phase || 'coarse';
+                    if (phase === 'fine') {
+                        phaseProgress.fine.planned = parsed.tests;
+                        phaseProgress.fine.total = parsed.tests.length;
+                        currentPhase = 'fine';
+                    } else {
+                        phaseProgress.coarse.planned = parsed.tests;
+                        phaseProgress.coarse.total = parsed.tests.length;
+                        phaseProgress.coarse.completed = 0;
+                        currentPhase = 'coarse';
+                        plannedTests = parsed.tests;
+                        completedTests = [];
+                    }
+                } else if (parsed.type === 'completed') {
+                    // Add to completed tests and update displays
+                    completedTests.push(parsed);
+                    
+                    const phase = parsed.phase || currentPhase || 'coarse';
+                    if (phase === 'fine') {
+                        phaseProgress.fine.completed++;
+                    } else {
+                        phaseProgress.coarse.completed++;
+                    }
+                    
+                    // Update best so far
+                    updateBestSoFar(parsed.k, parsed.composite, parsed.silhouette);
+                    
+                    // Find next test in planned sequence
+                    const currentPlanned = phase === 'fine' ? phaseProgress.fine.planned : phaseProgress.coarse.planned;
+                    const completedKs = completedTests.filter(t => t.phase === phase).map(t => t.k);
+                    const nextTest = currentPlanned.find(k => !completedKs.includes(k));
+                    
+                    // Update displays
+                    const phaseLabel = phase === 'fine' ? 'Fine search' : 'Coarse search';
+                    
+                    // Latest completed test
+                    $('#latest-test-result').html(
+                        `<small><strong>Latest completed:</strong> ${parsed.k} clusters - ` +
+                        `silhouette=${parsed.silhouette.toFixed(3)}, composite=${parsed.composite.toFixed(3)}</small>`
+                    );
+                    
+                    // Current running test (if any)
+                    if (nextTest !== undefined) {
+                        $('#current-step').text(`${phaseLabel}: Currently testing ${nextTest} clusters...`);
+                    } else {
+                        $('#current-step').text(`${phaseLabel}: Completing analysis...`);
+                    }
+                    
+                    // Update progress counts based on current phase or overall if provided
+                    if (data.completed !== undefined && data.total !== undefined && data.total > 0) {
+                        // Use provided totals (could be phase-specific or overall)
+                        $('#tests-completed').text(data.completed);
+                        $('#tests-total').text(data.total);
+                        $('#optimization-percentage').text(data.percentage + '%');
+                        
+                        const overallProgress = 45 + (data.percentage * 0.45); // 45% to 90%
+                        $('#overall-progress').css('width', overallProgress + '%');
+                        $('#progress-text').text(`Testing Clusters...`);
+                    } else {
+                        // Calculate from phase progress
+                        const currentProgress = phaseProgress[phase];
+                        if (currentProgress.total > 0) {
+                            const percentage = Math.round((currentProgress.completed / currentProgress.total) * 100);
+                            $('#tests-completed').text(currentProgress.completed);
+                            $('#tests-total').text(currentProgress.total);
+                            $('#optimization-percentage').text(percentage + '%');
+                            
+                            // Adjust overall progress based on phase
+                            let overallProgress;
+                            if (phase === 'coarse') {
+                                overallProgress = 45 + (percentage * 0.25); // Coarse is ~25% of optimization
+                            } else {
+                                overallProgress = 70 + (percentage * 0.20); // Fine is ~20% of optimization
+                            }
+                            $('#overall-progress').css('width', overallProgress + '%');
+                            $('#progress-text').text(`${phaseLabel}...`);
+                        }
+                    }
+                } else if (parsed.type === 'phase' || data.message.includes('Phase')) {
+                    // Phase transition message
+                    if (data.message.includes('Phase 1: Completed')) {
+                        $('#current-step').text('Coarse search completed! Analyzing results...');
+                        currentPhase = 'transition';
+                        // Show coarse phase summary
+                        const coarseTotal = phaseProgress.coarse.total;
+                        $('#latest-test-result').html(
+                            `<small><strong>Phase 1 Complete:</strong> Tested ${coarseTotal} cluster sizes in coarse search</small>`
+                        );
+                    } else if (data.message.includes('phase:fine,planned_tests:')) {
+                        // Starting fine phase
+                        $('#current-step').text('Starting fine search around promising regions...');
+                        currentPhase = 'fine';
+                    } else {
+                        $('#current-step').text(data.message);
+                        $('#latest-test-result').html(`<small><strong>Status:</strong> ${data.message}</small>`);
+                    }
+                } else {
+                    // Other messages
+                    if (data.message.includes('Phase 1: Completed')) {
+                        $('#current-step').text('Coarse search completed, starting fine search...');
+                    } else {
+                        $('#current-step').text(data.message);
+                    }
+                }
+                break;
+                
+            case 'optimization_complete':
+                $('#step-clustering').removeClass('active').addClass('completed');
+                $('#step-clustering small').text('✓ Complete');
+                $('#step-metrics').addClass('completed');
+                $('#step-metrics small').text('✓ Complete');
+                $('#overall-progress').css('width', '100%');
+                $('#progress-text').text('Analysis Complete!');
+                $('#optimization-progress').hide();
+                break;
+                
+            case 'results':
+                $('#progress-tracker').hide();
+                $('#find-optimal-btn').prop('disabled', false);
+                $('#cluster-btn').prop('disabled', false);
+                cleanupActiveProcesses();
+                
+                // Show optimization results modal
+                const response = data.results;
                 if (response.success) {
-                    // Show optimization results
+                    // Show optimization results (existing modal code)
                     const modalHtml = `
                         <div class="modal fade" id="optimizationModal" tabindex="-1" aria-hidden="true">
                             <div class="modal-dialog modal-lg">
@@ -435,61 +1076,8 @@ $(document).ready(function() {
                 } else {
                     alert('Error: ' + response.message);
                 }
-            },
-            error: function(xhr, status, error) {
-                console.error('Optimization failed:', error);
-                alert('Failed to find optimal cluster size. Please try again.\nError: ' + error);
-            },
-            complete: function() {
-                $('#loading-spinner').hide();
-                $('#find-optimal-btn').prop('disabled', false);
-                $('#cluster-btn').prop('disabled', false);
-                // Reset loading text
-                $('#loading-spinner p').text('Analyzing learning goals with AI...');
-                $('#loading-spinner small').text('Generating semantic embeddings and clustering...');
-            }
-        });
-    }
-    
-
-    
-    function performClustering(explicitClusters = null) {
-        const nClusters = explicitClusters || $('#n-clusters-input').val();
-        
-        // Show loading
-        $('#loading-spinner').show();
-        $('#results-section').hide();
-        $('#no-goals').hide();
-        $('#cluster-btn').prop('disabled', true);
-        
-        // API call
-        $.ajax({
-            url: '{{ url_for("main.api_cluster_goals") }}',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                n_clusters: parseInt(nClusters)
-            }),
-            success: function(response) {
-                if (response.success) {
-                    displayResults(response);
-                } else {
-                    if (response.message.includes('Need at least')) {
-                        $('#no-goals').show();
-                    } else {
-                        alert('Error: ' + response.message);
-                    }
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Clustering failed:', error);
-                alert('Failed to perform clustering. Please try again.\nError: ' + error);
-            },
-            complete: function() {
-                $('#loading-spinner').hide();
-                $('#cluster-btn').prop('disabled', false);
-            }
-        });
+                break;
+        }
     }
     
     function displayResults(data) {

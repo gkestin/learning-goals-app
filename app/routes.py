@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app, flash, session
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app, flash, session, Response, stream_with_context
 from app.models import Document
 from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
 from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
@@ -629,6 +629,140 @@ def api_cluster_goals():
             'message': f'Clustering failed: {str(e)}'
         })
 
+@main.route('/api/cluster-stream', methods=['POST'])
+def api_cluster_goals_stream():
+    """API endpoint for clustering learning goals with real-time progress updates via SSE"""
+    from flask import Response, stream_with_context
+    from app.clustering_service import LearningGoalsClusteringService
+    import json
+    
+    def generate_progress():
+        try:
+            # Get request data before entering generator
+            request_data = request.get_json()
+            n_clusters = request_data.get('n_clusters', 5)
+            
+            # Send initial status
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Initializing clustering process...'})}\n\n"
+            
+            # Get all learning goals from Firebase
+            yield f"data: {json.dumps({'status': 'loading', 'message': 'Loading learning goals from database...'})}\n\n"
+            all_documents = search_documents(limit=1000)
+            
+            # Extract all learning goals
+            all_goals = []
+            goal_sources = []
+            
+            for doc in all_documents:
+                for goal in doc.learning_goals:
+                    all_goals.append(goal)
+                    goal_sources.append({
+                        'document_name': doc.name,
+                        'document_id': doc.id,
+                        'creator': doc.creator,
+                        'course_name': doc.course_name
+                    })
+            
+            yield f"data: {json.dumps({'status': 'loaded', 'message': f'Loaded {len(all_goals)} learning goals from {len(all_documents)} documents', 'totalGoals': len(all_goals)})}\n\n"
+            
+            if len(all_goals) < 2:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Need at least 2 learning goals to cluster'})}\n\n"
+                return
+            
+            # Initialize clustering service
+            clustering_service = LearningGoalsClusteringService()
+            
+            # Generate embeddings with progress
+            yield f"data: {json.dumps({'status': 'embeddings', 'message': f'Generating semantic embeddings for {len(all_goals)} goals...', 'step': 'embeddings', 'progress': 0})}\n\n"
+            embeddings = clustering_service.generate_embeddings(all_goals)
+            yield f"data: {json.dumps({'status': 'embeddings_complete', 'message': 'Embeddings generated successfully', 'step': 'embeddings', 'progress': 100})}\n\n"
+            
+            # Perform clustering
+            n_clusters = min(n_clusters, len(all_goals))
+            yield f"data: {json.dumps({'status': 'clustering', 'message': f'Grouping goals into {n_clusters} clusters...', 'step': 'clustering', 'progress': 0})}\n\n"
+            labels = clustering_service.cluster_fast(embeddings, n_clusters)
+            yield f"data: {json.dumps({'status': 'clustering_complete', 'message': 'Clustering completed', 'step': 'clustering', 'progress': 100})}\n\n"
+            
+            # Calculate quality metrics
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Calculating quality metrics...', 'step': 'metrics', 'progress': 0})}\n\n"
+            
+            # Silhouette score
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Calculating silhouette score...', 'step': 'metrics', 'progress': 33})}\n\n"
+            silhouette_avg = clustering_service.calculate_cluster_quality_fast(embeddings, labels)
+            
+            # Separation metrics
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Calculating cluster separation...', 'step': 'metrics', 'progress': 66})}\n\n"
+            inter_cluster_separation, intra_cluster_cohesion = clustering_service.calculate_cluster_separation_metrics_fast(embeddings, labels)
+            
+            yield f"data: {json.dumps({'status': 'metrics_complete', 'message': 'Quality metrics calculated', 'step': 'metrics', 'progress': 100})}\n\n"
+            
+            # Organize results
+            yield f"data: {json.dumps({'status': 'organizing', 'message': 'Organizing results...', 'step': 'organizing', 'progress': 0})}\n\n"
+            
+            clusters = {}
+            for i, (goal, label, source) in enumerate(zip(all_goals, labels, goal_sources)):
+                label = int(label) if label != -1 else f"outlier_{i}"
+                
+                if label not in clusters:
+                    clusters[label] = {
+                        'goals': [],
+                        'sources': [],
+                        'size': 0
+                    }
+                
+                clusters[label]['goals'].append(goal)
+                clusters[label]['sources'].append(source)
+                clusters[label]['size'] += 1
+                
+                # Send progress updates periodically
+                if i % 100 == 0:
+                    progress = int((i / len(all_goals)) * 100)
+                    yield f"data: {json.dumps({'status': 'organizing', 'message': f'Processing goal {i+1} of {len(all_goals)}...', 'step': 'organizing', 'progress': progress})}\n\n"
+            
+            # Format final results
+            formatted_clusters = []
+            for cluster_id, cluster_data in clusters.items():
+                representative_goal = max(cluster_data['goals'], key=len)
+                formatted_clusters.append({
+                    'id': int(cluster_id) if isinstance(cluster_id, (int, float)) else cluster_id,
+                    'size': cluster_data['size'],
+                    'goals': cluster_data['goals'],
+                    'sources': cluster_data['sources'],
+                    'representative_goal': representative_goal
+                })
+            
+            formatted_clusters.sort(key=lambda x: x['size'], reverse=True)
+            
+            # Send final results
+            final_results = {
+                'status': 'complete',
+                'message': 'Clustering completed successfully',
+                'results': {
+                    'success': True,
+                    'clusters': formatted_clusters,
+                    'total_goals': len(all_goals),
+                    'n_clusters': len(formatted_clusters),
+                    'silhouette_score': round(float(silhouette_avg), 3),
+                    'inter_cluster_separation': round(float(inter_cluster_separation), 3),
+                    'intra_cluster_cohesion': round(float(intra_cluster_cohesion), 3),
+                    'method_used': 'fast'
+                }
+            }
+            yield f"data: {json.dumps(final_results)}\n\n"
+            
+        except Exception as e:
+            print(f"Clustering stream error: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Clustering failed: {str(e)}'})}\n\n"
+    
+    return Response(
+        stream_with_context(generate_progress()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'  # Disable buffering for nginx
+        }
+    )
+
 @main.route('/api/find-optimal-clusters', methods=['POST'])
 def api_find_optimal_clusters():
     """API endpoint to find optimal cluster sizes"""
@@ -709,6 +843,209 @@ def api_find_optimal_clusters():
             'success': False,
             'message': f'Optimization failed: {str(e)}'
         })
+
+@main.route('/api/find-optimal-clusters-stream', methods=['POST'])
+def api_find_optimal_clusters_stream():
+    """API endpoint to find optimal cluster sizes with real-time progress updates via SSE"""
+    from flask import Response, stream_with_context
+    from app.clustering_service import LearningGoalsClusteringService
+    import json
+    
+    def generate_optimization_progress():
+        try:
+            # Send initial status
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Starting optimization process...'})}\n\n"
+            
+            # Get all learning goals from Firebase
+            yield f"data: {json.dumps({'status': 'loading', 'message': 'Loading learning goals from database...'})}\n\n"
+            all_documents = search_documents(limit=1000)
+            
+            # Extract all learning goals
+            all_goals = []
+            for doc in all_documents:
+                all_goals.extend(doc.learning_goals)
+            
+            yield f"data: {json.dumps({'status': 'loaded', 'message': f'Loaded {len(all_goals)} learning goals', 'totalGoals': len(all_goals)})}\n\n"
+            
+            if len(all_goals) < 4:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Need at least 4 learning goals for optimization analysis'})}\n\n"
+                return
+            
+            # Get optimization parameters
+            request_data = request.get_json() or {}
+            use_multires = request_data.get('use_multires', True)
+            
+            # Initialize clustering service with progress callback
+            clustering_service = LearningGoalsClusteringService()
+            
+            optimization_method = "multi-resolution" if use_multires else "exhaustive"
+            yield f"data: {json.dumps({'status': 'embeddings', 'message': f'Generating embeddings for {len(all_goals)} goals...'})}\n\n"
+            
+            # Generate embeddings
+            embeddings = clustering_service.generate_embeddings(all_goals)
+            
+            yield f"data: {json.dumps({'status': 'embeddings_complete', 'message': 'Embeddings generated successfully'})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'optimization_start', 'message': f'Starting {optimization_method} search...', 'phase': 'optimization'})}\n\n"
+            
+            # Run optimization in a separate function that we can monitor
+            import threading
+            import queue
+            import time
+            
+            # Use a queue for thread-safe communication
+            result_queue = queue.Queue()
+            progress_stream = queue.Queue()
+            stop_flag = threading.Event()  # Add stop flag for clean shutdown
+            
+            def run_optimization():
+                try:
+                    def stream_progress(message, completed, total, percentage):
+                        if stop_flag.is_set():
+                            return  # Stop if flagged
+                        progress_stream.put({
+                            'status': 'optimizing', 
+                            'message': message, 
+                            'completed': completed, 
+                            'total': total, 
+                            'percentage': percentage
+                        })
+                    
+                    # Create a wrapper that checks stop flag
+                    def check_stop_wrapper(original_func):
+                        def wrapper(*args, **kwargs):
+                            if stop_flag.is_set():
+                                raise Exception("Optimization cancelled")
+                            return original_func(*args, **kwargs)
+                        return wrapper
+                    
+                    # Temporarily wrap the clustering service methods to check for stop
+                    original_cluster_fast = clustering_service.cluster_fast
+                    clustering_service.cluster_fast = check_stop_wrapper(original_cluster_fast)
+                    
+                    try:
+                        results, best_composite_k, best_separation_k = clustering_service.find_optimal_cluster_sizes(
+                            embeddings,
+                            max_clusters=min(len(all_goals) - 1, len(all_goals) // 2 + 50),
+                            use_multires=use_multires,
+                            use_fast=True,
+                            progress_callback=stream_progress
+                        )
+                        
+                        result_queue.put(('success', results, best_composite_k, best_separation_k))
+                    finally:
+                        # Restore original method
+                        clustering_service.cluster_fast = original_cluster_fast
+                        
+                except Exception as e:
+                    if "cancelled" in str(e):
+                        result_queue.put(('cancelled', 'Optimization was cancelled'))
+                    else:
+                        result_queue.put(('error', str(e)))
+                finally:
+                    progress_stream.put(None)  # Signal completion
+            
+            # Start optimization in background thread
+            opt_thread = threading.Thread(target=run_optimization)
+            opt_thread.daemon = True  # Make thread daemon so it stops with main process
+            opt_thread.start()
+            
+            # Stream progress updates as they come
+            try:
+                while True:
+                    try:
+                        # Check for progress updates (non-blocking)
+                        try:
+                            progress_update = progress_stream.get_nowait()
+                            if progress_update is None:  # Completion signal
+                                break
+                            yield f"data: {json.dumps(progress_update)}\n\n"
+                        except queue.Empty:
+                            pass
+                        
+                        # Small delay to prevent busy waiting
+                        time.sleep(0.1)
+                        
+                    except GeneratorExit:
+                        # Client disconnected - stop optimization
+                        print("Client disconnected, stopping optimization...")
+                        stop_flag.set()
+                        break
+                    except Exception as e:
+                        print(f"Error in progress streaming: {e}")
+                        stop_flag.set()
+                        break
+            finally:
+                # Ensure we clean up
+                stop_flag.set()
+                
+            # Wait for optimization to complete or timeout
+            opt_thread.join(timeout=2)  # Wait max 2 seconds
+            
+            # Only process result if thread completed and we didn't cancel
+            if not stop_flag.is_set() and not opt_thread.is_alive():
+                try:
+                    result_data = result_queue.get_nowait()
+                    if result_data[0] == 'cancelled':
+                        yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Optimization was cancelled'})}\n\n"
+                        return
+                    elif result_data[0] == 'error':
+                        yield f"data: {json.dumps({'status': 'error', 'message': f'Optimization failed: {result_data[1]}'})}\n\n"
+                        return
+                    
+                    _, results, best_composite_k, best_separation_k = result_data
+                    
+                    if results is None:
+                        yield f"data: {json.dumps({'status': 'error', 'message': 'Unable to perform optimization analysis'})}\n\n"
+                        return
+                    
+                    yield f"data: {json.dumps({'status': 'optimization_complete', 'message': 'Optimization analysis completed successfully'})}\n\n"
+                    
+                    # Send final results
+                    final_results = {
+                        'status': 'results',
+                        'results': {
+                            'success': True,
+                            'total_goals': len(all_goals),
+                            'best_composite_k': int(best_composite_k),
+                            'best_separation_k': int(best_separation_k),
+                            'best_cohesion_k': int(results['best_cohesion_k']),
+                            'best_silhouette_k': int(results['best_silhouette_k']),
+                            'max_composite_score': round(float(results['max_composite']), 3),
+                            'max_separation_score': round(float(results['max_separation']), 3),
+                            'max_cohesion_score': round(float(results['max_cohesion']), 3),
+                            'max_silhouette_score': round(float(results['max_silhouette']), 3),
+                            'analysis_data': {
+                                'cluster_sizes': [int(k) for k in results['cluster_sizes']],
+                                'silhouette_scores': [round(float(s), 3) for s in results['silhouette_scores']],
+                                'separation_scores': [round(float(s), 3) for s in results['separation_scores']],
+                                'cohesion_scores': [round(float(s), 3) for s in results['cohesion_scores']],
+                                'composite_scores': [round(float(s), 3) for s in results['composite_scores']]
+                            },
+                            'recommendation': {
+                                'primary': int(best_composite_k),
+                                'alternative': int(best_separation_k),
+                                'explanation': f"True optimization suggests {best_composite_k} clusters for best overall quality (composite score: {results['max_composite']:.3f}). Alternative: {best_separation_k} clusters for maximum cluster separation."
+                            }
+                        }
+                    }
+                    yield f"data: {json.dumps(final_results)}\n\n"
+                    
+                except queue.Empty:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Optimization completed but no result received'})}\n\n"
+            
+        except Exception as e:
+            print(f"Optimization stream error: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Optimization failed: {str(e)}'})}\n\n"
+    
+    return Response(
+        stream_with_context(generate_optimization_progress()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 
 @main.route('/api/extract-learning-goals', methods=['POST'])
 def extract_learning_goals_from_text():
