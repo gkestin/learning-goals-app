@@ -32,7 +32,7 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
+        background-color: rgba(0, 0, 0, 0.8);
         display: flex;
         justify-content: center;
         align-items: center;
@@ -46,6 +46,8 @@
     .saving-message {
         font-size: 1.2rem;
         margin-top: 10px;
+        text-align: center;
+        max-width: 600px;
     }
     .saving-dots::after {
         display: inline-block;
@@ -73,188 +75,217 @@
     .document-card .card-body {
         padding: 20px;
     }
-    .global-metadata {
-        background-color: #f0f7ff;
-        border: 1px solid #c8e1ff;
+    .upload-progress-container {
+        margin-top: 20px;
+        width: 100%;
+        max-width: 500px;
+    }
+    .progress-phase {
+        margin-bottom: 25px;
+        padding: 15px;
+        background-color: rgba(255, 255, 255, 0.1);
         border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
-    .global-metadata-heading {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
+    .progress-phase-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #fff;
+        font-size: 1.1rem;
     }
-    .progress-container {
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 1000;
-        background-color: white;
-        padding: 10px;
-        border-radius: 5px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        width: 300px;
-        display: none;
+    .progress-phase.active {
+        background-color: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.3);
     }
-    .document-status {
-        margin-top: 10px;
-        padding: 5px 10px;
-        border-radius: 4px;
-        color: white;
+    .progress-phase.completed {
+        background-color: rgba(40, 167, 69, 0.2);
+        border-color: rgba(40, 167, 69, 0.4);
     }
-    .status-pending {
-        background-color: #6c757d;
+    .upload-progress-file {
+        margin-bottom: 12px;
+        padding: 12px;
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
     }
-    .status-processing {
-        background-color: #007bff;
+    .upload-progress-file .file-name {
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: #333;
+        font-size: 0.9rem;
     }
-    .status-success {
-        background-color: #28a745;
-    }
-    .status-error {
-        background-color: #dc3545;
-    }
-    .disabled-input {
+    .upload-progress-file .progress {
+        height: 20px;
         background-color: #e9ecef;
-        cursor: not-allowed;
+    }
+    .phase-progress {
+        margin-bottom: 10px;
+    }
+    .phase-progress .progress {
+        height: 25px;
+        background-color: rgba(255, 255, 255, 0.3);
+    }
+    .phase-progress .progress-bar {
+        font-weight: bold;
+        line-height: 25px;
+    }
+    .warning-banner {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        font-weight: bold;
+        text-align: center;
+    }
+    .no-upload-notice {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        text-align: center;
     }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="container">
 <div class="row justify-content-center">
     <div class="col-md-10">
-        <!-- Progress Container -->
-        <div class="progress-container">
-            <h5>Processing Documents</h5>
-            <div class="progress">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
-            </div>
-            <div class="document-statuses"></div>
+            
+            <!-- Notice that files haven't been uploaded yet -->
+            <div class="no-upload-notice">
+                <i class="bi bi-info-circle"></i>
+                <strong>Files haven't been uploaded yet!</strong> Your files are stored locally and will only be uploaded when you click "Save All Documents" below.
+                Feel free to edit the learning goals and metadata first.
         </div>
 
-        <form id="save-form" method="post" action="{{ url_for('main.save_document_data') }}">
-            <!-- Global Metadata Section - Only show if there are multiple documents -->
-            {% if processed_files|length > 1 %}
-            <div class="global-metadata">
-                <div class="global-metadata-heading">
-                    <h3 class="h5">Global Metadata (applies to all documents)</h3>
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="apply-global-btn">Apply to All</button>
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h2 class="card-title h4 mb-0">Edit Learning Goals and Document Metadata</h2>
                 </div>
+                <div class="card-body">
+                    <form id="save-form" method="post" action="{{ url_for('main.save_document_data') }}">
                 
-                <div class="row mb-4">
+                        <!-- Global Metadata Section -->
+                        <div class="mb-5">
+                            <h3 class="h5 mb-3">Global Metadata (applies to all documents):</h3>
+                            <div class="row g-3">
                     <div class="col-md-6">
-                        <div class="mb-3">
                             <label for="global_creator" class="form-label">Creator:</label>
-                            <input type="text" class="form-control" id="global_creator" name="global_creator">
-                        </div>
+                                    <input type="text" class="form-control global-field" id="global_creator" name="global_creator" placeholder="Enter creator name">
                     </div>
                     <div class="col-md-6">
-                        <div class="mb-3">
                             <label for="global_course_name" class="form-label">Course Name:</label>
-                            <input type="text" class="form-control" id="global_course_name" name="global_course_name">
-                        </div>
-                    </div>
+                                    <input type="text" class="form-control global-field" id="global_course_name" name="global_course_name" placeholder="Enter course name">
                 </div>
-                <div class="row mb-4">
                     <div class="col-md-6">
-                        <div class="mb-3">
                             <label for="global_institution" class="form-label">Institution:</label>
-                            <input type="text" class="form-control" id="global_institution" name="global_institution">
-                        </div>
+                                    <input type="text" class="form-control global-field" id="global_institution" name="global_institution" placeholder="Enter institution name">
                     </div>
                     <div class="col-md-6">
-                        <div class="mb-3">
                             <label for="global_doc_type" class="form-label">Document Type:</label>
-                            <select class="form-select" id="global_doc_type" name="global_doc_type">
-                                <option value="" selected>Select a document type (optional)</option>
+                                    <select class="form-select global-field" id="global_doc_type" name="global_doc_type">
+                                        <option value="">Select document type</option>
+                                        <option value="Syllabus">Syllabus</option>
+                                        <option value="Assignment">Assignment</option>
                                 <option value="Exam">Exam</option>
-                                <option value="Homework">Homework</option>
-                                <option value="Reading">Reading</option>
-                                <option value="Syllabus">Syllabus</option>
-                                <option value="Lecture">Lecture</option>
-                                <option value="Lab">Lab</option>
-                                <option value="Project">Project</option>
-                                <option value="Worksheet">Worksheet</option>
+                                        <option value="Lecture Notes">Lecture Notes</option>
+                                        <option value="Lab Manual">Lab Manual</option>
+                                        <option value="Project Description">Project Description</option>
+                                        <option value="Rubric">Rubric</option>
+                                        <option value="Curriculum Guide">Curriculum Guide</option>
                                 <option value="Other">Other</option>
                             </select>
                         </div>
+                                <div class="col-md-12">
+                                    <label for="global_notes" class="form-label">Notes:</label>
+                                    <textarea class="form-control global-field" id="global_notes" name="global_notes" rows="2" placeholder="Enter any additional notes"></textarea>
                     </div>
                 </div>
-                <div class="row">
-                    <div class="col-md-12">
-                        <div class="mb-3">
-                            <label for="global_notes" class="form-label">Notes (Optional):</label>
-                            <textarea class="form-control" id="global_notes" name="global_notes" rows="2"></textarea>
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle"></i>
+                                    Changes to global fields will automatically apply to all documents below. 
+                                    Double-click any field below to revert it to the global value.
+                                </small>
+                            </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
             
-            <!-- Individual Document Sections -->
+                        <!-- Individual Documents -->
             {% for document in processed_files %}
-            <div class="document-card" id="document-card-{{ loop.index0 }}">
+                        <div class="document-card">
                 <div class="card-header">
-                    <h4 class="h5 mb-0">Document {{ loop.index }}: {{ document.original_filename }}</h4>
+                                <h3 class="h6 mb-0">
+                                    <i class="bi bi-file-earmark-pdf"></i>
+                                    Document {{ loop.index }}: {{ document.original_filename }}
+                                    <small class="text-muted">({{ (document.file_size / 1024 / 1024) | round(1) }}MB)</small>
+                                </h3>
                 </div>
                 <div class="card-body">
+                                <!-- Document Metadata -->
                     <div class="row mb-4">
                         <div class="col-md-6">
-                            <div class="mb-3">
+                                        <label for="document_name_{{ loop.index0 }}" class="form-label">Document Name:</label>
+                                        <input type="text" class="form-control metadata-field" 
+                                               id="document_name_{{ loop.index0 }}" 
+                                               name="document_name_{{ loop.index0 }}" 
+                                               value="{{ document.original_filename }}"
+                                               data-field-type="name">
+                                    </div>
+                                    <div class="col-md-6">
                                 <label for="creator_{{ loop.index0 }}" class="form-label">Creator:</label>
-                                <input type="text" class="form-control metadata-field" id="creator_{{ loop.index0 }}" name="creator_{{ loop.index0 }}" data-field-type="creator" required>
-                            </div>
+                                        <input type="text" class="form-control metadata-field" 
+                                               id="creator_{{ loop.index0 }}" 
+                                               name="creator_{{ loop.index0 }}" 
+                                               data-field-type="creator">
                         </div>
                         <div class="col-md-6">
-                            <div class="mb-3">
                                 <label for="course_name_{{ loop.index0 }}" class="form-label">Course Name:</label>
-                                <input type="text" class="form-control metadata-field" id="course_name_{{ loop.index0 }}" name="course_name_{{ loop.index0 }}" data-field-type="course_name" required>
-                            </div>
-                        </div>
+                                        <input type="text" class="form-control metadata-field" 
+                                               id="course_name_{{ loop.index0 }}" 
+                                               name="course_name_{{ loop.index0 }}" 
+                                               data-field-type="course_name">
                     </div>
-                    <div class="row mb-4">
                         <div class="col-md-6">
-                            <div class="mb-3">
                                 <label for="institution_{{ loop.index0 }}" class="form-label">Institution:</label>
-                                <input type="text" class="form-control metadata-field" id="institution_{{ loop.index0 }}" name="institution_{{ loop.index0 }}" data-field-type="institution" required>
-                            </div>
+                                        <input type="text" class="form-control metadata-field" 
+                                               id="institution_{{ loop.index0 }}" 
+                                               name="institution_{{ loop.index0 }}" 
+                                               data-field-type="institution">
                         </div>
                         <div class="col-md-6">
-                            <div class="mb-3">
                                 <label for="doc_type_{{ loop.index0 }}" class="form-label">Document Type:</label>
-                                <select class="form-select metadata-field" id="doc_type_{{ loop.index0 }}" name="doc_type_{{ loop.index0 }}" data-field-type="doc_type" required>
-                                    <option value="" disabled selected>Select a document type</option>
+                                        <select class="form-select metadata-field" 
+                                                id="doc_type_{{ loop.index0 }}" 
+                                                name="doc_type_{{ loop.index0 }}" 
+                                                data-field-type="doc_type">
+                                            <option value="">Select document type</option>
+                                            <option value="Syllabus">Syllabus</option>
+                                            <option value="Assignment">Assignment</option>
                                     <option value="Exam">Exam</option>
-                                    <option value="Homework">Homework</option>
-                                    <option value="Reading">Reading</option>
-                                    <option value="Syllabus">Syllabus</option>
-                                    <option value="Lecture">Lecture</option>
-                                    <option value="Lab">Lab</option>
-                                    <option value="Project">Project</option>
-                                    <option value="Worksheet">Worksheet</option>
+                                            <option value="Lecture Notes">Lecture Notes</option>
+                                            <option value="Lab Manual">Lab Manual</option>
+                                            <option value="Project Description">Project Description</option>
+                                            <option value="Rubric">Rubric</option>
+                                            <option value="Curriculum Guide">Curriculum Guide</option>
                                     <option value="Other">Other</option>
                                 </select>
                             </div>
-                        </div>
-                    </div>
-                    <div class="row mb-4">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="notes_{{ loop.index0 }}" class="form-label">Notes (Optional):</label>
-                                <textarea class="form-control metadata-field" id="notes_{{ loop.index0 }}" name="notes_{{ loop.index0 }}" data-field-type="notes" rows="3"></textarea>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="document_name_{{ loop.index0 }}" class="form-label">Document Name:</label>
-                                <input type="text" class="form-control" id="document_name_{{ loop.index0 }}" name="document_name_{{ loop.index0 }}" value="{{ document.original_filename }}" required>
-                            </div>
+                                    <div class="col-md-12">
+                                        <label for="notes_{{ loop.index0 }}" class="form-label">Notes:</label>
+                                        <textarea class="form-control metadata-field" 
+                                                  id="notes_{{ loop.index0 }}" 
+                                                  name="notes_{{ loop.index0 }}" 
+                                                  rows="2" 
+                                                  data-field-type="notes"></textarea>
                         </div>
                     </div>
                     
+                                <!-- LO Extraction Prompt Display -->
                     <div class="row mb-4">
                         <div class="col-md-12">
                             <div class="mb-3">
@@ -304,26 +335,59 @@
             
             <div class="d-grid gap-2 col-md-6 mx-auto mt-4 mb-5">
                 <button type="submit" class="btn btn-success btn-lg">
-                    <i class="bi bi-cloud-upload"></i> Save All Documents
+                                <i class="bi bi-cloud-upload"></i> Upload Files & Save All Documents
                 </button>
                 <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary">Cancel</a>
             </div>
         </form>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
+<!-- Upload and Saving Overlay -->
 <div class="saving-overlay" style="display: none;">
-    <div class="spinner-border text-light" role="status" style="width: 3rem; height: 3rem;">
-        <span class="visually-hidden">Loading...</span>
+    <div class="saving-message">
+        <h4 style="margin-bottom: 20px;"><strong>Uploading Files & Saving Documents</strong></h4>
+        <p style="margin-bottom: 20px;"><strong>Please don't close this page!</strong></p>
+        
+        <!-- Overall Progress -->
+        <div class="progress-phase" id="overallProgressPhase">
+            <div class="progress-phase-title">Overall Progress</div>
+            <div class="phase-progress">
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         id="overallProgressBar" role="progressbar" style="width: 0%">
+                        Starting...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- File Upload Phase -->
+        <div class="progress-phase" id="uploadPhase">
+            <div class="progress-phase-title">📤 File Upload Progress</div>
+            <div id="fileProgressList">
+                <!-- Individual file progress bars will be inserted here -->
+            </div>
+        </div>
+        
+        <!-- Document Saving Phase -->
+        <div class="progress-phase" id="savingPhase">
+            <div class="progress-phase-title">💾 Saving Documents</div>
+            <div class="phase-progress">
+                <div class="progress">
+                    <div class="progress-bar" id="savingProgressBar" role="progressbar" style="width: 0%">
+                        Waiting...
+                    </div>
+                </div>
+            </div>
+            <div id="savingStatus" style="margin-top: 10px; color: #fff;">
+                Ready to save documents...
+            </div>
+        </div>
     </div>
-    <h3>Saving documents and uploading to Firebase</h3>
-    <p class="saving-message">
-        {% if processed_files|length > 1 %}
-            Processing {{ processed_files|length }} documents<span class="saving-dots"></span>
-        {% else %}
-            Processing document<span class="saving-dots"></span>
-        {% endif %}
-    </p>
 </div>
 {% endblock %}
 
@@ -331,46 +395,20 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
 <script>
     $(document).ready(function() {
-        // Real-time synchronization of global metadata to all documents
+    // ... existing code for global field sync, autocomplete, etc. ...
+    
         function setupGlobalFieldSync() {
-            // For each global input field, add event listeners
-            $('#global_creator, #global_course_name, #global_institution, #global_notes').on('input', function() {
+        $('.global-field').on('input change', function() {
                 const fieldType = $(this).attr('id').replace('global_', '');
                 const value = $(this).val();
                 
-                // Apply to all corresponding fields if they haven't been manually overridden
                 $(`.metadata-field[data-field-type="${fieldType}"]`).each(function() {
-                    // Only update if the field is not already being manually edited
                     if (!$(this).hasClass('manually-edited')) {
                         $(this).val(value);
-                        
-                        // If there's a value, mark as controlled by global
-                        if (value) {
                             $(this).addClass('disabled-input').prop('readonly', true);
-                        } else {
-                            $(this).removeClass('disabled-input').prop('readonly', false);
-                        }
-                    }
-                });
-            });
-            
-            // Special handling for select elements
-            $('#global_doc_type').on('change', function() {
-                const value = $(this).val();
-                
-                // Apply to all corresponding select elements
-                $('select.metadata-field[data-field-type="doc_type"]').each(function() {
-                    if (!$(this).hasClass('manually-edited')) {
-                        $(this).val(value);
-                        
-                        if (value) {
-                            $(this).addClass('disabled-input');
-                            // Cannot use readonly on select, so we use disabled attribute
-                            // but we need to add a hidden input to maintain the value
-                            const fieldId = $(this).attr('id');
+                    
+                    if ($(this).is('select')) {
                             const fieldName = $(this).attr('name');
-                            
-                            // Create or update hidden input
                             let hiddenInput = $(`input[name="${fieldName}_hidden"]`);
                             if (hiddenInput.length === 0) {
                                 hiddenInput = $(`<input type="hidden" name="${fieldName}" value="${value}">`);
@@ -379,48 +417,29 @@
                             } else {
                                 hiddenInput.val(value);
                             }
-                            
                             $(this).prop('disabled', true);
-                        } else {
-                            $(this).removeClass('disabled-input').prop('disabled', false);
-                            
-                            // Remove hidden input if it exists
-                            const fieldName = $(this).attr('name').replace('_display', '');
-                            $(`input[name="${fieldName}"]`).remove();
-                            
-                            // Restore original name
-                            if ($(this).attr('name').endsWith('_display')) {
-                                $(this).attr('name', fieldName);
-                            }
-                        }
                     }
-                });
+                }
             });
-            
-            // Keep the apply button for a one-time full apply
-            $('#apply-global-btn').click(function() {
-                // Trigger input event on all global fields to apply their current values
-                $('#global_creator, #global_course_name, #global_institution, #global_notes').trigger('input');
-                $('#global_doc_type').trigger('change');
-            });
-        }
+        });
         
-        // Mark a field as manually edited when user clicks to edit it
-        $('.metadata-field').on('click', function() {
-            if ($(this).hasClass('disabled-input')) {
-                $(this).removeClass('disabled-input').prop('readonly', false).prop('disabled', false);
+        $('.metadata-field').on('focus click', function() {
+            if (!$(this).hasClass('manually-edited')) {
+                $(this).removeClass('disabled-input').prop('readonly', false);
                 $(this).addClass('manually-edited');
                 
-                // For select elements, restore original name
-                if ($(this).is('select') && $(this).attr('name').endsWith('_display')) {
-                    const fieldName = $(this).attr('name').replace('_display', '');
-                    $(`input[name="${fieldName}"]`).remove();
-                    $(this).attr('name', fieldName);
+                if ($(this).is('select')) {
+                    $(this).prop('disabled', false);
+                    const hiddenInput = $(`input[name="${$(this).attr('name').replace('_display', '')}_hidden"]`);
+                    if (hiddenInput.length > 0) {
+                        hiddenInput.remove();
+                        $(this).attr('name', $(this).attr('name').replace('_display', ''));
+                    }
                 }
             }
         });
+    }
         
-        // Reset manual edit status when double-clicking a field that's not disabled
         $('.metadata-field').on('dblclick', function() {
             $(this).removeClass('manually-edited');
             
@@ -474,38 +493,279 @@
             }
         });
         
-        // Setup form submission
+    // Setup form submission with file upload
         $('#save-form').submit(function(e) {
             e.preventDefault();
             
             // Show saving overlay
             $('.saving-overlay').show();
             
-            // Re-enable any disabled fields before submitting
-            $('select:disabled').prop('disabled', false);
+        // Get processed files data to determine expected file count
+        const processedFilesCount = $('.document-card').length;
+        
+        // Prepare form data
+        const formData = new FormData(this);
+        
+        // Load files from IndexedDB and upload them
+        uploadFilesFromIndexedDBAndSave(formData, processedFilesCount);
+    });
+    
+    // IndexedDB functions (same as in index.html)
+    async function openIndexedDB() {
+        return new Promise((resolve, reject) => {
+            if (!window.indexedDB) {
+                reject(new Error('IndexedDB is not supported in this browser'));
+                return;
+            }
             
-            // Submit form via AJAX
-            $.ajax({
-                url: $(this).attr('action'),
-                type: 'POST',
-                data: $(this).serialize(),
-                dataType: 'json',
-                success: function(response) {
-                    $('.saving-overlay').hide();
-                    
-                    if (response.success) {
-                        alert(`${response.success_count} of ${response.total} documents saved successfully!`);
-                        window.location.href = "{{ url_for('main.index') }}";
-                    } else {
-                        alert('Error: ' + response.message);
-                    }
-                },
-                error: function() {
-                    $('.saving-overlay').hide();
-                    alert('An error occurred while saving the documents. Please try again.');
+            const request = indexedDB.open('LearningGoalsFiles', 1);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('files')) {
+                    db.createObjectStore('files', { keyPath: 'id' });
                 }
-            });
+            };
         });
+    }
+    
+    async function getFilesFromIndexedDB() {
+        try {
+            const db = await openIndexedDB();
+            const transaction = db.transaction(['files'], 'readonly');
+            const store = transaction.objectStore('files');
+            
+            return new Promise((resolve, reject) => {
+                const getAllRequest = store.getAll();
+                getAllRequest.onsuccess = () => {
+                    const records = getAllRequest.result;
+                    const files = records.map(record => {
+                        // Convert ArrayBuffer back to File
+                        const file = new File([record.data], record.name, {
+                            type: record.type,
+                            lastModified: record.lastModified
+                        });
+                        return {
+                            index: record.id,
+                            file: file
+                        };
+                    });
+                    // Sort by index to maintain order
+                    files.sort((a, b) => a.index - b.index);
+                    resolve(files);
+                };
+                getAllRequest.onerror = () => reject(getAllRequest.error);
+            });
+            
+        } catch (error) {
+            console.error('Error retrieving files from IndexedDB:', error);
+            throw new Error('Failed to retrieve files from local storage');
+        }
+    }
+    
+    async function clearFilesFromIndexedDB() {
+        try {
+            const db = await openIndexedDB();
+            const transaction = db.transaction(['files'], 'readwrite');
+            const store = transaction.objectStore('files');
+            
+            await new Promise((resolve, reject) => {
+                const clearRequest = store.clear();
+                clearRequest.onsuccess = () => resolve();
+                clearRequest.onerror = () => reject(clearRequest.error);
+            });
+            
+            console.log('Cleared all files from IndexedDB');
+            
+        } catch (error) {
+            console.error('Error clearing files from IndexedDB:', error);
+        }
+    }
+    
+    async function uploadFilesFromIndexedDBAndSave(formData, expectedFileCount) {
+        try {
+            // Initialize progress phases
+            updateOverallProgress(10, 'Loading files from local storage...');
+            setPhaseActive('overallProgressPhase');
+            
+            // Load files from IndexedDB
+            const filesToUpload = await getFilesFromIndexedDB();
+            
+            if (filesToUpload.length !== expectedFileCount) {
+                throw new Error(`File count mismatch: expected ${expectedFileCount}, found ${filesToUpload.length} in local storage`);
+            }
+            
+            console.log(`Loaded ${filesToUpload.length} files from IndexedDB for upload`);
+            
+            // Start file upload phase
+            updateOverallProgress(20, 'Starting file uploads...');
+            setPhaseActive('uploadPhase');
+            
+            const progressContainer = $('#fileProgressList');
+            
+            // Create progress bars for files
+            filesToUpload.forEach((fileInfo, index) => {
+                const progressHtml = `
+                    <div class="upload-progress-file" id="progress-${index}">
+                        <div class="file-name">${fileInfo.file.name}</div>
+                        <div class="progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                        </div>
+                    </div>
+                `;
+                progressContainer.append(progressHtml);
+            });
+            
+            // Upload each file
+            const uploadResults = [];
+            const totalFiles = filesToUpload.length;
+            
+            for (let i = 0; i < filesToUpload.length; i++) {
+                const fileInfo = filesToUpload[i];
+                const progressBar = $(`#progress-${i} .progress-bar`);
+                
+                try {
+                    const uploadProgress = 20 + ((i / totalFiles) * 60); // 20-80% for uploads
+                    updateOverallProgress(uploadProgress, `Uploading files... (${i + 1} of ${totalFiles})`);
+                    
+                    // Generate signed URL
+                    const urlResponse = await fetch('/api/generate-upload-url', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            filename: fileInfo.file.name,
+                            contentType: fileInfo.file.type || 'application/pdf',
+                            fileSize: fileInfo.file.size
+                        })
+                    });
+                    
+                    if (!urlResponse.ok) {
+                        throw new Error(`Failed to generate upload URL for ${fileInfo.file.name}`);
+                    }
+                    
+                    const urlData = await urlResponse.json();
+                    
+                    // Upload file via server proxy
+                    const uploadFormData = new FormData();
+                    uploadFormData.append('file', fileInfo.file);
+                    uploadFormData.append('storagePath', urlData.storagePath);
+                    
+                    // Upload with progress tracking
+                    await new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        
+                        xhr.upload.addEventListener('progress', (event) => {
+                            if (event.lengthComputable) {
+                                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                                progressBar.css('width', percentComplete + '%');
+                                progressBar.text(percentComplete + '%');
+                                
+                                if (percentComplete === 100) {
+                                    progressBar.addClass('bg-success');
+                                }
+                            }
+                        });
+                        
+                        xhr.addEventListener('load', () => {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                                resolve();
+                            } else {
+                                reject(new Error(`Upload failed with status ${xhr.status}`));
+                            }
+                        });
+                        
+                        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+                        
+                        xhr.open('POST', '/api/upload-file');
+                        xhr.send(uploadFormData);
+                    });
+                    
+                    uploadResults.push({
+                        filename: fileInfo.file.name,
+                        storagePath: urlData.storagePath
+                    });
+                    
+                } catch (error) {
+                    console.error(`Error uploading ${fileInfo.file.name}:`, error);
+                    progressBar.addClass('bg-danger').text('Failed');
+                    throw error;
+                }
+            }
+            
+            // Complete upload phase
+            setPhaseCompleted('uploadPhase');
+            updateOverallProgress(80, 'All files uploaded successfully!');
+            
+            // Start saving phase
+            setPhaseActive('savingPhase');
+            updateSavingProgress(10, 'Preparing document data...');
+            
+            // Add upload results to form data
+            formData.append('uploaded_files', JSON.stringify(uploadResults));
+            
+            updateSavingProgress(50, 'Saving documents to database...');
+            updateOverallProgress(90, 'Saving document data...');
+            
+            // Submit the form with uploaded file information
+            const response = await fetch('{{ url_for("main.save_document_data") }}', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                // Complete saving phase
+                setPhaseCompleted('savingPhase');
+                updateSavingProgress(100, `Successfully saved ${result.success_count} documents!`);
+                updateOverallProgress(100, 'Complete!');
+                
+                setTimeout(() => {
+                    $('.saving-message').html(`
+                        <h4><strong>✅ Success!</strong></h4>
+                        <p style="font-size: 1.1rem; margin: 20px 0;">${result.success_count} of ${result.total} documents saved successfully!</p>
+                        <p>Redirecting to home page...</p>
+                    `);
+                }, 1000);
+                
+                // Clean up stored file data
+                await clearFilesFromIndexedDB();
+                
+                setTimeout(() => {
+                    window.location.href = "{{ url_for('main.index') }}";
+                }, 3000);
+            } else {
+                throw new Error(result.message || 'Failed to save documents');
+            }
+            
+        } catch (error) {
+            console.error('Error during upload and save:', error);
+            $('.saving-overlay').hide();
+            alert(`Error: ${error.message}`);
+        }
+    }
+    
+    // Helper functions for progress management
+    function updateOverallProgress(percent, message) {
+        $('#overallProgressBar').css('width', percent + '%').text(message);
+    }
+    
+    function updateSavingProgress(percent, message) {
+        $('#savingProgressBar').css('width', percent + '%').text(percent + '%');
+        $('#savingStatus').text(message);
+    }
+    
+    function setPhaseActive(phaseId) {
+        $('.progress-phase').removeClass('active completed');
+        $(`#${phaseId}`).addClass('active');
+    }
+    
+    function setPhaseCompleted(phaseId) {
+        $(`#${phaseId}`).removeClass('active').addClass('completed');
+    }
         
         // Setup autocomplete for learning goals
         function setupAutocomplete(element) {
@@ -514,12 +774,8 @@
                     $.ajax({
                         url: "{{ url_for('main.api_suggest') }}",
                         dataType: "json",
-                        data: {
-                            q: request.term
-                        },
-                        success: function(data) {
-                            response(data);
-                        }
+                    data: { q: request.term },
+                    success: function(data) { response(data); }
                     });
                 },
                 minLength: 3
@@ -546,6 +802,27 @@
             $(this).closest('.prompt-full').hide();
             promptDisplay.find('.prompt-preview').show();
         });
+    
+    // Load session data on page load
+    const sessionData = sessionStorage.getItem('processedFiles');
+    if (sessionData) {
+        console.log('Loaded session data:', JSON.parse(sessionData));
+    }
+    
+    // Debug: Check if files are available in IndexedDB
+    (async function checkIndexedDBFiles() {
+        try {
+            const files = await getFilesFromIndexedDB();
+            if (files && files.length > 0) {
+                console.log(`Found ${files.length} files in IndexedDB:`, files.map(f => `${f.file.name} (${f.file.size} bytes)`));
+            } else {
+                console.warn('No files found in IndexedDB');
+            }
+        } catch (error) {
+            console.error('Error checking IndexedDB files:', error);
+            console.warn('Files may not be available - user may need to go back and re-select files');
+        }
+    })();
     });
 </script>
 {% endblock %} 

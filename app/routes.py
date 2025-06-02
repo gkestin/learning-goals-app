@@ -51,148 +51,88 @@ def generate_upload_url():
         print(f"Error generating upload URL: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@main.route('/api/process-uploaded-files', methods=['POST'])
-def process_uploaded_files():
-    """Process files that were uploaded directly to Cloud Storage"""
+@main.route('/api/upload-file', methods=['POST'])
+def upload_file_to_storage():
+    """Handle file upload via server to avoid CORS issues"""
     try:
-        data = request.get_json()
-        uploaded_files = data.get('files', [])
-        custom_system_message = data.get('system_message', None)
-        model = data.get('model', 'gpt-4o')
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': 'No file provided'}), 400
         
-        if not uploaded_files:
-            return jsonify({'success': False, 'message': 'No files provided'}), 400
+        file = request.files['file']
+        storage_path = request.form.get('storagePath')
+        
+        if not file or not storage_path:
+            return jsonify({'success': False, 'message': 'File and storage path required'}), 400
+        
+        if not allowed_file(file.filename, current_app.config['ALLOWED_EXTENSIONS']):
+            return jsonify({'success': False, 'message': 'Invalid file type'}), 400
         
         # Import here to avoid circular imports
-        from app.firebase_service import download_from_storage
+        from app.firebase_service import bucket, using_mock
         
-        processed_files = []
+        if using_mock:
+            print(f"⚠️ MOCK STORAGE: Pretending to upload {file.filename} to {storage_path}")
+            return jsonify({
+                'success': True,
+                'storagePath': storage_path,
+                'message': 'Mock upload successful'
+            })
         
-        for file_info in uploaded_files:
-            storage_path = file_info.get('storagePath')
-            original_filename = file_info.get('filename')
-            
-            if not storage_path or not original_filename:
-                continue
-            
-            try:
-                # Download file from Cloud Storage to temporary location
-                upload_folder = current_app.config['UPLOAD_FOLDER']
-                temp_path = os.path.join(upload_folder, f"temp_{original_filename}")
-                
-                download_from_storage(storage_path, temp_path)
-                
-                # Extract text from PDF
-                pdf_text = extract_text_from_pdf(temp_path)
-                
-                if not pdf_text:
-                    os.remove(temp_path)  # Clean up
-                    continue
-                
-                # Extract learning goals using OpenAI
-                api_key = current_app.config['OPENAI_API_KEY']
-                extraction_result = extract_learning_goals(pdf_text, api_key, custom_system_message, model=model)
-                
-                # Store file data
-                processed_files.append({
-                    'storage_path': storage_path,
-                    'original_filename': original_filename,
-                    'learning_goals': extraction_result['learning_goals'],
-                    'lo_extraction_prompt': extraction_result['system_message_used']
-                })
-                
-                # Clean up temporary file
-                os.remove(temp_path)
-                
-            except Exception as e:
-                print(f"Error processing file {original_filename}: {e}")
-                continue
+        print(f"✅ REAL STORAGE: Uploading {file.filename} to {storage_path}")
         
-        if not processed_files:
-            return jsonify({'success': False, 'message': 'No valid files were processed'}), 400
+        # Upload file directly to storage
+        blob = bucket.blob(storage_path)
+        blob.upload_from_file(file.stream, content_type=file.content_type or 'application/pdf')
         
-        # Store data in session for the edit page
-        session['processed_files'] = processed_files
+        print(f"Successfully uploaded {file.filename} to {storage_path}")
         
-        return jsonify({'success': True, 'redirect': url_for('main.edit_learning_goals')})
+        return jsonify({
+            'success': True,
+            'storagePath': storage_path,
+            'message': 'Upload successful'
+        })
         
     except Exception as e:
-        print(f"Error processing uploaded files: {e}")
+        print(f"Error uploading file: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @main.route('/upload', methods=['POST'])
 def upload_file():
-    """Handle multiple PDF uploads and processing"""
-    # Check if the post request has the file part
-    if 'file' not in request.files:
-        flash('No file part')
-        return redirect(request.url)
-        
-    files = request.files.getlist('file')
-    
-    # If user does not select file, browser also submits an empty part without filename
-    if not files or files[0].filename == '':
-        flash('No selected files')
-        return redirect(request.url)
-        
-    # Get custom system message if provided
-    custom_system_message = request.form.get('system_message', None)
-    
-    # Get model selection
-    model = request.form.get('model', 'gpt-4o')
-    
-    # Process up to 10 files
-    processed_files = []
-    
-    for file in files[:10]:  # Limit to first 10 files
-        if allowed_file(file.filename, current_app.config['ALLOWED_EXTENSIONS']):
-            # Save the uploaded file temporarily
-            upload_folder = current_app.config['UPLOAD_FOLDER']
-            pdf_path = save_pdf(file, upload_folder)
-            
-            if not pdf_path:
-                continue
-                
-            # Extract text from PDF
-            pdf_text = extract_text_from_pdf(pdf_path)
-            
-            if not pdf_text:
-                os.remove(pdf_path)  # Clean up
-                continue
-                
-            # Extract learning goals using OpenAI
-            api_key = current_app.config['OPENAI_API_KEY']
-            extraction_result = extract_learning_goals(pdf_text, api_key, custom_system_message, model=model)
-            
-            # Store file data
-            processed_files.append({
-                'pdf_path': pdf_path,
-                'original_filename': file.filename,
-                'learning_goals': extraction_result['learning_goals'],
-                'lo_extraction_prompt': extraction_result['system_message_used']
-            })
-    
-    if not processed_files:
-        flash('No valid files were processed')
-        return redirect(request.url)
-        
-    # Store data in session for the edit page
-    session['processed_files'] = processed_files
-    
-    return redirect(url_for('main.edit_learning_goals'))
+    """Handle multiple PDF uploads and processing - DEPRECATED: Use client-side processing instead"""
+    # This route is deprecated in favor of client-side PDF processing
+    # Keeping for backward compatibility but redirecting to new flow
+    flash('Please use the new client-side processing flow')
+    return redirect(url_for('main.index'))
+
+@main.route('/api/process-uploaded-files', methods=['POST'])
+def process_uploaded_files():
+    """Process files that were uploaded directly to Cloud Storage - DEPRECATED"""
+    # This route is deprecated in favor of client-side processing
+    return jsonify({
+        'success': False, 
+        'message': 'This endpoint is deprecated. Use client-side processing instead.'
+    }), 410
 
 @main.route('/edit', methods=['GET'])
 def edit_learning_goals():
     """Render the page for editing learning goals for multiple documents"""
-    # Get data from session
+    # Check if we have session data from the new client-side processing flow
+    if 'processed_files' not in session:
+        # Try to create session data from browser if available
+        # This will be populated by JavaScript on the client side
+        flash('No file data found. Please select files and extract learning goals first.')
+        return redirect(url_for('main.index'))
+    
     processed_files = session.get('processed_files', [])
     
-    if not processed_files:
-        flash('No file data found')
-        return redirect(url_for('main.index'))
-        
+    # Add file size information for display if not already present
+    for file_data in processed_files:
+        if 'file_size' not in file_data:
+            file_data['file_size'] = 0  # Default if not available
+    
     return render_template('edit.html', 
-                           processed_files=processed_files)
+                           processed_files=processed_files,
+                           using_session_data=True)
 
 @main.route('/save', methods=['POST'])
 def save_document_data():
@@ -204,16 +144,32 @@ def save_document_data():
     global_doc_type = request.form.get('global_doc_type', '')
     global_notes = request.form.get('global_notes', '')
     
-    # Get processed files from session
+    # Get uploaded files data (new flow)
+    uploaded_files_json = request.form.get('uploaded_files')
+    if uploaded_files_json:
+        try:
+            uploaded_files = json.loads(uploaded_files_json)
+        except json.JSONDecodeError:
+            return jsonify({'success': False, 'message': 'Invalid upload data'}), 400
+    else:
+        uploaded_files = []
+    
+    # Get processed files from session (contains learning goals and metadata)
     processed_files = session.get('processed_files', [])
     
     if not processed_files:
-        return jsonify({'success': False, 'message': 'No file data found'})
+        return jsonify({'success': False, 'message': 'No file data found in session'}), 400
+    
+    if len(uploaded_files) != len(processed_files):
+        return jsonify({
+            'success': False, 
+            'message': f'Mismatch between uploaded files ({len(uploaded_files)}) and processed files ({len(processed_files)})'
+        }), 400
     
     results = []
     success_count = 0
     
-    for index, file_data in enumerate(processed_files):
+    for index, (upload_result, file_data) in enumerate(zip(uploaded_files, processed_files)):
         try:
             # Get specific document metadata or use global values
             doc_id = request.form.get(f'doc_id_{index}', str(index))
@@ -228,24 +184,25 @@ def save_document_data():
             learning_goals = request.form.getlist(f'learning_goals_{index}[]')
             
             original_filename = file_data['original_filename']
+            storage_path = upload_result['storagePath']
             
-            # Handle both old format (pdf_path) and new format (storage_path)
-            if 'storage_path' in file_data:
-                # File was uploaded via signed URL - already in Cloud Storage
-                storage_path = file_data['storage_path']
-                
-                # Move from temp location to final location
-                result = move_storage_file(storage_path, f"pdfs/{creator}_{name}_{original_filename}")
-                
+            # Move from temp location to final location if needed
+            final_storage_path = f"pdfs/{creator}_{name}_{original_filename}"
+            if storage_path != final_storage_path:
+                # Import here to avoid circular imports
+                from app.firebase_service import move_storage_file
+                move_result = move_storage_file(storage_path, final_storage_path)
+                final_storage_path = move_result['storage_path']
+                public_url = move_result.get('public_url')
             else:
-                # File was uploaded via regular form - need to upload to Cloud Storage
-                pdf_path = file_data['pdf_path']
-                destination_blob_name = f"pdfs/{creator}_{name}_{os.path.basename(pdf_path)}"
-                result = upload_pdf_to_storage(pdf_path, destination_blob_name)
-                
-                # Clean up the temporary file
-                if os.path.exists(pdf_path):
-                    os.remove(pdf_path)
+                # File is already in the right location, generate public URL
+                from app.firebase_service import bucket, using_mock
+                if using_mock:
+                    public_url = f"https://mock-storage.example.com/{final_storage_path}"
+                else:
+                    bucket_name = bucket.name
+                    encoded_path = final_storage_path.replace('/', '%2F')
+                    public_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/{encoded_path}?alt=media"
             
             # Create document object
             doc = Document(
@@ -257,8 +214,8 @@ def save_document_data():
                 doc_type=doc_type,
                 notes=notes,
                 learning_goals=learning_goals,
-                storage_path=result['storage_path'],
-                public_url=result.get('public_url'),
+                storage_path=final_storage_path,
+                public_url=public_url,
                 lo_extraction_prompt=file_data.get('lo_extraction_prompt', '')
             )
             
@@ -274,30 +231,23 @@ def save_document_data():
             })
             
         except Exception as e:
-            print(f"Error saving document to Firebase: {e}")
-            # Ensure temporary file is cleaned up even on error
-            if 'pdf_path' in file_data and os.path.exists(file_data['pdf_path']):
-                try:
-                    os.remove(file_data['pdf_path'])
-                except Exception as del_error:
-                    print(f"Could not delete temporary file: {del_error}")
-                    
+            print(f"Error saving document {index}: {e}")
             results.append({
                 'success': False,
-                'message': f'Error: {str(e)}',
-                'name': file_data.get('original_filename', 'Unknown')
+                'error': str(e),
+                'name': file_data.get('original_filename', f'Document {index}')
             })
     
-    # Clear session data
-    session.pop('processed_files', None)
+    # Clear session data after successful processing
+    if success_count > 0:
+        session.pop('processed_files', None)
     
-    # Return aggregated results
     return jsonify({
         'success': success_count > 0,
-        'total': len(processed_files),
         'success_count': success_count,
+        'total': len(processed_files),
         'results': results,
-        'message': f'{success_count} of {len(processed_files)} documents saved successfully'
+        'message': f'Successfully saved {success_count} of {len(processed_files)} documents'
     })
 
 @main.route('/search')
@@ -758,4 +708,49 @@ def api_find_optimal_clusters():
         return jsonify({
             'success': False,
             'message': f'Optimization failed: {str(e)}'
-        }) 
+        })
+
+@main.route('/api/extract-learning-goals', methods=['POST'])
+def extract_learning_goals_from_text():
+    """Extract learning goals from provided text content"""
+    try:
+        data = request.get_json()
+        text = data.get('text')
+        custom_system_message = data.get('system_message')
+        model = data.get('model', 'gpt-4o')
+        
+        if not text or not text.strip():
+            return jsonify({'success': False, 'message': 'No text provided'}), 400
+        
+        # Extract learning goals using OpenAI
+        api_key = current_app.config['OPENAI_API_KEY']
+        extraction_result = extract_learning_goals(text, api_key, custom_system_message, model=model)
+        
+        return jsonify({
+            'success': True,
+            'learning_goals': extraction_result['learning_goals'],
+            'system_message_used': extraction_result['system_message_used']
+        })
+        
+    except Exception as e:
+        print(f"Error extracting learning goals from text: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@main.route('/api/store-session-data', methods=['POST'])
+def store_session_data():
+    """Store processed file data in server session (called from client-side)"""
+    try:
+        data = request.get_json()
+        processed_files = data.get('processed_files', [])
+        
+        if not processed_files:
+            return jsonify({'success': False, 'message': 'No processed files provided'}), 400
+        
+        # Store in session
+        session['processed_files'] = processed_files
+        
+        return jsonify({'success': True, 'message': f'Stored {len(processed_files)} files in session'})
+        
+    except Exception as e:
+        print(f"Error storing session data: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500 

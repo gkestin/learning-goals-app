@@ -3,29 +3,28 @@
 {% block title %}Upload PDF - Learning Goals Extractor{% endblock %}
 
 {% block extra_css %}
+<!-- Add PDF.js CSS if needed -->
 <style>
-    .loading-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
-        display: none;
-        justify-content: center;
+    .learning-goal-item {
+        margin-bottom: 10px;
+        display: flex;
         align-items: center;
-        z-index: 9999;
-        color: white;
-        flex-direction: column;
     }
-    .loading-overlay .spinner-border {
+    .learning-goal-item .form-control {
+        flex-grow: 1;
+    }
+    .learning-goal-item .btn-remove {
+        margin-left: 10px;
+    }
+    .add-goal-btn {
+        margin-top: 10px;
         margin-bottom: 20px;
-        width: 3rem;
-        height: 3rem;
     }
-    .loading-message {
-        font-size: 1.5rem;
-        text-align: center;
+    .ui-autocomplete {
+        max-height: 200px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        z-index: 9999;
     }
     .file-count {
         margin-top: 10px;
@@ -81,31 +80,13 @@
         border-color: #f5c6cb;
         color: #721c24;
     }
-    .upload-progress {
-        margin-top: 10px;
+    .progress-container {
+        margin-top: 15px;
         display: none;
     }
-    .progress-bar {
-        transition: width 0.3s ease;
-    }
-    
-    /* Animated progress bar stripes for active uploads */
-    .progress-bar-animated {
-        background-image: linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent);
-        background-size: 1rem 1rem;
-        animation: progress-bar-stripes 1s linear infinite;
-    }
-    
-    /* Subtle stripes for processing phase */
-    .progress-bar-striped {
-        background-image: linear-gradient(45deg, rgba(255,255,255,.1) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.1) 50%, rgba(255,255,255,.1) 75%, transparent 75%, transparent);
-        background-size: 1rem 1rem;
-    }
-    
-    @keyframes progress-bar-stripes {
-        0% {
-            background-position-x: 1rem;
-        }
+    .current-file-info {
+        margin-bottom: 10px;
+        font-weight: bold;
     }
     .file-size-info {
         margin-top: 10px;
@@ -127,6 +108,7 @@
 {% endblock %}
 
 {% block content %}
+<div class="container">
 <div class="row justify-content-center">
     <div class="col-md-8">
         <div class="card">
@@ -137,30 +119,33 @@
                 <div class="mb-4">
                     <h3 class="h5">How it works:</h3>
                     <ol>
-                        <li>Upload up to 10 PDF documents containing learning goals.</li>
-                        <li>Our AI will extract learning goals from each document.</li>
-                        <li>Review and edit the extracted learning goals for each document.</li>
-                        <li>Add metadata and save the documents to the database.</li>
+                            <li>Select up to 10 PDF documents containing learning goals.</li>
+                            <li>We'll extract text and learning goals locally - files are stored in your browser only!</li>
+                            <li>Review and edit the extracted learning goals and add metadata.</li>
+                            <li>Files are only uploaded when you save everything at the end - preventing orphaned files.</li>
                     </ol>
                 </div>
                 
-                <form id="upload-form" action="{{ url_for('main.upload_file') }}" method="post" enctype="multipart/form-data" class="needs-validation" novalidate>
+                    <form id="extract-form" class="needs-validation" novalidate>
                     <div class="mb-3">
                         <label for="file" class="form-label">Choose PDF documents (up to 10):</label>
                         <input type="file" class="form-control" id="file" name="file" accept=".pdf" required multiple>
                         <div class="invalid-feedback">
                             Please select valid PDF files.
                         </div>
-                        <div class="form-text">Maximum file size: 100MB per file. Files over 32MB will use direct upload.</div>
+                            <div class="form-text">Maximum file size: 100MB per file. Files are stored locally in your browser and only uploaded when you save at the end.</div>
                         <div id="fileCount" class="file-count"></div>
                         <div id="selectedFiles" class="selected-files"></div>
                         <div id="fileSizeInfo" class="file-size-info"></div>
-                        <div id="uploadProgress" class="upload-progress">
+                            
+                            <!-- Progress container for extraction -->
+                            <div id="extractionProgress" class="progress-container">
+                                <div class="current-file-info" id="currentFileInfo"></div>
                             <div class="progress">
-                                <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
                             </div>
                             <div class="mt-2">
-                                <small id="progressText">Uploading files...</small>
+                                    <small id="progressText">Processing files...</small>
                             </div>
                         </div>
                     </div>
@@ -189,30 +174,26 @@
                     </div>
                     
                     <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn">
-                            <i class="bi bi-cloud-upload"></i> Upload and Extract
+                            <button type="submit" class="btn btn-primary btn-lg" id="extractBtn">
+                                <i class="bi bi-cpu"></i> Extract Learning Goals
                         </button>
                     </div>
                 </form>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Loading Overlay -->
-<div class="loading-overlay">
-    <div class="spinner-border text-light" role="status">
-        <span class="visually-hidden">Loading...</span>
-    </div>
-    <div class="loading-message">
-        <p>Extracting learning goals from uploaded documents...</p>
-        <p><small>This might take a few minutes. Please don't close the page.</small></p>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
+<!-- Include PDF.js for client-side PDF reading -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
+    // Configure PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    
     // Create a FileList-like object that we can manipulate
     let selectedFiles = new DataTransfer();
     const LARGE_FILE_THRESHOLD = 32 * 1024 * 1024; // 32MB - warning threshold
@@ -253,17 +234,17 @@
             if (numFiles > 10) {
                 fileCount.classList.add('warning-text');
                 fileCount.textContent += ' (maximum 10 files allowed)';
-                document.getElementById('uploadBtn').disabled = true;
+                document.getElementById('extractBtn').disabled = true;
             } else if (validFiles === 0) {
                 fileCount.classList.add('warning-text');
-                document.getElementById('uploadBtn').disabled = true;
+                document.getElementById('extractBtn').disabled = true;
             } else {
                 fileCount.classList.remove('warning-text');
-                document.getElementById('uploadBtn').disabled = false;
+                document.getElementById('extractBtn').disabled = false;
             }
         } else {
             fileCount.textContent = '';
-            document.getElementById('uploadBtn').disabled = false;
+            document.getElementById('extractBtn').disabled = false;
         }
         
         // Show file size warnings/errors
@@ -274,14 +255,14 @@
             fileSizeInfo.className += ' error';
             fileSizeInfo.innerHTML = `
                 <strong>⚠️ ${oversizedFiles} file(s) exceed 100MB limit</strong><br>
-                Files over 100MB cannot be uploaded and will be skipped. Other files will still be processed.
+                Files over 100MB cannot be processed and will be skipped.
             `;
             fileSizeInfo.style.display = 'block';
         } else if (largeFiles > 0) {
             fileSizeInfo.className += ' warning';
             fileSizeInfo.innerHTML = `
                 <strong>📤 ${largeFiles} large file(s) detected (32MB-100MB)</strong><br>
-                These files will use direct upload to Cloud Storage, which may take longer.
+                These files will be stored locally and uploaded with the rest when you save at the end.
             `;
             fileSizeInfo.style.display = 'block';
         }
@@ -290,42 +271,32 @@
         selectedFilesContainer.innerHTML = '';
         
         if (numFiles > 0) {
-            // Only show the first 10 files
-            const filesToShow = Array.from(fileInput.files).slice(0, 10);
-            
-            filesToShow.forEach((file, index) => {
+            Array.from(fileInput.files).forEach((file, index) => {
+                const isOversized = file.size > MAX_FILE_SIZE;
+                const isLarge = file.size > LARGE_FILE_THRESHOLD && file.size <= MAX_FILE_SIZE;
                 const fileTag = document.createElement('div');
+                
                 let tagClass = 'file-tag';
-                let uploadMethod = '';
-                
-                if (file.size > MAX_FILE_SIZE) {
+                if (isOversized) {
                     tagClass += ' error-file-tag';
-                    uploadMethod = ' (TOO LARGE - WILL BE SKIPPED)';
-                } else if (file.size > LARGE_FILE_THRESHOLD) {
+                } else if (isLarge) {
                     tagClass += ' large-file-tag';
-                    uploadMethod = ' (direct upload)';
                 }
-                
                 fileTag.className = tagClass;
                 
-                const sizeText = formatFileSize(file.size);
-                
                 fileTag.innerHTML = `
-                    <span class="file-name" title="${file.name} - ${sizeText}${uploadMethod}">${file.name} (${sizeText}${uploadMethod})</span>
-                    <span class="remove-file" data-index="${index}">×</span>
+                    <div class="file-name" title="${file.name}">${file.name}</div>
+                    <div class="file-size">(${formatFileSize(file.size)})</div>
+                    <div class="remove-file" onclick="removeFile(${index})" title="Remove file">×</div>
                 `;
+                
                 selectedFilesContainer.appendChild(fileTag);
             });
-            
-            // Add warning if more than 10 files
-            if (numFiles > 10) {
-                const warningTag = document.createElement('div');
-                warningTag.className = 'file-tag warning-text';
-                warningTag.innerHTML = `<span>... and ${numFiles - 10} more (exceeds limit)</span>`;
-                selectedFilesContainer.appendChild(warningTag);
-            }
         }
     }
+    
+    // File input change handler
+    document.getElementById('file').addEventListener('change', updateFileDisplay);
     
     function formatFileSize(bytes) {
         if (bytes === 0) return '0 Bytes';
@@ -357,18 +328,66 @@
         return files.filter(file => file.size <= MAX_FILE_SIZE);
     }
     
-    // Handle large file uploads using signed URLs
-    async function handleLargeFileUpload(files, systemMessage, model) {
-        const progressContainer = document.getElementById('uploadProgress');
+    // Extract text from PDF using PDF.js
+    async function extractTextFromPDF(file) {
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            
+            let fullText = '';
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+            
+            return fullText.trim();
+        } catch (error) {
+            console.error(`Error extracting text from ${file.name}:`, error);
+            throw new Error(`Failed to read PDF: ${error.message}`);
+        }
+    }
+    
+    // Extract learning goals from text using API
+    async function extractLearningGoals(text, systemMessage, model) {
+        try {
+            const response = await fetch('/api/extract-learning-goals', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    text: text,
+                    system_message: systemMessage,
+                    model: model
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Error extracting learning goals:', error);
+            throw error;
+        }
+    }
+    
+    // Process all files and extract learning goals
+    async function processFiles(files, systemMessage, model) {
+        const progressContainer = document.getElementById('extractionProgress');
         const progressBar = progressContainer.querySelector('.progress-bar');
         const progressText = document.getElementById('progressText');
+        const currentFileInfo = document.getElementById('currentFileInfo');
         
-        // Filter out oversized files
         const validFiles = getValidFiles(files);
         
         if (validFiles.length === 0) {
-            alert('No valid files to upload. All files exceed the 100MB limit.');
-            return;
+            alert('No valid files to process. All files exceed the 100MB limit.');
+            return null;
         }
         
         if (validFiles.length < files.length) {
@@ -378,216 +397,305 @@
         
         progressContainer.style.display = 'block';
         
-        // Add animated stripes class to progress bar for visual feedback
-        progressBar.classList.add('progress-bar-animated');
-        
-        const uploadedFiles = [];
-        let totalProgress = 0;
-        const UPLOAD_PHASE_MAX = 0.9; // Reserve 10% for processing phase
+        const processedFiles = [];
         
         for (let i = 0; i < validFiles.length; i++) {
             const file = validFiles[i];
-            const fileWeight = UPLOAD_PHASE_MAX / validFiles.length; // Each file contributes to 90% of total progress
+            const progress = ((i + 1) / validFiles.length) * 100;
             
             try {
-                progressText.textContent = `Uploading ${file.name} (${i + 1} of ${validFiles.length})...`;
+                currentFileInfo.textContent = `Processing ${file.name} (${i + 1} of ${validFiles.length})`;
+                progressText.textContent = 'Extracting text from PDF...';
+                progressBar.style.width = (progress - 50 / validFiles.length) + '%';
                 
-                // Generate signed URL
-                const urlResponse = await fetch('/api/generate-upload-url', {
+                // Extract text from PDF
+                const text = await extractTextFromPDF(file);
+                
+                if (!text.trim()) {
+                    console.warn(`No text extracted from ${file.name}`);
+                    continue;
+                }
+                
+                progressText.textContent = 'Analyzing content with AI...';
+                progressBar.style.width = (progress - 10 / validFiles.length) + '%';
+                
+                // Extract learning goals
+                const result = await extractLearningGoals(text, systemMessage, model);
+                            
+                // Store file data and content for later upload
+                const fileData = {
+                    file: file, // Keep the actual File object for later upload
+                    original_filename: file.name,
+                    learning_goals: result.learning_goals,
+                    lo_extraction_prompt: result.system_message_used,
+                    extracted_text: text.substring(0, 1000) + '...' // Store sample for preview
+                };
+                
+                processedFiles.push(fileData);
+                
+                progressBar.style.width = progress + '%';
+                progressText.textContent = `Completed ${file.name}`;
+                
+            } catch (error) {
+                console.error(`Error processing ${file.name}:`, error);
+                alert(`Failed to process ${file.name}: ${error.message}`);
+                continue;
+            }
+        }
+        
+        progressContainer.style.display = 'none';
+        
+        if (processedFiles.length === 0) {
+            alert('No files were successfully processed.');
+            return null;
+            }
+        
+        return processedFiles;
+        }
+        
+    // Form submission handler
+    document.getElementById('extract-form').addEventListener('submit', async function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        
+        if (!this.checkValidity()) {
+            this.classList.add('was-validated');
+            return;
+        }
+        
+        const fileInput = document.getElementById('file');
+        const files = Array.from(fileInput.files);
+        
+        if (files.length === 0) {
+            alert('Please select at least one PDF file.');
+            return;
+        }
+        
+        if (files.length > 10) {
+            alert('Please select up to 10 files only.');
+            return;
+        }
+        
+        const systemMessage = document.getElementById('system_message').value;
+        const model = document.getElementById('model').value;
+        
+        try {
+            // Process files and extract learning goals
+            const processedFiles = await processFiles(files, systemMessage, model);
+            
+            if (processedFiles && processedFiles.length > 0) {
+                // Show progress for final steps
+                const progressContainer = document.getElementById('extractionProgress');
+                const progressBar = progressContainer.querySelector('.progress-bar');
+                const progressText = document.getElementById('progressText');
+                const currentFileInfo = document.getElementById('currentFileInfo');
+                
+                progressContainer.style.display = 'block';
+                currentFileInfo.textContent = 'Preparing files for edit page...';
+                progressText.textContent = 'Processing complete files...';
+                progressBar.style.width = '90%';
+                
+                // Prepare data for server session
+                const sessionData = processedFiles.map(fileData => ({
+                    original_filename: fileData.original_filename,
+                    learning_goals: fileData.learning_goals,
+                    lo_extraction_prompt: fileData.lo_extraction_prompt,
+                    extracted_text: fileData.extracted_text,
+                    file_size: fileData.file.size,
+                    file_type: fileData.file.type
+                }));
+                
+                // Store ALL files in IndexedDB (no uploads during extraction!)
+                currentFileInfo.textContent = 'Storing files locally for upload later...';
+                progressText.textContent = 'Saving files locally (no upload yet)...';
+                progressBar.style.width = '90%';
+                
+                // Store files in IndexedDB for later upload
+                await storeFilesInIndexedDB(processedFiles, (current, total) => {
+                    currentFileInfo.textContent = `Storing file ${current}/${total} locally...`;
+                    const fileProgress = (current / total) * 8; // 8% for storage phase
+                    progressBar.style.width = (90 + fileProgress) + '%';
+                });
+                
+                progressBar.style.width = '98%';
+                progressText.textContent = 'Storing session data...';
+                currentFileInfo.textContent = 'Finalizing preparation...';
+                
+                // Store session data on server
+                const storeResponse = await fetch('/api/store-session-data', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        filename: file.name,
-                        contentType: file.type || 'application/pdf',
-                        fileSize: file.size
+                        processed_files: sessionData
                     })
                 });
                 
-                if (!urlResponse.ok) {
-                    throw new Error(`Failed to generate upload URL for ${file.name}`);
+                if (!storeResponse.ok) {
+                    throw new Error('Failed to store session data');
                 }
                 
-                const urlData = await urlResponse.json();
-                
-                // Upload file directly to Cloud Storage with progress tracking
-                await new Promise((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    
-                    // Track upload progress
-                    xhr.upload.addEventListener('progress', (event) => {
-                        if (event.lengthComputable) {
-                            const fileProgress = (event.loaded / event.total) * fileWeight;
-                            const currentTotalProgress = (totalProgress + fileProgress) * 100;
-                            progressBar.style.width = Math.min(currentTotalProgress, UPLOAD_PHASE_MAX * 100) + '%';
-                            
-                            // Update text with current file progress
-                            const filePercentage = Math.round((event.loaded / event.total) * 100);
-                            progressText.textContent = `Uploading ${file.name} (${i + 1} of ${validFiles.length}) - ${filePercentage}%`;
-                        }
-                    });
-                    
-                    xhr.addEventListener('load', () => {
-                        if (xhr.status >= 200 && xhr.status < 300) {
-                            // File upload completed successfully
-                            totalProgress += fileWeight;
-                            progressBar.style.width = Math.min(totalProgress * 100, UPLOAD_PHASE_MAX * 100) + '%';
-                            resolve();
-                        } else {
-                            reject(new Error(`Upload failed with status ${xhr.status}`));
-                        }
-                    });
-                    
-                    xhr.addEventListener('error', () => {
-                        reject(new Error('Upload failed due to network error'));
-                    });
-                    
-                    xhr.addEventListener('timeout', () => {
-                        reject(new Error('Upload timed out'));
-                    });
-                    
-                    // Configure and send the request
-                    xhr.open('PUT', urlData.uploadUrl);
-                    xhr.setRequestHeader('Content-Type', file.type || 'application/pdf');
-                    xhr.timeout = 300000; // 5 minute timeout
-                    xhr.send(file);
-                });
-                
-                uploadedFiles.push({
-                    filename: file.name,
-                    storagePath: urlData.storagePath
-                });
-                
-            } catch (error) {
-                console.error(`Error uploading ${file.name}:`, error);
-                alert(`Failed to upload ${file.name}: ${error.message}`);
-                // Remove animated stripes on error
-                progressBar.classList.remove('progress-bar-animated');
-                return;
-            }
-        }
-        
-        // Remove animated stripes once upload is complete
-        progressBar.classList.remove('progress-bar-animated');
-        
-        if (uploadedFiles.length === 0) {
-            progressContainer.style.display = 'none';
-            return;
-        }
-        
-        // Process uploaded files - fill remaining 10% gradually
-        progressText.textContent = 'Processing uploaded files...';
-        // Add a subtle animation for processing phase
-        progressBar.classList.add('progress-bar-striped');
-        
-        // Gradually fill the remaining 10% during processing
-        const processingInterval = setInterval(() => {
-            const currentWidth = parseFloat(progressBar.style.width);
-            if (currentWidth < 100) {
-                const newWidth = Math.min(currentWidth + 2, 99); // Gradually increase but stop at 99%
-                progressBar.style.width = newWidth + '%';
-            }
-        }, 200);
-        
-        try {
-            const processResponse = await fetch('/api/process-uploaded-files', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    files: uploadedFiles,
-                    system_message: systemMessage,
-                    model: model
-                })
-            });
-            
-            // Clear the processing interval
-            clearInterval(processingInterval);
-            
-            if (!processResponse.ok) {
-                throw new Error('Failed to process uploaded files');
-            }
-            
-            const processData = await processResponse.json();
-            
-            if (processData.success) {
-                // Complete the progress bar and redirect
                 progressBar.style.width = '100%';
-                progressText.textContent = 'Complete! Redirecting...';
+                progressText.textContent = 'Complete! Files ready for upload on edit page...';
+                currentFileInfo.textContent = 'Ready to edit learning goals!';
+                
+                // Small delay to show completion, then redirect
                 setTimeout(() => {
-                    window.location.href = processData.redirect;
+                    window.location.href = "{{ url_for('main.edit_learning_goals') }}";
                 }, 500);
-            } else {
-                throw new Error(processData.message || 'Failed to process files');
             }
             
         } catch (error) {
-            clearInterval(processingInterval);
             console.error('Error processing files:', error);
-            alert(`Failed to process files: ${error.message}`);
-            progressContainer.style.display = 'none';
-            progressBar.classList.remove('progress-bar-striped');
+            alert('An error occurred while processing the files. Please try again.');
+            // Hide progress on error
+            document.getElementById('extractionProgress').style.display = 'none';
+        }
+        
+        this.classList.add('was-validated');
+    });
+    
+    // IndexedDB functions for local file storage
+    async function openIndexedDB() {
+        return new Promise((resolve, reject) => {
+            if (!window.indexedDB) {
+                reject(new Error('IndexedDB is not supported in this browser'));
+                return;
+            }
+            
+            const request = indexedDB.open('LearningGoalsFiles', 1);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('files')) {
+                    db.createObjectStore('files', { keyPath: 'id' });
+                }
+            };
+        });
+    }
+    
+    async function storeFilesInIndexedDB(processedFiles, progressCallback) {
+        try {
+            const db = await openIndexedDB();
+            
+            // Clear any existing files first
+            const clearTransaction = db.transaction(['files'], 'readwrite');
+            const clearStore = clearTransaction.objectStore('files');
+            await new Promise((resolve, reject) => {
+                const clearRequest = clearStore.clear();
+                clearRequest.onsuccess = () => resolve();
+                clearRequest.onerror = () => reject(clearRequest.error);
+            });
+            
+            // Process files in batches to avoid transaction timeouts
+            for (let i = 0; i < processedFiles.length; i++) {
+                const fileData = processedFiles[i];
+                const file = fileData.file;
+                
+                // Convert file to ArrayBuffer first (outside of transaction)
+                const arrayBuffer = await file.arrayBuffer();
+                
+                // Create a new transaction for each file to avoid timeouts
+                const transaction = db.transaction(['files'], 'readwrite');
+                const store = transaction.objectStore('files');
+                
+                const fileRecord = {
+                    id: i,
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    lastModified: file.lastModified,
+                    data: arrayBuffer
+                };
+                
+                await new Promise((resolve, reject) => {
+                    const addRequest = store.add(fileRecord);
+                    addRequest.onsuccess = () => resolve();
+                    addRequest.onerror = () => reject(addRequest.error);
+                    
+                    // Handle transaction errors
+                    transaction.onerror = () => reject(transaction.error);
+                    transaction.onabort = () => reject(new Error('Transaction aborted'));
+                });
+                
+                console.log(`Stored file ${i + 1}/${processedFiles.length}: ${file.name}`);
+                
+                if (progressCallback) {
+                    progressCallback(i + 1, processedFiles.length);
+                }
+            }
+            
+            console.log(`Successfully stored all ${processedFiles.length} files in IndexedDB`);
+            
+        } catch (error) {
+            console.error('Error storing files in IndexedDB:', error);
+            
+            if (error.name === 'QuotaExceededError') {
+                throw new Error('Not enough storage space available. Please free up browser storage or try with smaller files.');
+            } else if (error.message.includes('IndexedDB is not supported')) {
+                throw new Error('Local file storage is not available in this browser. Please try a different browser or disable private browsing mode.');
+            } else {
+                throw new Error(`Failed to store files locally: ${error.message}`);
+            }
         }
     }
     
-    // Form validation and submission
-    (function() {
-        'use strict';
-        var forms = document.querySelectorAll('.needs-validation');
-        Array.prototype.slice.call(forms).forEach(function(form) {
-            form.addEventListener('submit', async function(event) {
-                event.preventDefault();
-                event.stopPropagation();
-                
-                if (!form.checkValidity()) {
-                    form.classList.add('was-validated');
-                    return;
-                }
-                
-                // Check if the number of files doesn't exceed 10
-                const fileInput = document.getElementById('file');
-                if (fileInput.files.length > 10) {
-                    alert('Please select up to 10 files only.');
-                    return;
-                }
-                
-                const files = Array.from(fileInput.files);
-                const validFiles = getValidFiles(files);
-                
-                if (validFiles.length === 0) {
-                    alert('No valid files to upload. All selected files exceed the 100MB limit.');
-                    return;
-                }
-                
-                const largeFiles = validFiles.filter(file => file.size > LARGE_FILE_THRESHOLD);
-                const systemMessage = document.getElementById('system_message').value;
-                const model = document.getElementById('model').value;
-                
-                if (largeFiles.length > 0 || validFiles.length < files.length) {
-                    // Use signed URL upload for large files or when some files are oversized
-                    await handleLargeFileUpload(files, systemMessage, model);
-                } else {
-                    // Use regular form submission for smaller files
-                    document.querySelector('.loading-overlay').style.display = 'flex';
-                    form.submit();
-                }
-                
-                form.classList.add('was-validated');
-            }, false);
-        });
-    })();
-    
-    // Track file selection changes
-    document.getElementById('file').addEventListener('change', updateFileDisplay);
-    
-    // Handle removing files
-    document.getElementById('selectedFiles').addEventListener('click', function(e) {
-        if (e.target.classList.contains('remove-file')) {
-            const index = parseInt(e.target.getAttribute('data-index'));
-            removeFile(index);
+    async function getFilesFromIndexedDB() {
+        try {
+            const db = await openIndexedDB();
+            const transaction = db.transaction(['files'], 'readonly');
+            const store = transaction.objectStore('files');
+            
+            return new Promise((resolve, reject) => {
+                const getAllRequest = store.getAll();
+                getAllRequest.onsuccess = () => {
+                    const records = getAllRequest.result;
+                    const files = records.map(record => {
+                        // Convert ArrayBuffer back to File
+                        const file = new File([record.data], record.name, {
+                            type: record.type,
+                            lastModified: record.lastModified
+                        });
+                        return {
+                            index: record.id,
+                            file: file
+                        };
+                    });
+                    resolve(files);
+                };
+                getAllRequest.onerror = () => reject(getAllRequest.error);
+            });
+            
+        } catch (error) {
+            console.error('Error retrieving files from IndexedDB:', error);
+            throw new Error('Failed to retrieve files from local storage');
         }
-    });
+    }
+    
+    async function clearFilesFromIndexedDB() {
+        try {
+            const db = await openIndexedDB();
+            const transaction = db.transaction(['files'], 'readwrite');
+            const store = transaction.objectStore('files');
+            
+            await new Promise((resolve, reject) => {
+                const clearRequest = store.clear();
+                clearRequest.onsuccess = () => resolve();
+                clearRequest.onerror = () => reject(clearRequest.error);
+            });
+            
+            console.log('Cleared all files from IndexedDB');
+            
+        } catch (error) {
+            console.error('Error clearing files from IndexedDB:', error);
+        }
+    }
+    
+    // Initialize display
+    updateFileDisplay();
 </script>
 {% endblock %} 
