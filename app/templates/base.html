@@ -52,6 +52,10 @@
                                 <a class="nav-link {% if request.path == url_for('main.cluster_page') %}active{% endif %}" 
                                    href="{{ url_for('main.cluster_page') }}">Cluster Analysis</a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link {% if request.path == url_for('main.cluster_tree') %}active{% endif %}" 
+                                   href="{{ url_for('main.cluster_tree') }}">Hierarchical Tree</a>
+                            </li>
                         </ul>
                     </div>
                 </div>

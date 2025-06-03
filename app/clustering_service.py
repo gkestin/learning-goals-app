@@ -6,6 +6,9 @@ import numpy as np
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
+from scipy.spatial.distance import pdist
 
 # STEM context prefix for better embeddings
 STEM_CONTEXT = "In STEM education, students should be able to: "
@@ -1011,4 +1014,367 @@ class LearningGoalsClusteringService:
         if progress_callback:
             progress_callback(f"Refinement complete! Added {len(new_test_points)} points around k={target_region_center}", len(new_test_points), len(new_test_points), 100)
         
-        return all_results 
+        return all_results
+
+    def build_hierarchical_tree(self, embeddings, goals, sources, n_levels=8, linkage_method='ward'):
+        """Build a complete hierarchical clustering tree with multiple levels and quality metrics"""
+        start_time = time.time()
+        
+        print(f"🌳 Building hierarchical tree with {n_levels} levels using {linkage_method} linkage")
+        
+        # Compute distance matrix and linkage
+        print("📊 Computing distance matrix...")
+        distances = pdist(embeddings, metric='euclidean')
+        
+        print(f"🔗 Building linkage matrix with {linkage_method} method...")
+        linkage_matrix = linkage(distances, method=linkage_method)
+        
+        # Build tree structure by cutting at different levels
+        tree_structure = self._build_tree_levels(
+            embeddings, goals, sources, linkage_matrix, n_levels
+        )
+        
+        elapsed = time.time() - start_time
+        print(f"⚡ Hierarchical tree built in {elapsed:.2f} seconds")
+        
+        return {
+            'tree_structure': tree_structure,
+            'total_goals': len(goals),
+            'n_levels': n_levels,
+            'linkage_method': linkage_method,
+            'processing_time': round(elapsed, 2)
+        }
+    
+    def _build_tree_levels(self, embeddings, goals, sources, linkage_matrix, n_levels):
+        """Build the actual tree structure with nested nodes ensuring complete hierarchical paths"""
+        n_samples = len(embeddings)
+        
+        # Calculate cluster counts for each level (decreasing granularity)
+        # We'll use the finest granularity for the deepest level and work backwards
+        max_clusters = min(n_samples // 2, 200)  # Cap at reasonable number
+        min_clusters = max(2, min(10, n_samples // 10))  # At least 2, reasonable minimum
+        
+        # Create logarithmic spacing for more interesting levels
+        if n_levels > 1:
+            # Start with many clusters, end with few
+            cluster_counts = np.logspace(
+                np.log10(max_clusters), 
+                np.log10(min_clusters), 
+                n_levels
+            ).astype(int)
+            # Ensure uniqueness and sort descending (finest to coarsest)
+            cluster_counts = sorted(list(set(cluster_counts)), reverse=True)
+            level_cluster_counts = cluster_counts[:n_levels]
+        else:
+            level_cluster_counts = [min_clusters]
+        
+        print(f"📊 Building {n_levels} levels with cluster counts: {level_cluster_counts}")
+        
+        # Build hierarchical labeling from finest to coarsest
+        level_labelings = {}
+        
+        # Start with the finest clustering (most clusters)
+        finest_n_clusters = level_cluster_counts[0]
+        if finest_n_clusters >= n_samples:
+            finest_n_clusters = n_samples - 1
+        if finest_n_clusters < 2:
+            finest_n_clusters = 2
+            
+        finest_labels = fcluster(linkage_matrix, finest_n_clusters, criterion='maxclust')
+        level_labelings[0] = finest_labels - 1  # Convert to 0-based indexing
+        
+        # For each subsequent level, create coarser groupings by merging clusters
+        for level in range(1, n_levels):
+            n_clusters = level_cluster_counts[level]
+            if n_clusters >= n_samples:
+                n_clusters = n_samples - 1
+            if n_clusters < 2:
+                n_clusters = 2
+                
+            coarse_labels = fcluster(linkage_matrix, n_clusters, criterion='maxclust')
+            level_labelings[level] = coarse_labels - 1  # Convert to 0-based indexing
+        
+        # Build the complete tree structure ensuring every goal has a path through all levels
+        root_nodes = self._build_complete_tree_nodes(
+            embeddings, goals, sources, level_labelings, level_cluster_counts
+        )
+        
+        return root_nodes
+    
+    def _build_complete_tree_nodes(self, embeddings, goals, sources, level_labelings, level_cluster_counts):
+        """Build complete tree nodes ensuring every goal has a full hierarchical path"""
+        
+        # Start with the coarsest level (fewest clusters) for root nodes
+        coarsest_level = len(level_cluster_counts) - 1
+        root_labels = level_labelings[coarsest_level]
+        
+        # Create root nodes
+        root_nodes = []
+        unique_root_labels = sorted(set(root_labels))
+        
+        for i, root_label in enumerate(unique_root_labels):
+            # Get indices for this root cluster
+            root_indices = [idx for idx, label in enumerate(root_labels) if label == root_label]
+            
+            # Create root node
+            root_node = {
+                'id': f"A{i+1}",
+                'label': f"A{i+1}",
+                'level': 0,
+                'size': len(root_indices),
+                'indices': root_indices,
+                'children': [],
+                'goals': None,
+                'sources': None,
+                'quality': None,
+                'representative_goal': ''
+            }
+            
+            # Build complete children ensuring every goal gets a full path
+            self._build_complete_children_recursive(
+                root_node, embeddings, goals, sources, level_labelings, 
+                level_cluster_counts, coarsest_level - 1
+            )
+            
+            # Calculate representative goal for root node
+            root_node['representative_goal'] = self._find_representative_goal_for_node(
+                root_node, goals
+            )
+            
+            root_nodes.append(root_node)
+        
+        return root_nodes
+    
+    def _build_complete_children_recursive(self, parent_node, embeddings, goals, sources, 
+                                          level_labelings, level_cluster_counts, current_level):
+        """Recursively build children ensuring every goal gets a complete hierarchical path"""
+        
+        if current_level < 0:
+            # Leaf level - add goals and calculate quality
+            parent_node['goals'] = [goals[i] for i in parent_node['indices']]
+            parent_node['sources'] = [sources[i] for i in parent_node['indices']]
+            
+            # Add representative goal (longest one)
+            if parent_node['goals']:
+                parent_node['representative_goal'] = max(parent_node['goals'], key=len)
+            else:
+                parent_node['representative_goal'] = ''
+            
+            # Calculate quality metrics for leaf nodes
+            if len(parent_node['indices']) > 1:
+                leaf_embeddings = embeddings[parent_node['indices']]
+                parent_node['quality'] = self._calculate_node_quality(
+                    leaf_embeddings, embeddings, parent_node['indices']
+                )
+            
+            return
+        
+        # Get labels for current level within parent's scope
+        current_labels = level_labelings[current_level]
+        parent_indices = parent_node['indices']
+        
+        # Find unique clusters within this parent
+        parent_labels = [current_labels[i] for i in parent_indices]
+        unique_labels = sorted(set(parent_labels))
+        
+        if len(unique_labels) <= 1:
+            # No subdivision at this level - create a single child with all the same goals
+            # This ensures every goal still gets a complete path through all levels
+            child_node_label = self._generate_child_label(parent_node['label'], 0)
+            
+            child_node = {
+                'id': child_node_label,
+                'label': child_node_label,
+                'level': parent_node['level'] + 1,
+                'size': len(parent_indices),
+                'indices': parent_indices,
+                'children': [],
+                'goals': None,
+                'sources': None,
+                'quality': None,
+                'representative_goal': ''
+            }
+            
+            # Continue building this child's children
+            self._build_complete_children_recursive(
+                child_node, embeddings, goals, sources, level_labelings,
+                level_cluster_counts, current_level - 1
+            )
+            
+            parent_node['children'].append(child_node)
+        else:
+            # Normal subdivision - create children for each unique label
+            for j, child_label in enumerate(unique_labels):
+                child_indices = [
+                    parent_indices[i] for i, label in enumerate(parent_labels) 
+                    if label == child_label
+                ]
+                
+                if len(child_indices) == 0:
+                    continue
+                
+                # Generate hierarchical label
+                child_node_label = self._generate_child_label(parent_node['label'], j)
+                
+                child_node = {
+                    'id': child_node_label,
+                    'label': child_node_label,
+                    'level': parent_node['level'] + 1,
+                    'size': len(child_indices),
+                    'indices': child_indices,
+                    'children': [],
+                    'goals': None,
+                    'sources': None,
+                    'quality': None,
+                    'representative_goal': ''
+                }
+                
+                # Recursively build this child's children
+                self._build_complete_children_recursive(
+                    child_node, embeddings, goals, sources, level_labelings,
+                    level_cluster_counts, current_level - 1
+                )
+                
+                parent_node['children'].append(child_node)
+        
+        # Calculate quality for non-leaf nodes and find representative goal
+        if parent_node['children']:
+            parent_embeddings = embeddings[parent_node['indices']]
+            parent_node['quality'] = self._calculate_node_quality(
+                parent_embeddings, embeddings, parent_node['indices']
+            )
+            
+            # Find representative goal from all children
+            parent_node['representative_goal'] = self._find_representative_goal_for_node(
+                parent_node, goals
+            )
+    
+    def _generate_child_label(self, parent_label, child_index):
+        """Generate hierarchical labels like A1, A1B1, A1B1C1, etc."""
+        alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        level = len([c for c in parent_label if c.isalpha()])
+        
+        if level < len(alphabet):
+            next_letter = alphabet[level]
+            return f"{parent_label}{next_letter}{child_index + 1}"
+        else:
+            # Fallback for very deep trees
+            return f"{parent_label}_{child_index + 1}"
+    
+    def _calculate_node_quality(self, node_embeddings, all_embeddings, node_indices):
+        """Calculate quality metrics for a tree node"""
+        if len(node_embeddings) < 2:
+            return {
+                'silhouette': 0.0,
+                'cohesion': 1.0,
+                'separation': 0.0
+            }
+        
+        try:
+            # Create dummy labels for silhouette calculation
+            # All points in this node get label 1, all others get label 0
+            labels = [1 if i in node_indices else 0 for i in range(len(all_embeddings))]
+            
+            # Calculate silhouette score
+            silhouette = self.calculate_cluster_quality_fast(all_embeddings, labels)
+            
+            # Calculate cohesion (average similarity within cluster)
+            if len(node_embeddings) > 1:
+                similarities = cosine_similarity(node_embeddings)
+                # Get upper triangle (excluding diagonal)
+                n = len(node_embeddings)
+                upper_indices = np.triu_indices(n, k=1)
+                cohesion = np.mean(similarities[upper_indices])
+            else:
+                cohesion = 1.0
+            
+            # Calculate separation (distance to other clusters)
+            if len(node_indices) < len(all_embeddings):
+                other_indices = [i for i in range(len(all_embeddings)) if i not in node_indices]
+                other_embeddings = all_embeddings[other_indices]
+                
+                # Calculate average distance between this cluster and others
+                node_centroid = np.mean(node_embeddings, axis=0).reshape(1, -1)
+                other_centroid = np.mean(other_embeddings, axis=0).reshape(1, -1)
+                separation = cosine_distances(node_centroid, other_centroid)[0, 0]
+            else:
+                separation = 0.0
+            
+            return {
+                'silhouette': round(float(silhouette), 3),
+                'cohesion': round(float(cohesion), 3),
+                'separation': round(float(separation), 3)
+            }
+            
+        except Exception as e:
+            print(f"Warning: Could not calculate quality metrics for node: {e}")
+            return {
+                'silhouette': 0.0,
+                'cohesion': 0.0,
+                'separation': 0.0
+            }
+    
+    def _find_representative_goal_for_node(self, node, all_goals):
+        """Find a representative goal for a non-leaf node by looking at all goals in its subtree"""
+        
+        def collect_all_goals_from_node(n):
+            if n.get('goals'):
+                return n['goals']
+            
+            all_goals_in_subtree = []
+            for child in n.get('children', []):
+                all_goals_in_subtree.extend(collect_all_goals_from_node(child))
+            return all_goals_in_subtree
+        
+        subtree_goals = collect_all_goals_from_node(node)
+        if subtree_goals:
+            # Return the longest goal as representative
+            return max(subtree_goals, key=len)
+        else:
+            # Fallback: use goals from indices
+            node_goals = [all_goals[i] for i in node['indices']]
+            if node_goals:
+                return max(node_goals, key=len)
+            return ''
+    
+    def find_tree_node_by_id(self, tree_structure, node_id):
+        """Find a specific node in the tree by its ID"""
+        def search_node(node):
+            if node['id'] == node_id:
+                return node
+            for child in node.get('children', []):
+                result = search_node(child)
+                if result:
+                    return result
+            return None
+        
+        for root_node in tree_structure:
+            result = search_node(root_node)
+            if result:
+                return result
+        return None
+    
+    def flatten_tree_node(self, node):
+        """Flatten a tree node into a simple cluster format"""
+        def collect_goals_recursive(n):
+            if n.get('goals'):
+                return n['goals'], n['sources']
+            
+            all_goals = []
+            all_sources = []
+            for child in n.get('children', []):
+                child_goals, child_sources = collect_goals_recursive(child)
+                all_goals.extend(child_goals)
+                all_sources.extend(child_sources)
+            return all_goals, all_sources
+        
+        goals, sources = collect_goals_recursive(node)
+        
+        return {
+            'id': node['id'],
+            'label': node['label'],
+            'size': len(goals),
+            'goals': goals,
+            'sources': sources,
+            'quality': node.get('quality', {})
+        } 

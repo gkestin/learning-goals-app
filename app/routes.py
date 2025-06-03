@@ -504,22 +504,37 @@ def cluster_page():
 def api_goals_overview():
     """API endpoint to get overview of available learning goals"""
     try:
+        # Get course filter from query parameters
+        course_filter = request.args.get('course')
+        
         # Get all learning goals from Firebase
         all_documents = search_documents(limit=1000)  # Get all documents
         
-        # Extract all learning goals
+        # Extract all learning goals with course filtering
         all_goals = []
         documents_count = 0
+        unique_creators = set()
+        unique_courses = set()
         
         for doc in all_documents:
+            # Apply course filter if specified
+            if course_filter and doc.course_name != course_filter:
+                continue
+                
             if doc.learning_goals:  # Only count documents with learning goals
                 documents_count += 1
                 all_goals.extend(doc.learning_goals)
+                if doc.creator:
+                    unique_creators.add(doc.creator)
+                if doc.course_name:
+                    unique_courses.add(doc.course_name)
         
         return jsonify({
             'success': True,
             'total_goals': len(all_goals),
             'total_documents': documents_count,
+            'unique_creators': len(unique_creators),
+            'unique_courses': len(unique_courses),
             'unique_goals': len(set(all_goals)),  # Count unique goals
             'avg_goals_per_doc': round(len(all_goals) / documents_count, 1) if documents_count > 0 else 0
         })
@@ -1403,4 +1418,152 @@ def debug_storage_paths():
         
         results['documents'].append(doc_info)
     
-    return jsonify(results) 
+    return jsonify(results)
+
+@main.route('/cluster-tree')
+def cluster_tree():
+    """Hierarchical clustering tree page"""
+    return render_template('cluster_tree.html')
+
+@main.route('/api/cluster-tree', methods=['POST'])
+def api_cluster_tree():
+    """API endpoint for building hierarchical clustering trees"""
+    try:
+        data = request.get_json()
+        n_levels = data.get('n_levels', 8)
+        linkage_method = data.get('linkage_method', 'ward')
+        course_filter = data.get('course')
+        
+        print(f"Building hierarchical tree: {n_levels} levels, {linkage_method} linkage")
+        
+        # Validate parameters
+        if n_levels < 3 or n_levels > 15:
+            return jsonify({
+                'success': False,
+                'message': 'Number of levels must be between 3 and 15'
+            })
+        
+        if linkage_method not in ['ward', 'complete', 'average', 'single']:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid linkage method'
+            })
+        
+        # Get all learning goals from Firebase
+        all_documents = search_documents(limit=1000)
+        
+        # Extract all learning goals with course filtering
+        all_goals = []
+        all_sources = []
+        
+        for doc in all_documents:
+            # Apply course filter if specified
+            if course_filter and doc.course_name != course_filter:
+                continue
+                
+            for goal in doc.learning_goals:
+                all_goals.append(goal)
+                all_sources.append({
+                    'document_name': doc.name,
+                    'creator': doc.creator,
+                    'course_name': doc.course_name
+                })
+        
+        if len(all_goals) < 2:
+            return jsonify({
+                'success': False,
+                'message': 'Need at least 2 learning goals to build a tree'
+            })
+        
+        # Generate embeddings (same way as regular clustering)
+        from app.clustering_service import LearningGoalsClusteringService
+        clustering_service = LearningGoalsClusteringService()
+        print(f"📊 Generating embeddings for {len(all_goals)} learning goals...")
+        embeddings = clustering_service.generate_embeddings(all_goals)
+        
+        # Build hierarchical tree
+        print(f"🌳 Building hierarchical tree...")
+        tree_result = clustering_service.build_hierarchical_tree(
+            embeddings, all_goals, all_sources, n_levels, linkage_method
+        )
+        
+        print(f"✅ Hierarchical tree built successfully!")
+        
+        return jsonify({
+            'success': True,
+            **tree_result
+        })
+        
+    except Exception as e:
+        print(f"Hierarchical tree building error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'Tree building failed: {str(e)}'
+        })
+
+@main.route('/api/export-tree-level')
+def api_export_tree_level():
+    """Export a specific tree level as CSV or JSON"""
+    try:
+        node_id = request.args.get('node_id')
+        format_type = request.args.get('format', 'csv').lower()
+        
+        if not node_id:
+            return jsonify({'success': False, 'message': 'Node ID required'})
+        
+        # For this implementation, we'll need to rebuild the tree or store it in session
+        # For now, return an error message suggesting the user use the view option
+        return jsonify({
+            'success': False,
+            'message': 'Export functionality requires session storage. Please use "View Flattened" instead.'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Export failed: {str(e)}'
+        })
+
+@main.route('/cluster-tree-flattened')
+def cluster_tree_flattened():
+    """View flattened version of a tree level"""
+    node_id = request.args.get('node_id')
+    if not node_id:
+        return "Node ID required", 400
+    
+    # For this implementation, show a placeholder page
+    # In a full implementation, you'd store the tree in session or database
+    return f"""
+    <html>
+    <head>
+        <title>Flattened View - {node_id}</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body>
+        <div class="container mt-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Flattened View: {node_id}</h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <strong>Note:</strong> This is a placeholder for the flattened view of cluster {node_id}.
+                        In a full implementation, this would show all learning goals that belong to this cluster
+                        and its sub-clusters in a traditional flat format similar to the regular clustering page.
+                    </div>
+                    <p>To implement this fully, you would:</p>
+                    <ul>
+                        <li>Store the tree structure in session or database</li>
+                        <li>Retrieve the specific node by ID</li>
+                        <li>Flatten all goals from the node and its children</li>
+                        <li>Display them in a traditional clustering format</li>
+                    </ul>
+                    <a href="javascript:window.close()" class="btn btn-secondary">Close Window</a>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """ 

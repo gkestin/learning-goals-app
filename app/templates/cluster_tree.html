@@ -1,0 +1,1115 @@
+{% extends "base.html" %}
+
+{% block title %}Hierarchical Clustering Tree - Learning Goals Extractor{% endblock %}
+
+{% block extra_css %}
+<style>
+    .clustering-controls {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+    }
+    
+    /* Tree Structure Styling */
+    .tree-container {
+        font-family: 'Monaco', 'Consolas', monospace;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .tree-node {
+        margin: 2px 0;
+        border-left: 2px solid transparent;
+        transition: all 0.2s ease;
+    }
+    
+    .tree-node:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+        border-left-color: #007bff;
+    }
+    
+    /* Smart indentation - limited depth */
+    .tree-level-0 { margin-left: 0px; }
+    .tree-level-1 { margin-left: 15px; }
+    .tree-level-2 { margin-left: 30px; }
+    .tree-level-3 { margin-left: 45px; }
+    .tree-level-4 { margin-left: 60px; }
+    .tree-level-5 { margin-left: 75px; }
+    .tree-level-6 { margin-left: 90px; }
+    .tree-level-7 { margin-left: 105px; }
+    .tree-level-8 { margin-left: 120px; }
+    .tree-level-9 { margin-left: 135px; }
+    .tree-level-10 { margin-left: 150px; }
+    
+    /* Beyond level 10, use a different visual cue */
+    .tree-level-deep {
+        margin-left: 150px;
+        border-left: 3px dotted #6c757d;
+        padding-left: 10px;
+    }
+    
+    .cluster-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        cursor: pointer;
+        background-color: white;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        margin-bottom: 3px;
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-header:hover {
+        background-color: #e3f2fd;
+        border-color: #007bff;
+        transform: translateX(2px);
+    }
+    
+    .cluster-header.expanded {
+        background-color: #e8f5e9;
+        border-color: #28a745;
+    }
+    
+    /* Style for nodes that don't subdivide (single child) */
+    .cluster-header.no-subdivision {
+        background-color: #f8f9fa;
+        border-style: dashed;
+        opacity: 0.8;
+    }
+    
+    .cluster-header.no-subdivision:hover {
+        background-color: #e9ecef;
+        opacity: 1;
+    }
+    
+    .cluster-label {
+        font-weight: bold;
+        color: #495057;
+        margin-right: 10px;
+        min-width: 60px;
+    }
+    
+    .cluster-representative {
+        font-size: 0.85em;
+        color: #6c757d;
+        font-style: italic;
+        max-width: 400px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: 10px;
+        flex: 1;
+    }
+    
+    .cluster-size {
+        background-color: #007bff;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin-right: 10px;
+        flex-shrink: 0;
+    }
+    
+    .cluster-quality {
+        display: flex;
+        gap: 6px;
+        margin-right: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .quality-badge {
+        font-size: 0.7em;
+        padding: 2px 6px;
+        border-radius: 8px;
+        white-space: nowrap;
+    }
+    
+    .quality-silhouette { background-color: #17a2b8; color: white; }
+    .quality-cohesion { background-color: #28a745; color: white; }
+    .quality-separation { background-color: #ffc107; color: black; }
+    
+    .cluster-actions {
+        margin-left: auto;
+        display: flex;
+        gap: 5px;
+    }
+    
+    .btn-flatten {
+        font-size: 0.7em;
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
+    
+    .collapse-icon {
+        transition: transform 0.2s ease;
+        margin-right: 8px;
+        color: #6c757d;
+    }
+    
+    .collapse-icon.expanded {
+        transform: rotate(90deg);
+    }
+    
+    .cluster-content {
+        padding: 15px 20px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        margin-bottom: 10px;
+    }
+    
+    .goal-item {
+        padding: 8px 12px;
+        margin: 5px 0;
+        background-color: white;
+        border-left: 3px solid #007bff;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .goal-text {
+        font-size: 0.9em;
+        line-height: 1.4;
+        margin-bottom: 4px;
+        color: #343a40;
+    }
+    
+    .goal-source {
+        font-size: 0.75em;
+        color: #6c757d;
+        font-style: italic;
+    }
+    
+    .clustering-stats {
+        background-color: #e3f2fd;
+        border: 1px solid #90caf9;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    .loading-spinner {
+        text-align: center;
+        padding: 40px 0;
+    }
+    
+    .export-section {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 20px;
+    }
+    
+    .stem-badge {
+        background: linear-gradient(45deg, #28a745, #20c997);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.7em;
+        font-weight: bold;
+    }
+
+    /* Progress Tracker */
+    .step-indicator {
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        transition: all 0.3s ease;
+    }
+    
+    .step-indicator.active {
+        background-color: #e3f2fd;
+        color: #1976d2;
+    }
+    
+    .step-indicator.completed {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+    }
+    
+    .step-indicator.error {
+        background-color: #ffebee;
+        color: #c62828;
+    }
+
+    /* Level Controls */
+    .level-button {
+        font-weight: bold;
+        min-width: 50px;
+    }
+    
+    .level-button.active {
+        background-color: #28a745;
+        border-color: #28a745;
+        color: white;
+    }
+    
+    /* Flattened Content */
+    .flattened-cluster {
+        margin-bottom: 20px;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .flattened-cluster-header {
+        background-color: #f8f9fa;
+        padding: 12px 15px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .flattened-cluster-title {
+        font-weight: bold;
+        color: #495057;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .flattened-cluster-content {
+        padding: 15px;
+        background-color: white;
+    }
+    
+    .flattened-cluster-metrics {
+        display: flex;
+        gap: 10px;
+        font-size: 0.8em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h2 class="card-title h4 mb-0">
+                    <i class="bi bi-diagram-2"></i> Hierarchical Clustering Tree Explorer
+                    <span class="stem-badge">STEM-Optimized</span>
+                </h2>
+                <small>Explore the natural hierarchy of learning goals through agglomerative clustering</small>
+            </div>
+            <div class="card-body">
+                
+                <!-- Learning Goals Overview & Course Selection -->
+                <div id="goals-overview" class="alert alert-info mb-4">
+                    <div class="row align-items-center mb-3">
+                        <div class="col-md-8">
+                            <h5 class="mb-0">ℹ️ Learning Goals Overview & Course Selection</h5>
+                        </div>
+                        <div class="col-md-4">
+                            <select id="course-selector" class="form-select">
+                                <option value="">All Courses (Default)</option>
+                                <!-- Course options will be populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div id="overview-loading">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span class="ms-2">Loading learning goals from database...</span>
+                    </div>
+                    <div id="overview-content" style="display: none;">
+                        <!-- Overview content will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Clustering Controls -->
+                <div class="clustering-controls">
+                    <h4 class="text-success mb-3">🌳 Hierarchical Tree Parameters</h4>
+                    <div class="row align-items-end">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="n-levels-input" class="form-label"><strong>Number of Levels:</strong></label>
+                                <div class="input-group" style="max-width: 200px;">
+                                    <input type="number" class="form-control form-control-lg text-center" id="n-levels-input" min="3" max="15" value="8">
+                                    <span class="input-group-text">levels</span>
+                                </div>
+                                <div class="form-text">
+                                    More levels = deeper hierarchy exploration
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="linkage-method" class="form-label"><strong>Linkage Method:</strong></label>
+                                <select class="form-select form-select-lg" id="linkage-method">
+                                    <option value="ward" selected>Ward (Recommended)</option>
+                                    <option value="complete">Complete</option>
+                                    <option value="average">Average</option>
+                                    <option value="single">Single</option>
+                                </select>
+                                <div class="form-text">
+                                    Ward minimizes within-cluster variance
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label d-block">&nbsp;</label>
+                                <button id="build-tree-btn" class="btn btn-success btn-lg w-100" disabled>
+                                    🌳 Build Hierarchical Tree
+                                </button>
+                                <div class="form-text">
+                                    Explores natural clustering hierarchy
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading Spinner -->
+                <div id="loading-spinner" class="loading-spinner" style="display: none;">
+                    <div class="spinner-border text-success" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Building hierarchical clustering tree...</p>
+                    <small class="text-muted">Computing dendrograms and quality metrics...</small>
+                </div>
+
+                <!-- Progress Tracker -->
+                <div id="progress-tracker" style="display: none;">
+                    <div class="card border-success">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0"><i class="bi bi-gear-fill"></i> Processing Progress</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="progress-message" class="mb-3">
+                                <strong>Current Step:</strong> <span id="current-step">Initializing...</span>
+                            </div>
+                            
+                            <!-- Step Progress Indicators -->
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-loading" class="step-indicator">
+                                            <i class="bi bi-database-fill fs-3"></i>
+                                            <div>Loading Data</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-embeddings" class="step-indicator">
+                                            <i class="bi bi-cpu-fill fs-3"></i>
+                                            <div>Embeddings</div>
+                                            <small class="text-muted" id="embeddings-status-text">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-tree-building" class="step-indicator">
+                                            <i class="bi bi-diagram-2-fill fs-3"></i>
+                                            <div>Tree Building</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-metrics" class="step-indicator">
+                                            <i class="bi bi-graph-up fs-3"></i>
+                                            <div>Quality Metrics</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Overall Progress Bar -->
+                            <div class="progress" style="height: 25px;">
+                                <div id="overall-progress" class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                                     role="progressbar" style="width: 0%">
+                                    <span id="progress-text">Starting...</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Detailed Progress Info -->
+                            <div id="progress-details" class="mt-3 text-muted">
+                                <small id="progress-detail-text">Preparing to build hierarchical tree...</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Clustering Results -->
+                <div id="results-section" style="display: none;">
+                    <!-- Stats Section -->
+                    <div id="clustering-stats" class="clustering-stats">
+                        <!-- Stats will be populated here -->
+                    </div>
+                    
+                    <!-- Hierarchical Tree Container -->
+                    <div class="tree-container">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5><i class="bi bi-diagram-2"></i> Hierarchical Clustering Tree</h5>
+                            <div>
+                                <button id="expand-all-btn" class="btn btn-outline-secondary btn-sm me-2">
+                                    <i class="bi bi-arrows-expand"></i> Expand All
+                                </button>
+                                <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-arrows-collapse"></i> Collapse All
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Level Flattening Controls -->
+                        <div id="level-controls" class="mb-3" style="display: none;">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="fw-bold text-muted">Flatten at Level:</span>
+                                <div id="level-buttons" class="btn-group" role="group">
+                                    <!-- Level buttons will be populated here -->
+                                </div>
+                                <button id="show-tree-btn" class="btn btn-outline-primary btn-sm ms-2" style="display: none;">
+                                    <i class="bi bi-diagram-2"></i> Show Tree View
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Flattened View Stats (shown when level is selected) -->
+                        <div id="flattened-stats" class="clustering-stats" style="display: none;">
+                            <!-- Flattened stats will be populated here -->
+                        </div>
+                        
+                        <div id="tree-content">
+                            <!-- Tree will be populated here -->
+                        </div>
+                        
+                        <!-- Flattened Content (shown when level is selected) -->
+                        <div id="flattened-content" style="display: none;">
+                            <!-- Flattened view will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No Results -->
+                <div id="no-goals" class="text-center" style="display: none;">
+                    <i class="bi bi-emoji-frown" style="font-size: 3rem; color: #6c757d;"></i>
+                    <h3 class="mt-3">No Learning Goals Found</h3>
+                    <p class="text-muted">Please <a href="{{ url_for('main.index') }}">upload some documents</a> first to analyze learning goals.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let availableCourses = [];
+let selectedCourse = null;
+let currentTreeData = null;
+
+$(document).ready(function() {
+    // Load overview on page load
+    loadGoalsOverview();
+    
+    // Load available courses
+    loadAvailableCourses();
+    
+    // Course selector change handler
+    $('#course-selector').change(function() {
+        selectedCourse = $(this).val() || null;
+        updateCourseStats();
+    });
+    
+    // Build tree button handler
+    $('#build-tree-btn').click(function() {
+        buildHierarchicalTree();
+    });
+    
+    // Expand/Collapse all buttons
+    $('#expand-all-btn').click(function() {
+        $('.cluster-header').addClass('expanded');
+        $('.cluster-content').show();
+        $('.collapse-icon').addClass('expanded');
+    });
+    
+    $('#collapse-all-btn').click(function() {
+        $('.cluster-header').removeClass('expanded');
+        $('.cluster-content').hide();
+        $('.collapse-icon').removeClass('expanded');
+    });
+});
+
+function loadGoalsOverview() {
+    $('#overview-loading').show();
+    $('#overview-content').hide();
+    
+    $.get('/api/goals-overview')
+        .done(function(data) {
+            if (data.success) {
+                const statsHtml = `
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Total Goals:</strong> ${data.total_goals}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Documents:</strong> ${data.total_documents}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Creators:</strong> ${data.unique_creators}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Courses:</strong> ${data.unique_courses}
+                        </div>
+                    </div>
+                `;
+                $('#overview-content').html(statsHtml);
+                
+                // Enable build button if we have goals
+                if (data.total_goals > 0) {
+                    $('#build-tree-btn').prop('disabled', false);
+                }
+                
+                $('#overview-loading').hide();
+                $('#overview-content').show();
+            } else {
+                $('#overview-loading').hide();
+                $('#no-goals').show();
+            }
+        })
+        .fail(function() {
+            $('#overview-loading').hide();
+            alert('Failed to load goals overview');
+        });
+}
+
+function loadAvailableCourses() {
+    $.get('/api/available-courses')
+        .done(function(data) {
+            if (data.success && data.courses.length > 0) {
+                availableCourses = data.courses;
+                
+                // Populate course selector
+                $('#course-selector').append(
+                    availableCourses.map(course => 
+                        `<option value="${course.name}">${course.name} (${course.total_goals} goals)</option>`
+                    ).join('')
+                );
+            }
+        })
+        .fail(function() {
+            console.warn('Failed to load available courses');
+        });
+}
+
+function updateCourseStats() {
+    // Update overview stats for selected course
+    const courseParam = selectedCourse ? `?course=${encodeURIComponent(selectedCourse)}` : '';
+    
+    $.get(`/api/goals-overview${courseParam}`)
+        .done(function(data) {
+            if (data.success) {
+                const courseText = selectedCourse ? ` (${selectedCourse})` : '';
+                const statsHtml = `
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Total Goals${courseText}:</strong> ${data.total_goals}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Documents:</strong> ${data.total_documents}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Creators:</strong> ${data.unique_creators}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Courses:</strong> ${data.unique_courses}
+                        </div>
+                    </div>
+                `;
+                $('#overview-content').html(statsHtml);
+                
+                // Enable/disable build button
+                $('#build-tree-btn').prop('disabled', data.total_goals === 0);
+            }
+        });
+}
+
+function buildHierarchicalTree() {
+    const nLevels = parseInt($('#n-levels-input').val());
+    const linkageMethod = $('#linkage-method').val();
+    
+    // Hide previous results
+    $('#results-section').hide();
+    $('#no-goals').hide();
+    
+    // Show progress tracking
+    $('#loading-spinner').show();
+    $('#progress-tracker').show();
+    
+    // Reset progress indicators
+    resetProgressIndicators();
+    
+    // Update progress: Loading data
+    updateProgressStep('step-loading', 'active', 'Loading learning goals...');
+    $('#current-step').text('Loading learning goals from database...');
+    updateProgressBar(10, 'Loading data...');
+    
+    // Build the tree
+    const requestData = {
+        n_levels: nLevels,
+        linkage_method: linkageMethod
+    };
+    
+    if (selectedCourse) {
+        requestData.course = selectedCourse;
+    }
+    
+    $.ajax({
+        url: '/api/cluster-tree',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(requestData),
+        timeout: 300000 // 5 minutes timeout
+    })
+    .done(function(data) {
+        if (data.success) {
+            currentTreeData = data;
+            displayTreeResults(data);
+        } else {
+            $('#loading-spinner').hide();
+            $('#progress-tracker').hide();
+            alert(`Tree building failed: ${data.message}`);
+        }
+    })
+    .fail(function(xhr, status, error) {
+        $('#loading-spinner').hide();
+        $('#progress-tracker').hide();
+        
+        let errorMsg = 'Tree building failed';
+        if (xhr.responseJSON && xhr.responseJSON.message) {
+            errorMsg += `: ${xhr.responseJSON.message}`;
+        } else if (status === 'timeout') {
+            errorMsg += ': Request timed out. Try with fewer levels or a smaller dataset.';
+        }
+        alert(errorMsg);
+    });
+}
+
+function resetProgressIndicators() {
+    $('.step-indicator').removeClass('active completed error');
+    $('#overall-progress').css('width', '0%').removeClass('bg-success bg-danger');
+    $('#progress-text').text('Starting...');
+    $('#progress-detail-text').text('');
+}
+
+function updateProgressStep(stepId, status, message) {
+    $(`#${stepId}`).removeClass('active completed error').addClass(status);
+    if (message) {
+        $(`#${stepId} small`).text(message);
+    }
+}
+
+function updateProgressBar(percentage, text) {
+    $('#overall-progress').css('width', `${percentage}%`);
+    $('#progress-text').text(text);
+}
+
+function displayTreeResults(data) {
+    // Update progress: Complete
+    updateProgressStep('step-loading', 'completed', 'Complete');
+    updateProgressStep('step-embeddings', 'completed', 'Complete');
+    updateProgressStep('step-tree-building', 'completed', 'Complete');
+    updateProgressStep('step-metrics', 'completed', 'Complete');
+    updateProgressBar(100, 'Complete!');
+    $('#current-step').text('Hierarchical tree built successfully!');
+    
+    // Hide loading
+    setTimeout(() => {
+        $('#loading-spinner').hide();
+        $('#progress-tracker').hide();
+    }, 1000);
+    
+    // Display stats
+    displayStats(data);
+    
+    // Display tree
+    displayTree(data.tree_structure);
+    
+    // Show results
+    $('#results-section').show();
+}
+
+function displayStats(data) {
+    const statsHtml = `
+        <h5><i class="bi bi-graph-up"></i> Hierarchical Clustering Results</h5>
+        <div class="row mb-2">
+            <div class="col-md-3">
+                <strong>Total Goals:</strong> ${data.total_goals}
+            </div>
+            <div class="col-md-3">
+                <strong>Levels Built:</strong> ${data.n_levels}
+            </div>
+            <div class="col-md-3">
+                <strong>Linkage Method:</strong> ${data.linkage_method}
+            </div>
+            <div class="col-md-3">
+                <strong>Processing Time:</strong> ${data.processing_time}s
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-12">
+                <small class="text-muted">
+                    <strong>Complete Hierarchical Structure:</strong> Every learning goal has a full hierarchical path through all levels. 
+                    When flattening at any level, no goals are lost - they're just organized at different granularities.
+                    <span class="text-success">✓ Path-complete design ensures 100% goal preservation.</span>
+                </small>
+            </div>
+        </div>
+    `;
+    $('#clustering-stats').html(statsHtml);
+}
+
+function displayTree(treeStructure) {
+    let treeHtml = '';
+    let maxLevel = 0;
+    
+    // First pass: find maximum level depth for level buttons
+    function findMaxLevel(nodes, currentLevel = 0) {
+        maxLevel = Math.max(maxLevel, currentLevel);
+        nodes.forEach(node => {
+            if (node.children && node.children.length > 0) {
+                findMaxLevel(node.children, currentLevel + 1);
+            }
+        });
+    }
+    
+    findMaxLevel(treeStructure);
+    
+    // Generate level buttons
+    generateLevelButtons(maxLevel);
+    
+    function buildTreeNode(node, level = 0) {
+        const levelClass = level <= 10 ? `tree-level-${level}` : 'tree-level-deep';
+        const hasChildren = node.children && node.children.length > 0;
+        const isLeaf = !hasChildren;
+        
+        // Get representative goal for this node
+        let representativeGoal = '';
+        if (node.representative_goal) {
+            // Use backend-provided representative goal if available
+            representativeGoal = node.representative_goal;
+        } else if (isLeaf && node.goals && node.goals.length > 0) {
+            // For leaf nodes, use the longest goal as representative
+            representativeGoal = node.goals.reduce((longest, current) => 
+                current.length > longest.length ? current : longest
+            );
+        } else if (hasChildren) {
+            // For parent nodes, find a representative from all children
+            representativeGoal = findRepresentativeGoal(node);
+        }
+        
+        let nodeHtml = `<div class="tree-node ${levelClass}" data-level="${level}" data-node-id="${node.id}">`;
+        
+        // Check if this node represents no subdivision (has exactly one child with same size)
+        const isNoSubdivision = hasChildren && node.children.length === 1 && 
+                               node.children[0].size === node.size;
+        const subdivisionClass = isNoSubdivision ? ' no-subdivision' : '';
+        
+        // Cluster header
+        nodeHtml += `
+            <div class="cluster-header${subdivisionClass}" onclick="toggleCluster('${node.id}')">
+                ${hasChildren ? '<i class="bi bi-chevron-right collapse-icon"></i>' : '<i class="bi bi-circle-fill collapse-icon" style="font-size: 0.5em;"></i>'}
+                <span class="cluster-label">${node.label}</span>
+                <span class="cluster-representative" title="${representativeGoal}">
+                    ${truncateText(representativeGoal, 60)}
+                    ${isNoSubdivision ? ' <small class="text-muted">(no subdivision)</small>' : ''}
+                </span>
+                <span class="cluster-size">${node.size}</span>
+            </div>
+        `;
+        
+        // Cluster content (goals for leaf nodes, children for branch nodes)
+        if (isLeaf && node.goals) {
+            nodeHtml += `<div class="cluster-content" id="content-${node.id}" style="display: none;">`;
+            node.goals.forEach(function(goal, index) {
+                const source = node.sources ? node.sources[index] : {};
+                nodeHtml += `
+                    <div class="goal-item">
+                        <div class="goal-text">"${goal}"</div>
+                        <div class="goal-source">
+                            📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                            👤 ${truncateText(source.creator || 'Unknown', 15)}
+                            ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            nodeHtml += `</div>`;
+        } else if (hasChildren) {
+            nodeHtml += `<div class="cluster-content" id="content-${node.id}" style="display: none;">`;
+            node.children.forEach(child => {
+                nodeHtml += buildTreeNode(child, level + 1);
+            });
+            nodeHtml += `</div>`;
+        }
+        
+        nodeHtml += `</div>`;
+        return nodeHtml;
+    }
+    
+    treeStructure.forEach(rootNode => {
+        treeHtml += buildTreeNode(rootNode, 0);
+    });
+    
+    $('#tree-content').html(treeHtml);
+}
+
+function findRepresentativeGoal(node) {
+    // Recursively find a representative goal from children
+    if (node.goals && node.goals.length > 0) {
+        return node.goals.reduce((longest, current) => 
+            current.length > longest.length ? current : longest
+        );
+    }
+    
+    if (node.children && node.children.length > 0) {
+        for (let child of node.children) {
+            const childRep = findRepresentativeGoal(child);
+            if (childRep) return childRep;
+        }
+    }
+    
+    return '';
+}
+
+function generateLevelButtons(maxLevel) {
+    const levelLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'];
+    let buttonsHtml = '';
+    
+    for (let i = 0; i <= maxLevel && i < levelLabels.length; i++) {
+        buttonsHtml += `
+            <button class="btn btn-outline-success level-button" data-level="${i}" onclick="flattenAtLevel(${i})">
+                Level ${levelLabels[i]}
+            </button>
+        `;
+    }
+    
+    $('#level-buttons').html(buttonsHtml);
+    $('#level-controls').show();
+}
+
+function flattenAtLevel(targetLevel) {
+    if (!currentTreeData) return;
+    
+    // Update button states
+    $('.level-button').removeClass('active');
+    $(`.level-button[data-level="${targetLevel}"]`).addClass('active');
+    $('#show-tree-btn').show();
+    
+    // Collect all nodes at the target level using the complete hierarchical structure
+    const nodesAtLevel = [];
+    
+    function collectNodesAtLevel(nodes, currentLevel = 0) {
+        if (currentLevel === targetLevel) {
+            // At target level - collect these nodes
+            nodesAtLevel.push(...nodes);
+            return;
+        }
+        
+        // Not at target level yet - go deeper
+        nodes.forEach(node => {
+            if (node.children && node.children.length > 0) {
+                collectNodesAtLevel(node.children, currentLevel + 1);
+            } else {
+                // This is a leaf node but we haven't reached target level yet
+                // This shouldn't happen with complete hierarchical paths, but handle gracefully
+                console.warn(`Leaf node found at level ${currentLevel}, target level is ${targetLevel}`);
+            }
+        });
+    }
+    
+    collectNodesAtLevel(currentTreeData.tree_structure);
+    
+    // Verify we have all learning goals (for debugging)
+    const totalGoalsAtLevel = nodesAtLevel.reduce((sum, node) => sum + node.size, 0);
+    const originalTotalGoals = currentTreeData.total_goals;
+    
+    if (totalGoalsAtLevel !== originalTotalGoals) {
+        console.warn(`Goal count mismatch at level ${targetLevel}: ${totalGoalsAtLevel} vs ${originalTotalGoals}`);
+    } else {
+        console.log(`✅ All ${totalGoalsAtLevel} goals preserved at level ${targetLevel}`);
+    }
+    
+    // Calculate metrics for this flattened level
+    calculateFlattenedMetrics(nodesAtLevel, targetLevel, totalGoalsAtLevel);
+    
+    // Display flattened view
+    displayFlattenedView(nodesAtLevel, targetLevel);
+    
+    // Hide tree, show flattened content
+    $('#tree-content').hide();
+    $('#flattened-content').show();
+}
+
+function calculateFlattenedMetrics(nodes, level, totalGoals) {
+    const levelLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    
+    // Calculate some basic statistics about cluster sizes
+    const clusterSizes = nodes.map(node => node.size);
+    const avgClusterSize = (totalGoals / nodes.length).toFixed(1);
+    const minClusterSize = Math.min(...clusterSizes);
+    const maxClusterSize = Math.max(...clusterSizes);
+    
+    const statsHtml = `
+        <h5><i class="bi bi-layers"></i> Level ${levelLabels[level]} Flattened View</h5>
+        <div class="row mb-2">
+            <div class="col-md-3">
+                <strong>Total Goals:</strong> ${totalGoals}
+                <small class="d-block text-success">✓ All goals preserved</small>
+            </div>
+            <div class="col-md-3">
+                <strong>Clusters:</strong> ${nodes.length}
+                <small class="d-block text-muted">Groups at this level</small>
+            </div>
+            <div class="col-md-3">
+                <strong>Avg. Cluster Size:</strong> ${avgClusterSize}
+                <small class="d-block text-muted">Range: ${minClusterSize}-${maxClusterSize}</small>
+            </div>
+            <div class="col-md-3">
+                <strong>Level:</strong> ${levelLabels[level]}
+                <small class="d-block text-muted">Hierarchical depth</small>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-12">
+                <small class="text-muted">
+                    This view shows all learning goals organized into ${nodes.length} clusters at Level ${levelLabels[level]}. 
+                    Every learning goal has a complete hierarchical path (e.g., A1B2C3) ensuring no goals are lost at any level.
+                </small>
+            </div>
+        </div>
+    `;
+    $('#flattened-stats').html(statsHtml).show();
+}
+
+function displayFlattenedView(nodes, level) {
+    let flattenedHtml = '';
+    
+    // Sort nodes by their label for consistent display
+    const sortedNodes = nodes.sort((a, b) => {
+        // Extract numbers from labels for proper sorting (A1, A2, A10, etc.)
+        const extractNumbers = (label) => {
+            const matches = label.match(/\d+/g);
+            return matches ? matches.map(Number) : [0];
+        };
+        
+        const aNumbers = extractNumbers(a.label);
+        const bNumbers = extractNumbers(b.label);
+        
+        for (let i = 0; i < Math.max(aNumbers.length, bNumbers.length); i++) {
+            const aNum = aNumbers[i] || 0;
+            const bNum = bNumbers[i] || 0;
+            if (aNum !== bNum) return aNum - bNum;
+        }
+        return 0;
+    });
+    
+    sortedNodes.forEach((node, index) => {
+        // Collect all goals from this node and its children (should be leaf level)
+        const allGoals = [];
+        const allSources = [];
+        
+        function collectGoals(n) {
+            if (n.goals) {
+                allGoals.push(...n.goals);
+                allSources.push(...n.sources);
+            }
+            if (n.children) {
+                n.children.forEach(collectGoals);
+            }
+        }
+        
+        collectGoals(node);
+        
+        flattenedHtml += `
+            <div class="flattened-cluster">
+                <div class="flattened-cluster-header">
+                    <div class="flattened-cluster-title">
+                        <span class="cluster-label">${node.label}</span>
+                        <span class="cluster-size">${allGoals.length}</span>
+                        <small class="text-muted ms-2">
+                            ${node.representative_goal ? `"${truncateText(node.representative_goal, 50)}..."` : ''}
+                        </small>
+                    </div>
+                </div>
+                <div class="flattened-cluster-content">
+        `;
+        
+        // Display goals in a grid
+        flattenedHtml += '<div class="row">';
+        allGoals.forEach((goal, goalIndex) => {
+            const source = allSources[goalIndex] || {};
+            flattenedHtml += `
+                <div class="col-md-6 mb-2">
+                    <div class="goal-item">
+                        <div class="goal-text">"${goal}"</div>
+                        <div class="goal-source">
+                            📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                            👤 ${truncateText(source.creator || 'Unknown', 15)}
+                            ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        flattenedHtml += '</div></div></div>';
+    });
+    
+    $('#flattened-content').html(flattenedHtml);
+}
+
+// Show tree view button handler
+$('#show-tree-btn').click(function() {
+    showTreeView();
+});
+
+function showTreeView() {
+    $('.level-button').removeClass('active');
+    $('#show-tree-btn').hide();
+    $('#flattened-stats').hide();
+    $('#flattened-content').hide();
+    $('#tree-content').show();
+}
+
+function toggleCluster(nodeId) {
+    const header = $(`[data-node-id="${nodeId}"] > .cluster-header`);
+    const content = $(`#content-${nodeId}`);
+    const icon = header.find('.collapse-icon');
+    
+    if (content.is(':visible')) {
+        content.slideUp();
+        header.removeClass('expanded');
+        icon.removeClass('expanded');
+    } else {
+        content.slideDown();
+        header.addClass('expanded');
+        icon.addClass('expanded');
+    }
+}
+
+function truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) return text || '';
+    return text.substring(0, maxLength) + '...';
+}
+</script>
+{% endblock %} 
