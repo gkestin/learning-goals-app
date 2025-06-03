@@ -57,10 +57,24 @@ class Document:
         
     @property
     def document_url(self):
-        """Generate a Firebase Storage URL for the document"""
+        """Generate a Firebase Storage URL for the document with smart path resolution"""
         if not self.storage_path:
             return None
+        
+        # Try to smart-resolve the path if needed
+        try:
+            from app.firebase_service import smart_resolve_storage_path
+            result = smart_resolve_storage_path(self, fix_in_db=True)
             
-        # Encode the path correctly for Firebase Storage URLs
-        encoded_path = self.storage_path.replace('/', '%2F')
-        return f"__FIREBASE_STORAGE_URL_BASE__{encoded_path}?alt=media" 
+            if result['resolved_path']:
+                # Use the resolved path for URL generation
+                encoded_path = result['resolved_path'].replace('/', '%2F')
+                return f"__FIREBASE_STORAGE_URL_BASE__{encoded_path}?alt=media"
+            else:
+                # Fallback to original path even if it might not work
+                encoded_path = self.storage_path.replace('/', '%2F')
+                return f"__FIREBASE_STORAGE_URL_BASE__{encoded_path}?alt=media"
+        except Exception:
+            # Fallback to original behavior if smart resolution fails
+            encoded_path = self.storage_path.replace('/', '%2F')
+            return f"__FIREBASE_STORAGE_URL_BASE__{encoded_path}?alt=media" 

@@ -8,7 +8,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, jsonif
 from app.models import Document
 from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
 from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
-from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document, move_storage_file
+from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document, move_storage_file, smart_resolve_storage_path
 
 main = Blueprint('main', __name__)
 
@@ -193,7 +193,12 @@ def save_document_data():
             storage_path = upload_result['storagePath']
             
             # Move from temp location to final location if needed
-            final_storage_path = f"pdfs/{creator}_{name}_{original_filename}"
+            # Fix filename duplication by using name only if it's different from original_filename
+            if name and name != original_filename:
+                final_storage_path = f"pdfs/{creator}_{name}_{original_filename}"
+            else:
+                final_storage_path = f"pdfs/{creator}_{original_filename}"
+            
             if storage_path != final_storage_path:
                 # Import here to avoid circular imports
                 from app.firebase_service import move_storage_file
@@ -1335,4 +1340,67 @@ def download_embeddings(session_id):
         
     except Exception as e:
         print(f"Error downloading embeddings: {e}")
-        return jsonify({'error': str(e)}), 500 
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/debug_storage_paths')
+def debug_storage_paths():
+    """Debug page to check for documents with storage path issues"""
+    from app.firebase_service import search_documents, smart_resolve_storage_path
+    import re
+    
+    # Get all documents
+    all_documents = search_documents(limit=1000)
+    
+    results = {
+        'total_documents': len(all_documents),
+        'duplicated_path_count': 0,
+        'working_paths': 0,
+        'broken_paths': 0,
+        'auto_correctable': 0,
+        'documents': []
+    }
+    
+    # Pattern to detect duplicated filenames
+    duplicated_pattern = re.compile(r'pdfs/(.+?)_(.+?)_\2$')
+    
+    for doc in all_documents:
+        if not doc.storage_path:
+            continue
+            
+        doc_info = {
+            'id': doc.id,
+            'name': doc.name,
+            'creator': doc.creator,
+            'storage_path': doc.storage_path,
+            'has_duplicated_pattern': False,
+            'path_works': False,
+            'auto_correctable': False,
+            'corrected_path': None
+        }
+        
+        # Check if it has duplicated pattern
+        if duplicated_pattern.match(doc.storage_path):
+            doc_info['has_duplicated_pattern'] = True
+            results['duplicated_path_count'] += 1
+        
+        # Try smart resolution (without fixing in DB)
+        try:
+            path_result = smart_resolve_storage_path(doc, fix_in_db=False)
+            
+            if path_result['resolved_path']:
+                doc_info['path_works'] = True
+                results['working_paths'] += 1
+                
+                if path_result['corrected']:
+                    doc_info['auto_correctable'] = True
+                    doc_info['corrected_path'] = path_result['resolved_path']
+                    results['auto_correctable'] += 1
+            else:
+                results['broken_paths'] += 1
+        except Exception as e:
+            results['broken_paths'] += 1
+            doc_info['error'] = str(e)
+        
+        results['documents'].append(doc_info)
+    
+    return jsonify(results) 

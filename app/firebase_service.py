@@ -5,6 +5,7 @@ from firebase_admin import credentials, firestore, storage
 from app.models import Document
 import datetime as datetime_module  # For timedelta
 import uuid
+import re
 
 # Global variables
 db = None
@@ -413,7 +414,7 @@ def get_learning_goal_suggestions(prefix, limit=10):
     return suggestions
 
 def delete_document(doc_id):
-    """Delete a document and its associated file from Firebase"""
+    """Delete a document and its associated file from Firebase with smart path correction"""
     global db, bucket, using_mock
     
     if not db:
@@ -427,16 +428,37 @@ def delete_document(doc_id):
         
     try:
         # 1. Delete the file from Storage if it exists
+        file_deleted = False
+        
         if doc.storage_path:
             if using_mock:
                 print(f"⚠️ MOCK STORAGE: Pretending to delete file: {doc.storage_path}")
                 if doc.storage_path in bucket.files:
                     del bucket.files[doc.storage_path]
+                    file_deleted = True
             else:
-                print(f"✅ REAL STORAGE: Deleting file from Firebase Storage: {doc.storage_path}")
-                blob = bucket.blob(doc.storage_path)
-                blob.delete()
-                print(f"File deleted successfully: {doc.storage_path}")
+                # Use smart resolution to find the correct path
+                path_result = smart_resolve_storage_path(doc, fix_in_db=True)
+                
+                if path_result['resolved_path']:
+                    print(f"✅ REAL STORAGE: Deleting file: {path_result['resolved_path']}")
+                    
+                    try:
+                        blob = bucket.blob(path_result['resolved_path'])
+                        blob.delete()
+                        print(f"✅ File deleted successfully: {path_result['resolved_path']}")
+                        file_deleted = True
+                        
+                        if path_result['corrected']:
+                            print(f"📝 Note: Storage path was auto-corrected from duplicated filename")
+                            
+                    except Exception as e:
+                        print(f"❌ Failed to delete file: {e}")
+                else:
+                    print(f"❌ Could not resolve storage path for deletion")
+                        
+                if not file_deleted:
+                    print(f"⚠️ Warning: Could not delete file from storage, but continuing with document deletion")
         
         # 2. Delete the document from Firestore
         if using_mock:
@@ -447,11 +469,12 @@ def delete_document(doc_id):
             print(f"✅ REAL DATABASE: Deleting document from Firestore: {doc_id}")
             db.collection('documents').document(doc_id).delete()
         
-        print(f"Document deleted successfully: {doc_id}")
+        print(f"✅ Document deleted successfully: {doc_id}")
         return True
+        
     except Exception as e:
-        print(f"Error deleting document: {e}")
-        return False 
+        print(f"❌ Error deleting document: {e}")
+        return False
 
 def generate_signed_upload_url(filename, content_type='application/pdf'):
     """Generate a signed URL for direct upload to Cloud Storage"""
@@ -574,4 +597,90 @@ def move_storage_file(source_path, destination_path):
     return {
         'storage_path': destination_path,
         'public_url': public_url
+    }
+
+def smart_resolve_storage_path(doc, fix_in_db=False):
+    """
+    Smart helper to resolve duplicated storage paths and optionally fix them in the database.
+    
+    Returns:
+        dict: {
+            'resolved_path': str,  # The working storage path 
+            'corrected': bool,     # Whether path was corrected
+            'original_path': str   # Original path from document
+        }
+    """
+    global db, bucket, using_mock
+    
+    if not doc or not doc.storage_path:
+        return {
+            'resolved_path': None,
+            'corrected': False,
+            'original_path': None
+        }
+    
+    original_path = doc.storage_path
+    
+    if using_mock:
+        # For mock, just return the original path
+        return {
+            'resolved_path': original_path,
+            'corrected': False,
+            'original_path': original_path
+        }
+    
+    # First, try the original path
+    try:
+        blob = bucket.blob(original_path)
+        # Check if the blob exists by trying to get its metadata
+        blob.reload()
+        # If we get here, the original path works
+        return {
+            'resolved_path': original_path,
+            'corrected': False,
+            'original_path': original_path
+        }
+    except Exception:
+        # Original path doesn't work, try to auto-correct
+        pass
+    
+    # Check if this is a duplicated filename pattern
+    duplicated_pattern = re.compile(r'pdfs/(.+?)_(.+?)_\2$')
+    match = duplicated_pattern.match(original_path)
+    
+    if match:
+        creator = match.group(1)
+        filename = match.group(2)
+        corrected_path = f"pdfs/{creator}_{filename}"
+        
+        try:
+            corrected_blob = bucket.blob(corrected_path)
+            corrected_blob.reload()  # Check if corrected path exists
+            
+            print(f"🔧 Auto-resolved duplicated path: {original_path} → {corrected_path}")
+            
+            # Optionally fix in database
+            if fix_in_db and db and doc.id:
+                try:
+                    db.collection('documents').document(doc.id).update({
+                        'storage_path': corrected_path
+                    })
+                    print(f"📝 Updated storage path in database for document {doc.id}")
+                except Exception as e:
+                    print(f"⚠️ Could not update database: {e}")
+            
+            return {
+                'resolved_path': corrected_path,
+                'corrected': True,
+                'original_path': original_path
+            }
+        except Exception:
+            pass
+    
+    # Neither path works
+    print(f"❌ Could not resolve storage path: {original_path}")
+    return {
+        'resolved_path': None,
+        'corrected': False,
+        'original_path': original_path
     } 
