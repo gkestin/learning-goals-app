@@ -1,0 +1,1295 @@
+{% extends "base.html" %}
+
+{% block title %}Learning Goals Hierarchy Manager{% endblock %}
+
+{% block extra_css %}
+<style>
+    .clustering-controls {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+    }
+    
+    /* Tree Structure Styling - matching cluster_tree.html exactly */
+    .tree-container {
+        font-family: 'Monaco', 'Consolas', monospace;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .tree-node {
+        margin: 2px 0;
+        border-left: 2px solid transparent;
+        transition: all 0.2s ease;
+    }
+    
+    .tree-node:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+        border-left-color: #007bff;
+    }
+    
+    /* Smart indentation - limited depth */
+    .tree-level-0 { margin-left: 0px; }
+    .tree-level-1 { margin-left: 15px; }
+    .tree-level-2 { margin-left: 30px; }
+    .tree-level-3 { margin-left: 45px; }
+    .tree-level-4 { margin-left: 60px; }
+    .tree-level-5 { margin-left: 75px; }
+    .tree-level-6 { margin-left: 90px; }
+    .tree-level-7 { margin-left: 105px; }
+    .tree-level-8 { margin-left: 120px; }
+    .tree-level-9 { margin-left: 135px; }
+    .tree-level-10 { margin-left: 150px; }
+    
+    /* Beyond level 10, use a different visual cue */
+    .tree-level-deep {
+        margin-left: 150px;
+        border-left: 3px dotted #6c757d;
+        padding-left: 10px;
+    }
+    
+    .cluster-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        cursor: pointer;
+        background-color: white;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        margin-bottom: 3px;
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-header:hover {
+        background-color: #e3f2fd;
+        border-color: #007bff;
+        transform: translateX(2px);
+    }
+    
+    .cluster-header.expanded {
+        background-color: #e8f5e9;
+        border-color: #28a745;
+    }
+    
+    /* Style for nodes that don't subdivide (single child) */
+    .cluster-header.no-subdivision {
+        background-color: #f8f9fa;
+        border-style: dashed;
+        opacity: 0.8;
+    }
+    
+    .cluster-header.no-subdivision:hover {
+        background-color: #e9ecef;
+        opacity: 1;
+    }
+    
+    .cluster-label {
+        font-weight: bold;
+        color: #495057;
+        margin-right: 10px;
+        min-width: 60px;
+        cursor: text;
+        padding: 4px 8px;
+        border-radius: 4px;
+        background-color: transparent;
+        border: 1px solid transparent;
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-label:hover {
+        border-color: #007bff;
+        background-color: white;
+    }
+    
+    .cluster-label.editing {
+        border-color: #28a745;
+        background-color: white;
+        outline: none;
+        box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+    }
+    
+    .cluster-representative {
+        font-size: 0.85em;
+        color: #6c757d;
+        font-style: italic;
+        max-width: 400px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: 10px;
+        flex: 1;
+    }
+    
+    .cluster-size {
+        background-color: #007bff;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin-right: 10px;
+        flex-shrink: 0;
+    }
+    
+    .collapse-icon {
+        transition: transform 0.2s ease;
+        margin-right: 8px;
+        color: #6c757d;
+    }
+    
+    .collapse-icon.expanded {
+        transform: rotate(90deg);
+    }
+    
+    .cluster-content {
+        padding: 15px 20px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        margin-bottom: 10px;
+    }
+    
+    .goal-item {
+        padding: 8px 12px;
+        margin: 5px 0;
+        background-color: white;
+        border-left: 3px solid #007bff;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .goal-text {
+        font-size: 0.9em;
+        line-height: 1.4;
+        margin-bottom: 4px;
+        color: #343a40;
+    }
+    
+    .goal-source {
+        font-size: 0.65em;
+        color: #6c757d;
+        font-style: italic;
+    }
+    
+    .clustering-stats {
+        background-color: #e3f2fd;
+        border: 1px solid #90caf9;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    .upload-section {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+        border: 2px dashed #dee2e6;
+        transition: all 0.3s ease;
+    }
+    
+    .upload-section:hover {
+        border-color: #007bff;
+        background-color: #e3f2fd;
+    }
+    
+    .upload-section.dragover {
+        border-color: #28a745;
+        background-color: #d4edda;
+    }
+    
+    .upload-progress {
+        display: none;
+        margin-top: 15px;
+    }
+    
+    /* Level Controls - matching cluster_tree */
+    .level-button {
+        font-weight: bold;
+        min-width: 80px;
+        min-height: 60px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 8px 12px;
+        line-height: 1.2;
+    }
+    
+    .level-button.active {
+        background-color: #28a745;
+        border-color: #28a745;
+        color: white;
+    }
+    
+    /* Flattened Content */
+    .flattened-cluster {
+        margin-bottom: 20px;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .flattened-cluster-header {
+        background-color: #f8f9fa;
+        padding: 12px 15px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .flattened-cluster-title {
+        font-weight: bold;
+        color: #495057;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .flattened-cluster-content {
+        padding: 15px;
+        background-color: white;
+    }
+    
+    .delete-reupload-btn {
+        opacity: 0.6;
+        transition: opacity 0.2s ease;
+    }
+    
+    .delete-reupload-btn:hover {
+        opacity: 1;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-12">
+        <!-- Upload Section - only shown when no hierarchy exists -->
+        <div class="card mb-4" id="upload-card">
+            <div class="card-header bg-primary text-white">
+                <h2 class="card-title h4 mb-0">
+                    <i class="bi bi-upload"></i> Upload Learning Goals Hierarchy (CSV)
+                </h2>
+                <small>Upload a CSV file with hierarchical learning goals structure</small>
+            </div>
+            <div class="card-body">
+                <div class="upload-section" id="upload-area">
+                    <div class="text-center">
+                        <i class="bi bi-cloud-upload" style="font-size: 3rem; color: #6c757d;"></i>
+                        <h4 class="mt-3">Upload CSV File</h4>
+                        <p class="text-muted mb-3">
+                            Drag and drop your CSV file here, or click to browse
+                        </p>
+                        <p class="small text-muted mb-3">
+                            Expected format: learning_goal, level_0, level_1, level_2, ..., level_9<br>
+                            <strong>Note:</strong> level_9 = highest level (A), level_8 = B, etc.
+                        </p>
+                        <input type="file" id="csv-file-input" accept=".csv" style="display: none;">
+                        <button type="button" class="btn btn-primary" onclick="document.getElementById('csv-file-input').click()">
+                            <i class="bi bi-folder2-open"></i> Browse Files
+                        </button>
+                    </div>
+                    
+                    <!-- Upload Progress -->
+                    <div class="upload-progress" id="upload-progress">
+                        <div class="progress mt-3">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%" id="progress-bar">
+                                <span id="progress-text">Starting...</span>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-muted" id="progress-details">Preparing upload...</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Hierarchy View -->
+        <div class="card" id="hierarchy-card" style="display: none;">
+            <div class="card-header bg-success text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2 class="card-title h4 mb-0">
+                            <i class="bi bi-diagram-2"></i> Learning Goals Hierarchy Explorer
+                        </h2>
+                        <small>Manage and explore your hierarchical learning goals structure</small>
+                    </div>
+                    <button id="delete-reupload-btn" class="btn btn-outline-light btn-sm delete-reupload-btn" 
+                            title="Delete current hierarchy and upload new CSV">
+                        <i class="bi bi-trash"></i> Delete & Reupload
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                
+                <!-- Stats Section -->
+                <div id="hierarchy-stats" class="clustering-stats">
+                    <!-- Stats will be populated here -->
+                </div>
+                
+                <!-- Hierarchical Tree Container -->
+                <div class="tree-container">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="bi bi-diagram-2"></i> Hierarchical Learning Goals Tree</h5>
+                        <div>
+                            <button id="expand-all-btn" class="btn btn-outline-secondary btn-sm me-2">
+                                <i class="bi bi-arrows-expand"></i> Expand All
+                            </button>
+                            <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm me-2">
+                                <i class="bi bi-arrows-collapse"></i> Collapse All
+                            </button>
+                            <button id="save-hierarchy-btn" class="btn btn-success btn-sm">
+                                <i class="bi bi-save"></i> Save Changes
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Level Flattening Controls -->
+                    <div id="level-controls" class="mb-3">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="fw-bold text-muted">Flatten at Level:</span>
+                            <div id="level-buttons" class="btn-group" role="group">
+                                <!-- Level buttons will be populated here -->
+                            </div>
+                            <button id="show-tree-btn" class="btn btn-outline-primary btn-sm ms-2" style="display: none;">
+                                <i class="bi bi-diagram-2"></i> Show Tree View
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="tree-content">
+                        <!-- Tree will be populated here -->
+                    </div>
+                    
+                    <!-- Flattened Content (shown when level is selected) -->
+                    <div id="flattened-content" style="display: none;">
+                        <!-- Flattened view will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- No Data Message -->
+        <div id="no-data" class="text-center" style="display: none;">
+            <i class="bi bi-inbox" style="font-size: 3rem; color: #6c757d;"></i>
+            <h3 class="mt-3">No Hierarchy Data</h3>
+            <p class="text-muted">Upload a CSV file to get started with your learning goals hierarchy.</p>
+        </div>
+        
+        <!-- Loading State -->
+        <div id="loading-hierarchy" class="text-center" style="display: none;">
+            <div class="spinner-border text-success" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading hierarchy from database...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let hierarchyData = null;
+let originalLabels = {};
+let currentHierarchyId = null;
+let flattenedAtLevel = null;
+
+$(document).ready(function() {
+    // First check if we have an existing hierarchy in the database
+    loadExistingHierarchy();
+    
+    // Setup file upload handlers
+    setupFileUpload();
+    
+    // Control buttons
+    $('#expand-all-btn').click(expandAll);
+    $('#collapse-all-btn').click(collapseAll);
+    $('#save-hierarchy-btn').click(saveHierarchy);
+    $('#delete-reupload-btn').click(confirmDeleteAndReupload);
+    $('#show-tree-btn').click(showTreeView);
+});
+
+function loadExistingHierarchy() {
+    $('#loading-hierarchy').show();
+    $('#upload-card').hide();
+    $('#hierarchy-card').hide();
+    $('#no-data').hide();
+    
+    $.get('/api/get-hierarchies?limit=1')
+        .done(function(response) {
+            if (response.success && response.hierarchies.length > 0) {
+                // Load the most recent hierarchy
+                const hierarchy = response.hierarchies[0];
+                currentHierarchyId = hierarchy.id;
+                
+                // Load full hierarchy data
+                $.get(`/api/get-hierarchy/${hierarchy.id}`)
+                    .done(function(detailResponse) {
+                        if (detailResponse.success) {
+                            hierarchyData = detailResponse.hierarchy.root_nodes;
+                            displayExistingHierarchy(detailResponse.hierarchy);
+                        } else {
+                            showUploadSection();
+                        }
+                    })
+                    .fail(function() {
+                        showUploadSection();
+                    });
+            } else {
+                showUploadSection();
+            }
+        })
+        .fail(function() {
+            showUploadSection();
+        })
+        .always(function() {
+            $('#loading-hierarchy').hide();
+        });
+}
+
+function showUploadSection() {
+    $('#upload-card').show();
+    $('#hierarchy-card').hide();
+    $('#no-data').hide();
+}
+
+function displayExistingHierarchy(hierarchy) {
+    $('#upload-card').hide();
+    $('#hierarchy-card').show();
+    $('#no-data').hide();
+    
+    // Display stats
+    const stats = {
+        total_goals: hierarchy.total_goals,
+        total_groups: hierarchy.total_groups,
+        created_at: hierarchy.created_at,
+        modified_at: hierarchy.modified_at
+    };
+    displayStats(stats);
+    
+    // Build and display tree
+    displayTree(hierarchyData);
+    
+    console.log('Existing hierarchy loaded:', hierarchy.name);
+}
+
+function confirmDeleteAndReupload() {
+    if (confirm('Are you sure you want to delete the current hierarchy and upload a new one? This action cannot be undone.')) {
+        deleteCurrentHierarchy();
+    }
+}
+
+function deleteCurrentHierarchy() {
+    if (!currentHierarchyId) {
+        showUploadSection();
+        return;
+    }
+    
+    $.post(`/api/delete-hierarchy/${currentHierarchyId}`)
+        .done(function(response) {
+            if (response.success) {
+                // Reset everything
+                hierarchyData = null;
+                currentHierarchyId = null;
+                flattenedAtLevel = null;
+                showUploadSection();
+                console.log('Hierarchy deleted successfully');
+            } else {
+                alert('Failed to delete hierarchy: ' + response.message);
+            }
+        })
+        .fail(function() {
+            alert('Failed to delete hierarchy: Network error');
+        });
+}
+
+function setupFileUpload() {
+    const uploadArea = $('#upload-area');
+    const fileInput = $('#csv-file-input');
+    
+    // Drag and drop handlers
+    uploadArea.on('dragover', function(e) {
+        e.preventDefault();
+        $(this).addClass('dragover');
+    });
+    
+    uploadArea.on('dragleave', function(e) {
+        e.preventDefault();
+        $(this).removeClass('dragover');
+    });
+    
+    uploadArea.on('drop', function(e) {
+        e.preventDefault();
+        $(this).removeClass('dragover');
+        
+        const files = e.originalEvent.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileUpload(files[0]);
+        }
+    });
+    
+    // Click to upload
+    uploadArea.click(function() {
+        fileInput.click();
+    });
+    
+    // File input change
+    fileInput.change(function() {
+        if (this.files.length > 0) {
+            handleFileUpload(this.files[0]);
+        }
+    });
+}
+
+function handleFileUpload(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        alert('Please select a CSV file.');
+        return;
+    }
+    
+    showUploadProgress();
+    updateProgress(10, 'Reading file...', 'Processing CSV data...');
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const csvData = e.target.result;
+            updateProgress(30, 'Parsing CSV...', 'Analyzing structure...');
+            
+            const parsedData = parseCSV(csvData);
+            updateProgress(60, 'Building hierarchy...', 'Creating nested structure...');
+            
+            if (parsedData && parsedData.length > 0) {
+                hierarchyData = buildNestedHierarchy(parsedData);
+                updateProgress(90, 'Uploading to server...', 'Saving to database...');
+                
+                // Send to server
+                uploadHierarchyData(hierarchyData);
+            } else {
+                hideUploadProgress();
+                alert('No valid data found in CSV file.');
+            }
+        } catch (error) {
+            hideUploadProgress();
+            alert('Error processing CSV file: ' + error.message);
+        }
+    };
+    
+    reader.readAsText(file);
+}
+
+function parseCSV(csvData) {
+    const lines = csvData.trim().split('\n');
+    if (lines.length < 2) {
+        throw new Error('CSV file must have at least a header row and one data row');
+    }
+    
+    const headers = lines[0].split(',').map(h => h.trim());
+    
+    // Validate expected format
+    if (!headers[0].toLowerCase().includes('learning_goal')) {
+        throw new Error('First column must be "learning_goal"');
+    }
+    
+    const levelColumns = headers.slice(1).filter(h => h.startsWith('level_'));
+    if (levelColumns.length === 0) {
+        throw new Error('CSV must contain level_X columns (e.g., level_0, level_1, etc.)');
+    }
+    
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length >= headers.length && values[0]) {
+            const row = {
+                learning_goal: values[0],
+                levels: {}
+            };
+            
+            // Parse level values
+            for (let j = 1; j < headers.length; j++) {
+                const levelKey = headers[j];
+                if (levelKey.startsWith('level_')) {
+                    const levelNum = parseInt(levelKey.replace('level_', ''));
+                    const value = parseInt(values[j]) || 0;
+                    row.levels[levelNum] = value;
+                }
+            }
+            
+            data.push(row);
+        }
+    }
+    
+    return data;
+}
+
+function buildNestedHierarchy(data) {
+    // Build proper nested hierarchy with inverted levels (level_9 = A, level_8 = B, etc.)
+    const maxLevel = Math.max(...data.flatMap(row => Object.keys(row.levels).map(k => parseInt(k))));
+    
+    // Create hierarchical structure
+    const rootNodes = [];
+    const nodeMap = new Map();
+    
+    // First, create all possible nodes based on level patterns
+    data.forEach(row => {
+        // Create nodes for each level, starting from highest (level_9 = A)
+        for (let level = maxLevel; level >= 0; level--) {
+            const value = row.levels[level];
+            if (value > 0) {
+                // Create path signature up to this level
+                const pathSignature = [];
+                for (let l = maxLevel; l >= level; l--) {
+                    if (row.levels[l] > 0) {
+                        pathSignature.push(`${l}:${row.levels[l]}`);
+                    }
+                }
+                const nodeKey = pathSignature.join('|');
+                
+                if (!nodeMap.has(nodeKey)) {
+                    const displayLevel = maxLevel - level; // Invert: level_9 becomes 0 (A), level_8 becomes 1 (B)
+                    const labelLetter = String.fromCharCode(65 + displayLevel); // A, B, C, etc.
+                    
+                    const node = {
+                        id: generateId(),
+                        label: labelLetter,
+                        originalLabel: labelLetter,
+                        goals: [],
+                        levels: {},
+                        signature: pathSignature,
+                        children: [],
+                        isExpanded: false,
+                        csvLevel: level,
+                        displayLevel: displayLevel,
+                        size: 0
+                    };
+                    
+                    // Copy level data
+                    for (let l = 0; l <= maxLevel; l++) {
+                        node.levels[l] = row.levels[l] || 0;
+                    }
+                    
+                    nodeMap.set(nodeKey, node);
+                }
+            }
+        }
+    });
+    
+    // Assign goals to the MOST SPECIFIC (deepest) nodes only
+    data.forEach(row => {
+        let deepestLevel = -1;
+        let deepestSignature = [];
+        
+        // Find the deepest level (lowest level number with value > 0)
+        for (let level = 0; level <= maxLevel; level++) {
+            if (row.levels[level] > 0) {
+                deepestLevel = level;
+                // Create signature for this deepest level
+                deepestSignature = [];
+                for (let l = maxLevel; l >= deepestLevel; l--) {
+                    if (row.levels[l] > 0) {
+                        deepestSignature.push(`${l}:${row.levels[l]}`);
+                    }
+                }
+                break; // Found the deepest level, stop here
+            }
+        }
+        
+        if (deepestLevel >= 0) {
+            const nodeKey = deepestSignature.join('|');
+            const node = nodeMap.get(nodeKey);
+            if (node) {
+                node.goals.push(row.learning_goal);
+                node.size++; // Direct goals count
+            }
+        }
+    });
+    
+    // Build hierarchical relationships
+    const nodes = Array.from(nodeMap.values());
+    nodes.sort((a, b) => a.displayLevel - b.displayLevel); // Sort by display level
+    
+    // Build parent-child relationships
+    nodes.forEach(node => {
+        nodes.forEach(potentialChild => {
+            if (potentialChild.displayLevel === node.displayLevel + 1) {
+                // Check if child's signature starts with parent's signature
+                if (isChildOfParent(potentialChild.signature, node.signature)) {
+                    node.children.push(potentialChild);
+                }
+            }
+        });
+    });
+    
+    // Calculate total sizes (including children) from bottom up
+    function calculateTotalSize(node) {
+        let totalSize = node.goals.length; // Start with direct goals
+        
+        node.children.forEach(child => {
+            totalSize += calculateTotalSize(child); // Add all descendant goals
+        });
+        
+        node.size = totalSize; // Update the node's size
+        return totalSize;
+    }
+    
+    // Calculate sizes for all root nodes
+    const rootLevelNodes = nodes.filter(node => node.displayLevel === 0);
+    rootLevelNodes.forEach(rootNode => {
+        calculateTotalSize(rootNode);
+    });
+    
+    return rootLevelNodes;
+}
+
+function isChildOfParent(childSignature, parentSignature) {
+    // Child signature should start with parent signature
+    if (childSignature.length <= parentSignature.length) {
+        return false;
+    }
+    
+    for (let i = 0; i < parentSignature.length; i++) {
+        if (childSignature[i] !== parentSignature[i]) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+function countGoalsAtLevel(nodes, targetLevel, currentLevel = 0) {
+    let count = 0;
+    
+    nodes.forEach(node => {
+        if (currentLevel === targetLevel) {
+            // At target level: count all goals in this subtree
+            count += countAllGoalsInSubtree(node);
+        } else if (node.children && node.children.length > 0 && currentLevel < targetLevel) {
+            // Not at target level yet: recurse into children
+            count += countGoalsAtLevel(node.children, targetLevel, currentLevel + 1);
+        }
+    });
+    
+    return count;
+}
+
+function countAllGoalsInSubtree(node) {
+    let count = node.goals.length; // Direct goals
+    
+    // Add goals from all children recursively
+    if (node.children) {
+        node.children.forEach(child => {
+            count += countAllGoalsInSubtree(child);
+        });
+    }
+    
+    return count;
+}
+
+function generateId() {
+    return 'node_' + Math.random().toString(36).substr(2, 9);
+}
+
+function uploadHierarchyData(data) {
+    $.ajax({
+        url: '/api/upload-hierarchy',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            hierarchy: data,
+            metadata: {
+                uploaded_at: new Date().toISOString(),
+                total_goals: calculateTotalGoals(data),
+                total_groups: calculateTotalGroups(data)
+            }
+        })
+    })
+    .done(function(response) {
+        if (response.success) {
+            updateProgress(100, 'Complete!', 'Hierarchy uploaded successfully');
+            currentHierarchyId = response.hierarchy_id;
+            
+            setTimeout(() => {
+                hideUploadProgress();
+                $('#upload-card').hide();
+                displayExistingHierarchy({
+                    ...response.stats,
+                    root_nodes: data
+                });
+            }, 1000);
+        } else {
+            hideUploadProgress();
+            alert('Upload failed: ' + response.message);
+        }
+    })
+    .fail(function(xhr, status, error) {
+        hideUploadProgress();
+        
+        let errorMessage = 'Upload failed: Network error';
+        if (xhr.responseJSON && xhr.responseJSON.message) {
+            errorMessage = 'Upload failed: ' + xhr.responseJSON.message;
+        }
+        
+        alert(errorMessage);
+    });
+}
+
+function calculateTotalGoals(nodes) {
+    let total = 0;
+    nodes.forEach(node => {
+        total += node.goals.length;
+        if (node.children) {
+            total += calculateTotalGoals(node.children);
+        }
+    });
+    return total;
+}
+
+function calculateTotalGroups(nodes) {
+    let total = nodes.length;
+    nodes.forEach(node => {
+        if (node.children) {
+            total += calculateTotalGroups(node.children);
+        }
+    });
+    return total;
+}
+
+function displayStats(stats) {
+    const statsHtml = `
+        <h5><i class="bi bi-bar-chart"></i> Learning Goals Hierarchy</h5>
+        <div class="row">
+            <div class="col-md-3">
+                <strong>Total Goals:</strong> ${stats.total_goals}
+            </div>
+            <div class="col-md-3">
+                <strong>Total Groups:</strong> ${stats.total_groups}
+            </div>
+            <div class="col-md-3">
+                <strong>Created:</strong> ${new Date(stats.created_at).toLocaleDateString()}
+            </div>
+            <div class="col-md-3">
+                <strong>Modified:</strong> ${new Date(stats.modified_at).toLocaleDateString()}
+            </div>
+        </div>
+    `;
+    $('#hierarchy-stats').html(statsHtml);
+}
+
+function displayTree(treeStructure) {
+    // Generate level buttons
+    generateLevelButtons(treeStructure);
+    
+    // Build tree HTML
+    const treeHtml = treeStructure.map(node => buildTreeNode(node, 0)).join('');
+    $('#tree-content').html(treeHtml);
+    
+    // Show tree view
+    $('#tree-content').show();
+    $('#flattened-content').hide();
+    $('#show-tree-btn').hide();
+}
+
+function generateLevelButtons(nodes) {
+    const maxDepth = findMaxDepth(nodes);
+    let buttonsHtml = '';
+    
+    for (let level = 0; level <= maxDepth; level++) {
+        const levelLabel = String.fromCharCode(65 + level); // A, B, C, etc.
+        const goalCount = countGoalsAtLevel(nodes, level);
+        
+        buttonsHtml += `
+            <button class="btn btn-outline-secondary level-button" data-level="${level}">
+                <strong>${levelLabel}</strong>
+                <small>${goalCount} goals</small>
+            </button>
+        `;
+    }
+    
+    $('#level-buttons').html(buttonsHtml);
+    
+    // Add click handlers
+    $('.level-button').click(function() {
+        const level = parseInt($(this).data('level'));
+        flattenAtLevel(level);
+    });
+}
+
+function findMaxDepth(nodes, currentDepth = 0) {
+    let maxDepth = currentDepth;
+    nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+            maxDepth = Math.max(maxDepth, findMaxDepth(node.children, currentDepth + 1));
+        }
+    });
+    return maxDepth;
+}
+
+function buildTreeNode(node, level = 0) {
+    const levelClass = level <= 10 ? `tree-level-${level}` : 'tree-level-deep';
+    const hasChildren = node.children && node.children.length > 0;
+    const hasGoals = node.goals && node.goals.length > 0;
+    
+    // Get representative goal
+    let representativeGoal = '';
+    if (hasGoals && node.goals.length > 0) {
+        representativeGoal = node.goals.reduce((longest, current) => 
+            current.length > longest.length ? current : longest
+        );
+    } else if (hasChildren) {
+        representativeGoal = findRepresentativeGoal(node);
+    }
+    
+    let nodeHtml = `<div class="tree-node ${levelClass}" data-level="${level}" data-node-id="${node.id}">`;
+    
+    // Cluster header
+    nodeHtml += `
+        <div class="cluster-header${hasChildren ? '' : ' no-subdivision'}" onclick="toggleCluster('${node.id}')">
+            ${hasChildren ? '<i class="bi bi-chevron-right collapse-icon"></i>' : '<i class="bi bi-circle-fill collapse-icon" style="font-size: 0.5em;"></i>'}
+            <span class="cluster-label" 
+                  contenteditable="true" 
+                  onclick="event.stopPropagation(); editLabel(this)"
+                  onblur="saveLabel(this, '${node.id}')"
+                  onkeydown="handleLabelKeydown(event, this, '${node.id}')">${node.label}</span>
+            <span class="cluster-representative" title="${representativeGoal}">
+                ${truncateText(representativeGoal, 60)}
+            </span>
+            <span class="cluster-size">${node.size}</span>
+        </div>
+    `;
+    
+    // Cluster content
+    if (hasGoals || hasChildren) {
+        nodeHtml += `<div class="cluster-content" id="content-${node.id}" style="display: none;">`;
+        
+        if (hasGoals) {
+            node.goals.forEach(goal => {
+                nodeHtml += `
+                    <div class="goal-item">
+                        <div class="goal-text">"${goal}"</div>
+                        <div class="goal-source">
+                            Level pattern: ${Object.keys(node.levels).map(level => {
+                                const value = node.levels[level];
+                                return value > 0 ? `L${level}:${value}` : '';
+                            }).filter(x => x).join(' → ')}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        if (hasChildren) {
+            node.children.forEach(child => {
+                nodeHtml += buildTreeNode(child, level + 1);
+            });
+        }
+        
+        nodeHtml += `</div>`;
+    }
+    
+    nodeHtml += `</div>`;
+    return nodeHtml;
+}
+
+function findRepresentativeGoal(node) {
+    // Recursively find a representative goal from children
+    if (node.goals && node.goals.length > 0) {
+        return node.goals.reduce((longest, current) => 
+            current.length > longest.length ? current : longest
+        );
+    }
+    
+    if (node.children) {
+        for (let child of node.children) {
+            const childRep = findRepresentativeGoal(child);
+            if (childRep) return childRep;
+        }
+    }
+    
+    return '';
+}
+
+function truncateText(text, maxLength) {
+    if (!text) return '';
+    return text.length <= maxLength ? text : text.substring(0, maxLength - 3) + '...';
+}
+
+function flattenAtLevel(level) {
+    flattenedAtLevel = level;
+    
+    // Update button states
+    $('.level-button').removeClass('active');
+    $(`.level-button[data-level="${level}"]`).addClass('active');
+    
+    // Generate flattened view
+    const flattened = flattenTreeAtLevel(hierarchyData, level);
+    displayFlattenedView(flattened, level);
+    
+    // Show flattened content, hide tree
+    $('#tree-content').hide();
+    $('#flattened-content').show();
+    $('#show-tree-btn').show();
+}
+
+function flattenTreeAtLevel(nodes, targetLevel, currentLevel = 0) {
+    let flattened = [];
+    
+    nodes.forEach(node => {
+        if (currentLevel === targetLevel) {
+            // Collect all goals from this node and its children
+            const allGoals = collectAllGoals(node);
+            if (allGoals.length > 0) {
+                flattened.push({
+                    label: node.label,
+                    goals: allGoals,
+                    size: allGoals.length,
+                    originalNode: node
+                });
+            }
+        } else if (node.children && node.children.length > 0 && currentLevel < targetLevel) {
+            flattened = flattened.concat(flattenTreeAtLevel(node.children, targetLevel, currentLevel + 1));
+        }
+    });
+    
+    return flattened;
+}
+
+function collectAllGoals(node) {
+    let goals = [...node.goals]; // Start with direct goals
+    
+    // Add goals from all children recursively
+    if (node.children) {
+        node.children.forEach(child => {
+            goals = goals.concat(collectAllGoals(child));
+        });
+    }
+    
+    return goals;
+}
+
+function displayFlattenedView(flattened, level) {
+    const levelLabel = String.fromCharCode(65 + level);
+    const totalGoals = flattened.reduce((sum, cluster) => sum + cluster.size, 0);
+    
+    let flattenedHtml = `
+        <div class="mb-3">
+            <h5><i class="bi bi-list-ul"></i> Flattened View - Level ${levelLabel}</h5>
+            <small class="text-muted">${flattened.length} clusters, ${totalGoals} total goals</small>
+        </div>
+    `;
+    
+    flattened.forEach((cluster, index) => {
+        flattenedHtml += `
+            <div class="flattened-cluster">
+                <div class="flattened-cluster-header">
+                    <div class="flattened-cluster-title">
+                        <span class="cluster-size">${cluster.size}</span>
+                        <span>${cluster.label}</span>
+                    </div>
+                </div>
+                <div class="flattened-cluster-content">
+        `;
+        
+        cluster.goals.forEach(goal => {
+            flattenedHtml += `
+                <div class="goal-item">
+                    <div class="goal-text">"${goal}"</div>
+                </div>
+            `;
+        });
+        
+        flattenedHtml += `
+                </div>
+            </div>
+        `;
+    });
+    
+    $('#flattened-content').html(flattenedHtml);
+}
+
+function showTreeView() {
+    flattenedAtLevel = null;
+    $('.level-button').removeClass('active');
+    $('#tree-content').show();
+    $('#flattened-content').hide();
+    $('#show-tree-btn').hide();
+}
+
+function toggleCluster(nodeId) {
+    const node = findNodeById(hierarchyData, nodeId);
+    if (node) {
+        node.isExpanded = !node.isExpanded;
+        
+        const content = $(`#content-${nodeId}`);
+        const icon = $(`[data-node-id="${nodeId}"] .collapse-icon`);
+        const header = $(`[data-node-id="${nodeId}"] .cluster-header`);
+        
+        if (node.isExpanded) {
+            content.slideDown(200);
+            icon.addClass('expanded');
+            header.addClass('expanded');
+        } else {
+            content.slideUp(200);
+            icon.removeClass('expanded');
+            header.removeClass('expanded');
+        }
+    }
+}
+
+function findNodeById(nodes, nodeId) {
+    for (let node of nodes) {
+        if (node.id === nodeId) {
+            return node;
+        }
+        if (node.children) {
+            const found = findNodeById(node.children, nodeId);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function editLabel(element) {
+    $(element).addClass('editing');
+    originalLabels[$(element).closest('[data-node-id]').data('node-id')] = element.textContent;
+}
+
+function saveLabel(element, nodeId) {
+    $(element).removeClass('editing');
+    const newLabel = element.textContent.trim();
+    
+    const node = findNodeById(hierarchyData, nodeId);
+    if (node && newLabel !== node.label) {
+        node.label = newLabel;
+        node.modified = true;
+    }
+}
+
+function handleLabelKeydown(event, element, nodeId) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        element.blur();
+    } else if (event.key === 'Escape') {
+        element.textContent = originalLabels[nodeId] || element.textContent;
+        element.blur();
+    }
+}
+
+function expandAll() {
+    expandAllNodes(hierarchyData);
+    $('.cluster-content').slideDown(200);
+    $('.collapse-icon').addClass('expanded');
+    $('.cluster-header').addClass('expanded');
+}
+
+function collapseAll() {
+    collapseAllNodes(hierarchyData);
+    $('.cluster-content').slideUp(200);
+    $('.collapse-icon').removeClass('expanded');
+    $('.cluster-header').removeClass('expanded');
+}
+
+function expandAllNodes(nodes) {
+    nodes.forEach(node => {
+        node.isExpanded = true;
+        if (node.children) {
+            expandAllNodes(node.children);
+        }
+    });
+}
+
+function collapseAllNodes(nodes) {
+    nodes.forEach(node => {
+        node.isExpanded = false;
+        if (node.children) {
+            collapseAllNodes(node.children);
+        }
+    });
+}
+
+function saveHierarchy() {
+    if (!hierarchyData || !currentHierarchyId) {
+        alert('No hierarchy data to save');
+        return;
+    }
+    
+    const saveBtn = $('#save-hierarchy-btn');
+    saveBtn.prop('disabled', true).html('<i class="bi bi-spinner-border spinner-border-sm"></i> Saving...');
+    
+    $.ajax({
+        url: '/api/save-hierarchy',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            hierarchy: hierarchyData,
+            metadata: {
+                saved_at: new Date().toISOString(),
+                total_goals: calculateTotalGoals(hierarchyData),
+                total_groups: calculateTotalGroups(hierarchyData)
+            }
+        })
+    })
+    .done(function(response) {
+        if (response.success) {
+            saveBtn.removeClass('btn-success').addClass('btn-success')
+                   .html('<i class="bi bi-check"></i> Saved!');
+            
+            // Reset modified flags
+            resetModifiedFlags(hierarchyData);
+            
+            setTimeout(() => {
+                saveBtn.removeClass('btn-success').addClass('btn-success')
+                       .html('<i class="bi bi-save"></i> Save Changes');
+            }, 2000);
+        } else {
+            alert('Save failed: ' + response.message);
+        }
+    })
+    .fail(function() {
+        alert('Save failed: Network error');
+    })
+    .always(function() {
+        saveBtn.prop('disabled', false);
+    });
+}
+
+function resetModifiedFlags(nodes) {
+    nodes.forEach(node => {
+        node.modified = false;
+        if (node.children) {
+            resetModifiedFlags(node.children);
+        }
+    });
+}
+
+function showUploadProgress() {
+    $('#upload-progress').slideDown();
+}
+
+function hideUploadProgress() {
+    $('#upload-progress').slideUp();
+}
+
+function updateProgress(percentage, text, details) {
+    const progressBar = $('#progress-bar');
+    const progressText = $('#progress-text');
+    const progressDetails = $('#progress-details');
+    
+    progressBar.css('width', percentage + '%').attr('aria-valuenow', percentage);
+    progressText.text(text);
+    progressDetails.text(details);
+    
+    if (percentage >= 100) {
+        progressBar.removeClass('progress-bar-animated');
+    }
+}
+</script>
+{% endblock %} 

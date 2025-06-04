@@ -1,0 +1,1287 @@
+{% extends "base.html" %}
+
+{% block title %}HDBSCAN Clustering - Learning Goals Extractor{% endblock %}
+
+{% block extra_css %}
+<style>
+    .clustering-controls {
+        background-color: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+    }
+    .cluster-section {
+        margin-bottom: 25px;
+        border-bottom: 1px solid #e0e0e0;
+        padding-bottom: 15px;
+    }
+    .cluster-section:last-child {
+        border-bottom: none;
+    }
+    .cluster-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #6f42c1;
+        margin-bottom: 8px;
+    }
+    .cluster-representative {
+        font-size: 0.9em;
+        color: #666;
+        font-style: italic;
+        margin-bottom: 10px;
+    }
+    .goal-item {
+        padding: 6px 10px;
+        margin: 3px 0;
+        background-color: #f8f9fa;
+        border-left: 3px solid #6f42c1;
+        border-radius: 3px;
+    }
+    .goal-text {
+        font-size: 0.9em;
+        line-height: 1.3;
+        margin-bottom: 2px;
+    }
+    .goal-source {
+        font-size: 0.75em;
+        color: #6c757d;
+        font-style: italic;
+        line-height: 1.2;
+    }
+    .clustering-stats {
+        background-color: #f3e5f5;
+        border: 1px solid #ce93d8;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    .loading-spinner {
+        text-align: center;
+        padding: 40px 0;
+    }
+
+    .stem-badge {
+        background: linear-gradient(45deg, #6f42c1, #8e44ad);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.7em;
+        font-weight: bold;
+    }
+    
+    .hdbscan-badge {
+        background: linear-gradient(45deg, #e74c3c, #f39c12);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.7em;
+        font-weight: bold;
+    }
+    
+    .btn-group .btn-check:checked + .btn {
+        background-color: var(--bs-btn-active-bg);
+        border-color: var(--bs-btn-active-border-color);
+        color: var(--bs-btn-active-color);
+    }
+    
+    .clustering-controls {
+        transition: all 0.3s ease;
+    }
+
+    /* Progress Tracker Styles */
+    .step-indicator {
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        transition: all 0.3s ease;
+    }
+    
+    .step-indicator.active {
+        background-color: #f3e5f5;
+        color: #6f42c1;
+    }
+    
+    .step-indicator.completed {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+    }
+    
+    .step-indicator.error {
+        background-color: #ffebee;
+        color: #c62828;
+    }
+    
+    #progress-tracker {
+        margin-bottom: 20px;
+    }
+    
+    /* Outlier Styles */
+    .outliers-section {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    .outlier-item {
+        padding: 8px 12px;
+        margin: 5px 0;
+        background-color: #fff;
+        border-left: 3px solid #ffc107;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .outlier-badge {
+        background-color: #ffc107;
+        color: #212529;
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-size: 0.7em;
+        font-weight: bold;
+    }
+    
+    /* Stability Metrics */
+    .stability-metrics {
+        background-color: #e3f2fd;
+        border: 1px solid #90caf9;
+        padding: 10px;
+        border-radius: 6px;
+        margin-bottom: 10px;
+    }
+    
+    .stability-score {
+        display: inline-block;
+        background-color: #2196f3;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin-right: 5px;
+    }
+    
+    /* Parameter Controls */
+    .param-control {
+        margin-bottom: 15px;
+    }
+    
+    .param-label {
+        font-weight: 600;
+        color: #495057;
+        margin-bottom: 5px;
+    }
+    
+    .param-help {
+        font-size: 0.85em;
+        color: #6c757d;
+        margin-top: 3px;
+    }
+    
+    .range-display {
+        font-family: 'Courier New', monospace;
+        background-color: #f8f9fa;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.9em;
+    }
+    
+    /* Export Controls */
+    .export-section {
+        background-color: #e8f5e9;
+        border: 1px solid #81c784;
+        padding: 15px;
+        border-radius: 8px;
+        margin-top: 20px;
+    }
+</style>
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header" style="background: linear-gradient(135deg, #6f42c1, #8e44ad); color: white;">
+                <h2 class="card-title h4 mb-0">
+                    <i class="bi bi-diagram-3-fill"></i> HDBSCAN Density-Based Clustering Explorer
+                    <span class="stem-badge">STEM-Optimized</span>
+                    <span class="hdbscan-badge">Outlier Detection</span>
+                </h2>
+                <small>Discover natural clusters and identify outliers using hierarchical density-based analysis</small>
+            </div>
+            <div class="card-body">
+                
+                <!-- Learning Goals Overview & Course Selection -->
+                <div id="goals-overview" class="alert alert-info mb-4">
+                    <div class="row align-items-center mb-3">
+                        <div class="col-md-8">
+                            <h5 class="mb-0">ℹ️ Learning Goals Overview & Course Selection</h5>
+                        </div>
+                        <div class="col-md-4">
+                            <select id="course-selector" class="form-select">
+                                <option value="">All Courses (Default)</option>
+                                <!-- Course options will be populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div id="overview-loading">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span class="ms-2">Loading learning goals from database...</span>
+                    </div>
+                    <div id="overview-content" style="display: none;">
+                        <!-- Overview content will be populated here -->
+                    </div>
+                </div>
+                
+                <!-- Approach Toggle -->
+                <div class="mb-3">
+                    <div class="btn-group" role="group" aria-label="HDBSCAN approach toggle">
+                        <input type="radio" class="btn-check" name="approach-toggle" id="manual-toggle" autocomplete="off" checked>
+                        <label class="btn btn-outline-primary" for="manual-toggle">🎮 Manual Parameters</label>
+                        
+                        <input type="radio" class="btn-check" name="approach-toggle" id="optimize-toggle" autocomplete="off">
+                        <label class="btn btn-outline-info" for="optimize-toggle">🎯 Auto-Optimize</label>
+                    </div>
+                    <small class="text-muted ms-3">Choose your HDBSCAN approach</small>
+                </div>
+
+                <!-- Manual Parameters Approach -->
+                <div id="manual-approach" class="clustering-controls border border-2" style="border-color: #6f42c1 !important;">
+                    <h4 style="color: #6f42c1;" class="mb-3">🎮 Manual Parameter Configuration</h4>
+                    <p class="text-muted mb-3">Fine-tune HDBSCAN parameters for precise density-based clustering control.</p>
+                    
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="param-control">
+                                <label for="min-cluster-size" class="param-label">Min Cluster Size:</label>
+                                <div class="input-group" style="max-width: 200px;">
+                                    <input type="number" class="form-control" id="min-cluster-size" min="2" max="1000" value="3">
+                                    <span class="input-group-text">goals</span>
+                                </div>
+                                <div class="param-help">
+                                    Minimum points to form a cluster. Higher = fewer, larger clusters.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="param-control">
+                                <label for="min-samples" class="param-label">Min Samples:</label>
+                                <div class="input-group" style="max-width: 200px;">
+                                    <input type="number" class="form-control" id="min-samples" min="1" max="100" value="">
+                                    <span class="input-group-text">samples</span>
+                                </div>
+                                <div class="param-help">
+                                    Conservative clustering. Leave empty to auto-set to min cluster size.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="param-control">
+                                <label for="alpha" class="param-label">Alpha (Robustness):</label>
+                                <div class="input-group" style="max-width: 200px;">
+                                    <input type="number" class="form-control" id="alpha" min="0.1" max="2.0" step="0.1" value="1.0">
+                                    <span class="input-group-text">α</span>
+                                </div>
+                                <div class="param-help">
+                                    Outlier detection sensitivity. Higher = more conservative.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <div class="d-grid gap-2">
+                                <button id="cluster-hdbscan-btn" class="btn btn-lg" style="background: linear-gradient(135deg, #6f42c1, #8e44ad); color: white;" disabled>
+                                    🧠 Analyze with HDBSCAN
+                                </button>
+                                <small class="text-muted">
+                                    Density-based clustering with outlier detection
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Auto-Optimization Approach -->
+                <div id="optimize-approach" class="clustering-controls border border-2 border-info" style="display: none;">
+                    <h4 class="text-info mb-3">🎯 Automatic Parameter Optimization</h4>
+                    <p class="text-muted mb-3">Let AI find the optimal HDBSCAN parameters through systematic search.</p>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="param-control">
+                                        <label class="param-label">Min Cluster Size Range:</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="number" class="form-control" id="opt-min-size-min" min="2" max="50" value="2" placeholder="Min">
+                                            <span class="input-group-text">to</span>
+                                            <input type="number" class="form-control" id="opt-min-size-max" min="3" max="100" value="15" placeholder="Max">
+                                        </div>
+                                        <div class="param-help">Range to test for minimum cluster size</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="param-control">
+                                        <label class="param-label">Min Samples Range:</label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="number" class="form-control" id="opt-min-samples-min" min="1" max="20" value="1" placeholder="Min">
+                                            <span class="input-group-text">to</span>
+                                            <input type="number" class="form-control" id="opt-min-samples-max" min="2" max="50" value="8" placeholder="Max">
+                                        </div>
+                                        <div class="param-help">Range to test for min samples parameter</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="d-grid gap-2">
+                                <button id="optimize-hdbscan-btn" class="btn btn-info btn-lg" disabled>
+                                    🎯 Find Optimal Parameters & Cluster
+                                </button>
+                                <small class="text-muted">
+                                    Comprehensive parameter search (may take several minutes)
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading Spinner -->
+                <div id="loading-spinner" class="loading-spinner" style="display: none;">
+                    <div class="spinner-border" style="color: #6f42c1;" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Analyzing learning goals with HDBSCAN...</p>
+                    <small class="text-muted">Performing density-based clustering and outlier detection...</small>
+                </div>
+
+                <!-- Progress Tracker -->
+                <div id="progress-tracker" style="display: none;">
+                    <div class="card" style="border-color: #6f42c1;">
+                        <div class="card-header" style="background: linear-gradient(135deg, #6f42c1, #8e44ad); color: white;">
+                            <h5 class="mb-0"><i class="bi bi-gear-fill"></i> HDBSCAN Processing Progress</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="progress-message" class="mb-3">
+                                <strong>Current Step:</strong> <span id="current-step">Initializing...</span>
+                            </div>
+                            
+                            <!-- Step Progress Indicators -->
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-loading" class="step-indicator">
+                                            <i class="bi bi-database-fill fs-3"></i>
+                                            <div>Loading Data</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-embeddings" class="step-indicator">
+                                            <i class="bi bi-cpu-fill fs-3"></i>
+                                            <div>Embeddings</div>
+                                            <small class="text-muted" id="embeddings-status-text">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-clustering" class="step-indicator">
+                                            <i class="bi bi-diagram-3-fill fs-3"></i>
+                                            <div>HDBSCAN Clustering</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <div id="step-metrics" class="step-indicator">
+                                            <i class="bi bi-graph-up fs-3"></i>
+                                            <div>Quality & Stability</div>
+                                            <small class="text-muted">—</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Overall Progress Bar -->
+                            <div class="progress" style="height: 25px;">
+                                <div id="overall-progress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     style="background: linear-gradient(135deg, #6f42c1, #8e44ad);"
+                                     role="progressbar" style="width: 0%">
+                                    <span id="progress-text">Starting...</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Detailed Progress Info -->
+                            <div id="progress-details" class="mt-3 text-muted">
+                                <small id="progress-detail-text"></small>
+                                
+                                <!-- Optimization Progress (for auto-optimize mode) -->
+                                <div id="optimization-progress" style="display: none;" class="mt-2">
+                                    <div class="alert alert-warning mb-2">
+                                        <i class="bi bi-clock"></i> <strong>Note:</strong> Parameter optimization tests multiple combinations and may take several minutes with large datasets.
+                                    </div>
+                                    
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <small><strong>Tests Completed:</strong> <span id="tests-completed">0</span></small><br>
+                                            <small><strong>Search Phase:</strong> <span id="search-phase">Parameter testing</span></small>
+                                        </div>
+                                        <div class="col-md-6 text-end">
+                                            <button id="cancel-optimization-btn" class="btn btn-outline-secondary btn-sm" onclick="cancelOptimization()" style="display: none;">
+                                                <i class="bi bi-x-circle"></i> Cancel
+                                            </button>
+                                            <br><small id="optimization-status" class="text-muted">Testing parameter combinations...</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-2">
+                                        <div id="latest-test-result" class="text-info mb-1"></div>
+                                        <div id="best-so-far" class="text-success"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Clustering Results -->
+                <div id="results-section" style="display: none;">
+                    <!-- Stats Section -->
+                    <div id="clustering-stats" class="clustering-stats">
+                        <!-- Stats will be populated here -->
+                    </div>
+                    
+                    <!-- Outliers Section -->
+                    <div id="outliers-section" class="outliers-section" style="display: none;">
+                        <!-- Outliers will be populated here -->
+                    </div>
+                    
+                    <!-- Clusters Container -->
+                    <div id="clusters-container">
+                        <!-- Clusters will be populated here -->
+                    </div>
+                    
+                    <!-- Export Section -->
+                    <div id="export-section" class="export-section" style="display: none;">
+                        <h5><i class="bi bi-download"></i> Export Results</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-2">
+                                    <label class="form-check-label me-3">
+                                        <input type="checkbox" id="include-outliers-export" class="form-check-input" checked>
+                                        Include outliers in export
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="btn-group" role="group">
+                                    <button id="export-csv-btn" class="btn btn-success btn-sm">
+                                        <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
+                                    </button>
+                                    <button id="export-json-btn" class="btn btn-info btn-sm">
+                                        <i class="bi bi-file-earmark-code"></i> Export JSON
+                                    </button>
+                                    <button id="download-embeddings-btn" class="btn btn-secondary btn-sm">
+                                        <i class="bi bi-download"></i> Download Embeddings
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No Results -->
+                <div id="no-goals" class="text-center" style="display: none;">
+                    <i class="bi bi-emoji-frown" style="font-size: 3rem; color: #6c757d;"></i>
+                    <h3 class="mt-3">No Learning Goals Found</h3>
+                    <p class="text-muted">Please <a href="{{ url_for('main.index') }}">upload some documents</a> first to analyze learning goals.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables to track active processes
+let activeEventSource = null;
+let activeFetch = null;
+let embeddingsSessionId = null; // Store session ID for embeddings download
+let availableCourses = []; // Store available courses
+let selectedCourse = null; // Track currently selected course
+let currentResults = null; // Store current clustering results
+
+// Clean up function to stop any running processes
+function cleanupActiveProcesses() {
+    if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+    }
+    if (activeFetch && activeFetch.abort) {
+        activeFetch.abort();
+        activeFetch = null;
+    }
+}
+
+// Clean up on page unload
+$(window).on('beforeunload', function() {
+    cleanupActiveProcesses();
+});
+
+// Download embeddings as CSV
+function downloadEmbeddings() {
+    if (!embeddingsSessionId) {
+        alert('No embeddings data available for download');
+        return;
+    }
+    
+    // Create a temporary link to download the CSV
+    const downloadUrl = `/api/download-embeddings/${embeddingsSessionId}`;
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = 'hdbscan_learning_goals_embeddings.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+$(document).ready(function() {
+    // Load overview on page load
+    loadGoalsOverview();
+    
+    // Load available courses
+    loadAvailableCourses();
+    
+    // Course selector change handler
+    $('#course-selector').change(function() {
+        const selectedCourseValue = $(this).val();
+        selectedCourse = selectedCourseValue || null;
+        updateCourseStats();
+        updateGoalsOverviewForCourse();
+    });
+    
+    // Input validation for number fields
+    $('#min-cluster-size, #min-samples, #alpha').on('blur', function() {
+        var value = parseFloat($(this).val());
+        var min = parseFloat($(this).attr('min')) || 0;
+        var max = parseFloat($(this).attr('max')) || 1000;
+        
+        // Special handling for alpha - must be > 0
+        if ($(this).attr('id') === 'alpha') {
+            if (isNaN(value) || value <= 0) {
+                $(this).val(1.0);
+                console.warn('Alpha must be > 0, setting to default 1.0');
+            } else if (value > max) {
+                $(this).val(max);
+            }
+        } else {
+            if (isNaN(value) || value < min) $(this).val(min);
+            if (value > max) $(this).val(max);
+        }
+    });
+    
+    // Range validation for optimization
+    $('#opt-min-size-min, #opt-min-size-max, #opt-min-samples-min, #opt-min-samples-max').on('blur', function() {
+        var value = parseInt($(this).val());
+        var min = parseInt($(this).attr('min')) || 1;
+        var max = parseInt($(this).attr('max')) || 1000;
+        
+        if (isNaN(value) || value < min) $(this).val(min);
+        if (value > max) $(this).val(max);
+        
+        // Validate ranges
+        validateOptimizationRanges();
+    });
+    
+    // Manual clustering button
+    $('#cluster-hdbscan-btn').click(function() {
+        performHDBSCANClusteringManual();
+    });
+    
+    // Optimization button
+    $('#optimize-hdbscan-btn').click(function() {
+        performHDBSCANOptimization();
+    });
+    
+    // Export buttons
+    $('#export-csv-btn').click(function() {
+        exportResults('csv');
+    });
+    
+    $('#export-json-btn').click(function() {
+        exportResults('json');
+    });
+    
+    $('#download-embeddings-btn').click(function() {
+        downloadEmbeddings();
+    });
+    
+    // Approach toggle functionality
+    $('input[name="approach-toggle"]').change(function() {
+        if ($('#optimize-toggle').is(':checked')) {
+            $('#optimize-approach').show();
+            $('#manual-approach').hide();
+        } else {
+            $('#optimize-approach').hide();
+            $('#manual-approach').show();
+        }
+    });
+    
+    function validateOptimizationRanges() {
+        const minSizeMin = parseInt($('#opt-min-size-min').val()) || 2;
+        const minSizeMax = parseInt($('#opt-min-size-max').val()) || 15;
+        const minSamplesMin = parseInt($('#opt-min-samples-min').val()) || 1;
+        const minSamplesMax = parseInt($('#opt-min-samples-max').val()) || 8;
+        
+        // Ensure max >= min for each range
+        if (minSizeMax < minSizeMin) {
+            $('#opt-min-size-max').val(minSizeMin);
+        }
+        if (minSamplesMax < minSamplesMin) {
+            $('#opt-min-samples-max').val(minSamplesMin);
+        }
+    }
+    
+    function loadGoalsOverview() {
+        $.ajax({
+            url: '{{ url_for("main.api_goals_overview") }}',
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    const overviewHtml = `
+                        <div class="row">
+                            <div class="col-md-2">
+                                <strong>Dataset:</strong> <span class="badge bg-secondary">All Courses</span>
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Learning Goals:</strong> <span class="badge" style="background-color: #6f42c1; color: white;">${response.total_goals}</span>
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Documents:</strong> <span class="badge bg-info">${response.total_documents}</span>
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Unique Goals:</strong> <span class="badge bg-success">${response.unique_goals}</span>
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Avg per Doc:</strong> <span class="badge bg-warning text-dark">${response.avg_goals_per_doc}</span>
+                            </div>
+                            <div class="col-md-2">
+                                <strong>Ready for HDBSCAN:</strong> <span class="badge bg-success">✓</span>
+                            </div>
+                        </div>
+                    `;
+                    
+                    $('#overview-content').html(overviewHtml);
+                    $('#overview-loading').hide();
+                    $('#overview-content').show();
+                    
+                    // Enable clustering buttons
+                    $('#cluster-hdbscan-btn').prop('disabled', false);
+                    $('#optimize-hdbscan-btn').prop('disabled', false);
+                } else {
+                    $('#overview-loading').html('<span class="text-danger">Error loading overview</span>');
+                }
+            },
+            error: function() {
+                $('#overview-loading').html('<span class="text-danger">Error loading overview</span>');
+            }
+        });
+    }
+    
+    function loadAvailableCourses() {
+        $.ajax({
+            url: '{{ url_for("main.api_available_courses") }}',
+            type: 'GET',
+            success: function(response) {
+                if (response.success && response.courses) {
+                    availableCourses = response.courses;
+                    
+                    // Populate course selector
+                    const courseSelector = $('#course-selector');
+                    courseSelector.find('option:not(:first)').remove(); // Keep "All Courses" option
+                    
+                    response.courses.forEach(course => {
+                        courseSelector.append(`<option value="${course.name}">${course.name} (${course.goal_count} goals)</option>`);
+                    });
+                }
+            },
+            error: function() {
+                console.error('Failed to load available courses');
+            }
+        });
+    }
+    
+    function updateCourseStats() {
+        if (!selectedCourse) {
+            loadGoalsOverview();
+            return;
+        }
+        
+        const course = availableCourses.find(c => c.name === selectedCourse);
+        if (course) {
+            const overviewHtml = `
+                <div class="row">
+                    <div class="col-md-2">
+                        <strong>Dataset:</strong> <span class="badge bg-primary">${course.name}</span>
+                    </div>
+                    <div class="col-md-2">
+                        <strong>Learning Goals:</strong> <span class="badge" style="background-color: #6f42c1; color: white;">${course.goal_count}</span>
+                    </div>
+                    <div class="col-md-2">
+                        <strong>Documents:</strong> <span class="badge bg-info">${course.document_count}</span>
+                    </div>
+                    <div class="col-md-2">
+                        <strong>Creators:</strong> <span class="badge bg-success">${course.creator_count}</span>
+                    </div>
+                    <div class="col-md-2">
+                        <strong>Avg per Doc:</strong> <span class="badge bg-warning text-dark">${(course.goal_count / course.document_count).toFixed(1)}</span>
+                    </div>
+                    <div class="col-md-2">
+                        <strong>Ready for HDBSCAN:</strong> <span class="badge ${course.goal_count >= 5 ? 'bg-success' : 'bg-warning text-dark'}">${course.goal_count >= 5 ? '✓' : '⚠️'}</span>
+                    </div>
+                </div>
+            `;
+            
+            $('#overview-content').html(overviewHtml);
+            
+            // Enable/disable buttons based on goal count
+            const hasEnoughGoals = course.goal_count >= 5;
+            $('#cluster-hdbscan-btn').prop('disabled', !hasEnoughGoals);
+            $('#optimize-hdbscan-btn').prop('disabled', !hasEnoughGoals);
+        }
+    }
+    
+    function updateGoalsOverviewForCourse() {
+        updateCourseStats();
+    }
+    
+    function performHDBSCANClusteringManual() {
+        // Get parameters
+        const minClusterSize = parseInt($('#min-cluster-size').val()) || 3;
+        const minSamples = $('#min-samples').val() ? parseInt($('#min-samples').val()) : null;
+        let alpha = parseFloat($('#alpha').val());
+        const epsilon = 0.0; // Keep at 0 for full hierarchy
+        
+        // Validate alpha - must be > 0
+        if (isNaN(alpha) || alpha <= 0) {
+            alpha = 1.0;
+            $('#alpha').val(1.0);
+            console.warn('Alpha must be > 0, setting to default 1.0');
+        }
+        
+        // Validate parameters
+        if (minClusterSize < 2) {
+            alert('Min cluster size must be at least 2');
+            return;
+        }
+        
+        if (minSamples !== null && minSamples < 1) {
+            alert('Min samples must be at least 1');
+            return;
+        }
+        
+        if (minSamples !== null && minSamples > minClusterSize) {
+            alert('Min samples should not exceed min cluster size');
+            return;
+        }
+        
+        // Prepare request data
+        const requestData = {
+            min_cluster_size: minClusterSize,
+            min_samples: minSamples,
+            alpha: alpha,
+            epsilon: epsilon,
+            course_filter: selectedCourse
+        };
+        
+        performHDBSCANClustering(requestData, false);
+    }
+    
+    function performHDBSCANOptimization() {
+        // Get optimization ranges
+        const minSizeMin = parseInt($('#opt-min-size-min').val()) || 2;
+        const minSizeMax = parseInt($('#opt-min-size-max').val()) || 15;
+        const minSamplesMin = parseInt($('#opt-min-samples-min').val()) || 1;
+        const minSamplesMax = parseInt($('#opt-min-samples-max').val()) || 8;
+        
+        // Validate ranges
+        if (minSizeMax < minSizeMin) {
+            alert('Max min cluster size must be >= min cluster size');
+            return;
+        }
+        
+        if (minSamplesMax < minSamplesMin) {
+            alert('Max min samples must be >= min samples');
+            return;
+        }
+        
+        // Prepare request data
+        const requestData = {
+            min_cluster_size_range: [minSizeMin, minSizeMax],
+            min_samples_range: [minSamplesMin, minSamplesMax],
+            course_filter: selectedCourse
+        };
+        
+        performHDBSCANOptimizationRequest(requestData);
+    }
+    
+    function performHDBSCANClustering(requestData, isOptimization) {
+        // Clean up any previous connections
+        cleanupActiveProcesses();
+        
+        // Hide results and show progress
+        $('#results-section').hide();
+        $('#loading-spinner').show();
+        $('#progress-tracker').show();
+        
+        // Reset progress indicators
+        resetProgressIndicators();
+        
+        // Disable buttons
+        $('#cluster-hdbscan-btn').prop('disabled', true);
+        $('#optimize-hdbscan-btn').prop('disabled', true);
+        
+        // Set up Server-Sent Events
+        const endpoint = isOptimization ? '/api/optimize-hdbscan' : '/api/cluster-hdbscan';
+        
+        activeEventSource = new EventSource('data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(requestData)));
+        
+        // Use fetch for POST request with SSE response
+        activeFetch = fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            function processText({done, value}) {
+                if (done) {
+                    $('#loading-spinner').hide();
+                    $('#progress-tracker').hide();
+                    $('#cluster-hdbscan-btn').prop('disabled', false);
+                    $('#optimize-hdbscan-btn').prop('disabled', false);
+                    return;
+                }
+                
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+                
+                for (let line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            handleClusteringProgress(data);
+                        } catch (e) {
+                            console.error('Error parsing SSE data:', e);
+                        }
+                    }
+                }
+                
+                return reader.read().then(processText);
+            }
+            
+            return reader.read().then(processText);
+        }).catch(error => {
+            console.error('Clustering error:', error);
+            handleClusteringError(error.message);
+        });
+    }
+    
+    function performHDBSCANOptimizationRequest(requestData) {
+        performHDBSCANClustering(requestData, true);
+        
+        // Show optimization-specific UI
+        $('#optimization-progress').show();
+        $('#search-phase').text('Parameter testing');
+    }
+    
+    function resetProgressIndicators() {
+        $('.step-indicator').removeClass('active completed error').addClass('');
+        $('#overall-progress').css('width', '0%');
+        $('#progress-text').text('Starting...');
+        $('#current-step').text('Initializing...');
+        $('#progress-detail-text').text('');
+        $('#optimization-progress').hide();
+        $('#tests-completed').text('0');
+        $('#latest-test-result').text('');
+        $('#best-so-far').text('');
+    }
+    
+    function handleClusteringProgress(data) {
+        const status = data.status;
+        const message = data.message;
+        const step = data.step;
+        const progress = data.progress;
+        
+        // Update current step
+        $('#current-step').text(message);
+        $('#progress-detail-text').text(message);
+        
+        // Update step indicators
+        if (step) {
+            // Reset all step indicators
+            $('.step-indicator').removeClass('active completed error');
+            
+            // Set current step as active
+            if (step === 'embeddings') {
+                $('#step-loading').addClass('completed');
+                $('#step-embeddings').addClass('active');
+                if (progress === 100) {
+                    $('#step-embeddings').removeClass('active').addClass('completed');
+                }
+            } else if (step === 'clustering') {
+                $('#step-loading, #step-embeddings').addClass('completed');
+                $('#step-clustering').addClass('active');
+                if (progress === 100) {
+                    $('#step-clustering').removeClass('active').addClass('completed');
+                }
+            } else if (step === 'metrics') {
+                $('#step-loading, #step-embeddings, #step-clustering').addClass('completed');
+                $('#step-metrics').addClass('active');
+                if (progress === 100) {
+                    $('#step-metrics').removeClass('active').addClass('completed');
+                }
+            }
+        }
+        
+        // Update progress bar
+        if (typeof progress === 'number') {
+            $('#overall-progress').css('width', `${progress}%`);
+            $('#progress-text').text(`${progress}%`);
+        }
+        
+        // Handle specific statuses
+        if (status === 'embeddings_complete' && data.embeddings_session_id) {
+            embeddingsSessionId = data.embeddings_session_id;
+        }
+        
+        if (status === 'complete' && data.results) {
+            handleClusteringComplete(data.results);
+        }
+        
+        if (status === 'error') {
+            handleClusteringError(message);
+        }
+        
+        // Handle optimization progress
+        if (data.optimization_results || data.best_parameters) {
+            updateOptimizationProgress(data);
+        }
+    }
+    
+    function updateOptimizationProgress(data) {
+        if (data.optimization_results) {
+            const results = data.optimization_results;
+            $('#tests-completed').text(results.length);
+            
+            if (results.length > 0) {
+                const latest = results[results.length - 1];
+                $('#latest-test-result').text(
+                    `Latest: min_cluster_size=${latest.min_cluster_size}, min_samples=${latest.min_samples} → ${latest.n_clusters} clusters (composite=${latest.composite_score.toFixed(3)})`
+                );
+                
+                // Find best so far
+                const best = results.reduce((prev, current) => 
+                    (prev.composite_score > current.composite_score) ? prev : current
+                );
+                
+                $('#best-so-far').text(
+                    `Best: min_cluster_size=${best.min_cluster_size}, min_samples=${best.min_samples} → ${best.n_clusters} clusters (composite=${best.composite_score.toFixed(3)})`
+                );
+            }
+        }
+    }
+    
+    function handleClusteringComplete(results) {
+        console.log('Clustering complete:', results);
+        currentResults = results;
+        
+        // Hide progress
+        $('#loading-spinner').hide();
+        $('#progress-tracker').hide();
+        
+        // Enable buttons
+        $('#cluster-hdbscan-btn').prop('disabled', false);
+        $('#optimize-hdbscan-btn').prop('disabled', false);
+        
+        // Display results
+        displayHDBSCANResults(results);
+        
+        // Show results section
+        $('#results-section').show();
+    }
+    
+    function handleClusteringError(errorMessage) {
+        console.error('Clustering error:', errorMessage);
+        
+        // Hide progress
+        $('#loading-spinner').hide();
+        $('#progress-tracker').hide();
+        
+        // Enable buttons
+        $('#cluster-hdbscan-btn').prop('disabled', false);
+        $('#optimize-hdbscan-btn').prop('disabled', false);
+        
+        // Show error
+        alert(`HDBSCAN clustering failed: ${errorMessage}`);
+        
+        // Mark error in progress indicators
+        $('.step-indicator.active').removeClass('active').addClass('error');
+    }
+    
+    function displayHDBSCANResults(results) {
+        const { clusters, outliers, metrics, parameters } = results;
+        
+        // Display statistics
+        displayHDBSCANStats(metrics, parameters, clusters.length, outliers.length);
+        
+        // Display outliers if any
+        if (outliers.length > 0) {
+            displayOutliers(outliers);
+            $('#outliers-section').show();
+        } else {
+            $('#outliers-section').hide();
+        }
+        
+        // Display clusters
+        displayClusters(clusters);
+        
+        // Show export section
+        $('#export-section').show();
+    }
+    
+    function displayHDBSCANStats(metrics, parameters, numClusters, numOutliers) {
+        const silhouetteColor = metrics.silhouette_score > 0.5 ? 'success' : 
+                               metrics.silhouette_score > 0.25 ? 'warning' : 'danger';
+        
+        const statsHtml = `
+            <div class="row">
+                <div class="col-md-12">
+                    <h5><i class="bi bi-bar-chart-fill"></i> HDBSCAN Clustering Results</h5>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-2">
+                    <strong>Clusters Found:</strong><br>
+                    <span class="badge bg-primary fs-6">${numClusters}</span>
+                </div>
+                <div class="col-md-2">
+                    <strong>Outliers Detected:</strong><br>
+                    <span class="badge bg-warning text-dark fs-6">${numOutliers}</span>
+                </div>
+                <div class="col-md-2">
+                    <strong>Outlier Rate:</strong><br>
+                    <span class="badge bg-info fs-6">${metrics.outlier_percentage.toFixed(1)}%</span>
+                </div>
+                <div class="col-md-2">
+                    <strong>Silhouette Score:</strong><br>
+                    <span class="badge bg-${silhouetteColor} fs-6">${metrics.silhouette_score.toFixed(3)}</span>
+                </div>
+                <div class="col-md-2">
+                    <strong>Avg Stability:</strong><br>
+                    <span class="badge bg-success fs-6">${metrics.avg_cluster_stability.toFixed(3)}</span>
+                </div>
+                <div class="col-md-2">
+                    <strong>Composite Score:</strong><br>
+                    <span class="badge" style="background-color: #6f42c1; color: white; font-size: 1rem;">${metrics.composite_score.toFixed(3)}</span>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12">
+                    <strong>Parameters Used:</strong>
+                    <span class="range-display">min_cluster_size=${parameters.min_cluster_size}</span>
+                    <span class="range-display">min_samples=${parameters.min_samples}</span>
+                    <span class="range-display">alpha=${parameters.alpha}</span>
+                    <span class="range-display">outlier_threshold=${metrics.outlier_threshold.toFixed(3)}</span>
+                </div>
+            </div>
+        `;
+        
+        $('#clustering-stats').html(statsHtml);
+    }
+    
+    function displayOutliers(outliers) {
+        let outliersHtml = `
+            <h5><i class="bi bi-exclamation-triangle-fill"></i> Outliers Detected (${outliers.length})</h5>
+            <p class="mb-3">These learning goals were identified as outliers - they don't belong to any natural cluster and may represent unique or anomalous content.</p>
+        `;
+        
+        outliers.forEach((outlier, index) => {
+            outliersHtml += `
+                <div class="outlier-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="goal-text">${outlier.goal}</div>
+                            <div class="goal-source">
+                                📄 ${outlier.source.document_name} | 
+                                👤 ${outlier.source.creator} | 
+                                📚 ${outlier.source.course_name}
+                            </div>
+                        </div>
+                        <span class="outlier-badge ms-2">Outlier #${index + 1}</span>
+                    </div>
+                </div>
+            `;
+        });
+        
+        $('#outliers-section').html(outliersHtml);
+    }
+    
+    function displayClusters(clusters) {
+        let clustersHtml = '';
+        
+        if (clusters.length === 0) {
+            clustersHtml = `
+                <div class="alert alert-warning">
+                    <h5><i class="bi bi-info-circle"></i> No Clusters Found</h5>
+                    <p>HDBSCAN did not find any dense clusters in the data. All points were classified as outliers. This could mean:</p>
+                    <ul>
+                        <li>The data is too sparse for the current parameters</li>
+                        <li>Try reducing min_cluster_size or min_samples</li>
+                        <li>The learning goals may be too diverse to form natural clusters</li>
+                    </ul>
+                </div>
+            `;
+        } else {
+            clustersHtml = `<h5><i class="bi bi-diagram-3-fill"></i> Clusters Found (${clusters.length})</h5>`;
+            
+            clusters.forEach((cluster, index) => {
+                const clusterNumber = index + 1;
+                
+                clustersHtml += `
+                    <div class="cluster-section">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="cluster-title">
+                                <i class="bi bi-collection"></i> Cluster ${clusterNumber} 
+                                <span class="badge" style="background-color: #6f42c1; color: white;">${cluster.size} goals</span>
+                            </div>
+                            <div class="cluster-actions">
+                                <button class="btn btn-sm btn-outline-primary" onclick="toggleCluster(${cluster.id})">
+                                    <i class="bi bi-eye" id="toggle-icon-${cluster.id}"></i> View Goals
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="cluster-representative">
+                            <i class="bi bi-star"></i> <strong>Representative:</strong> ${cluster.representative_goal}
+                        </div>
+                        
+                        <div id="cluster-content-${cluster.id}" class="cluster-goals" style="display: none;">
+                `;
+                
+                // Add all goals in the cluster
+                cluster.goals.forEach((goal, goalIndex) => {
+                    const source = cluster.sources[goalIndex];
+                    clustersHtml += `
+                        <div class="goal-item">
+                            <div class="goal-text">${goal}</div>
+                            <div class="goal-source">
+                                📄 ${source.document_name} | 
+                                👤 ${source.creator} | 
+                                📚 ${source.course_name}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                clustersHtml += `
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        $('#clusters-container').html(clustersHtml);
+    }
+    
+    function toggleCluster(clusterId) {
+        const content = $(`#cluster-content-${clusterId}`);
+        const icon = $(`#toggle-icon-${clusterId}`);
+        
+        if (content.is(':visible')) {
+            content.hide();
+            icon.removeClass('bi-eye-slash').addClass('bi-eye');
+        } else {
+            content.show();
+            icon.removeClass('bi-eye').addClass('bi-eye-slash');
+        }
+    }
+    
+    function exportResults(format) {
+        if (!currentResults) {
+            alert('No clustering results to export');
+            return;
+        }
+        
+        const includeOutliers = $('#include-outliers-export').is(':checked');
+        
+        const exportData = {
+            clusters: currentResults.clusters,
+            outliers: currentResults.outliers,
+            format: format,
+            include_outliers: includeOutliers
+        };
+        
+        // Create a form and submit it to trigger download
+        const form = $('<form>', {
+            'method': 'POST',
+            'action': '/api/export-hdbscan-clusters'
+        });
+        
+        $('<input>').attr({
+            type: 'hidden',
+            name: 'data',
+            value: JSON.stringify(exportData)
+        }).appendTo(form);
+        
+        // Submit form
+        $('body').append(form);
+        form.submit();
+        form.remove();
+    }
+    
+    function cancelOptimization() {
+        cleanupActiveProcesses();
+        $('#loading-spinner').hide();
+        $('#progress-tracker').hide();
+        $('#cluster-hdbscan-btn').prop('disabled', false);
+        $('#optimize-hdbscan-btn').prop('disabled', false);
+    }
+});
+
+// Global function for cluster toggling (called from generated HTML)
+window.toggleCluster = function(clusterId) {
+    const content = $(`#cluster-content-${clusterId}`);
+    const icon = $(`#toggle-icon-${clusterId}`);
+    
+    if (content.is(':visible')) {
+        content.hide();
+        icon.removeClass('bi-eye-slash').addClass('bi-eye');
+    } else {
+        content.show();
+        icon.removeClass('bi-eye').addClass('bi-eye-slash');
+    }
+};
+</script>
+{% endblock %} 

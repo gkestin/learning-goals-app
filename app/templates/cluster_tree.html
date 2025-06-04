@@ -31,24 +31,27 @@
         border-left-color: #007bff;
     }
     
-    /* Smart indentation - limited depth */
+    /* Smart indentation - consistent single step */
     .tree-level-0 { margin-left: 0px; }
-    .tree-level-1 { margin-left: 15px; }
-    .tree-level-2 { margin-left: 30px; }
-    .tree-level-3 { margin-left: 45px; }
-    .tree-level-4 { margin-left: 60px; }
-    .tree-level-5 { margin-left: 75px; }
-    .tree-level-6 { margin-left: 90px; }
-    .tree-level-7 { margin-left: 105px; }
-    .tree-level-8 { margin-left: 120px; }
-    .tree-level-9 { margin-left: 135px; }
-    .tree-level-10 { margin-left: 150px; }
+    .tree-level-1,
+    .tree-level-2,
+    .tree-level-3,
+    .tree-level-4,
+    .tree-level-5,
+    .tree-level-6,
+    .tree-level-7,
+    .tree-level-8,
+    .tree-level-9,
+    .tree-level-10,
+    .tree-level-deep { /* All non-root levels get the same single-step indent */
+        margin-left: 15px; /* Base step for cluster_tree.html */
+    }
     
     /* Beyond level 10, use a different visual cue */
     .tree-level-deep {
-        margin-left: 150px;
+        /* margin-left: 15px; is handled above */
         border-left: 3px dotted #6c757d;
-        padding-left: 10px;
+        padding-left: 10px; /* This will indent the *content* of tree-level-deep nodes further */
     }
     
     .cluster-header {
@@ -156,7 +159,7 @@
     }
     
     .cluster-content {
-        padding: 15px 20px;
+        padding: 15px 8px 15px 0px;
         background-color: #f8f9fa;
         border: 1px solid #dee2e6;
         border-top: none;
@@ -181,7 +184,7 @@
     }
     
     .goal-source {
-        font-size: 0.75em;
+        font-size: 0.65em;
         color: #6c757d;
         font-style: italic;
     }
@@ -242,7 +245,15 @@
     /* Level Controls */
     .level-button {
         font-weight: bold;
-        min-width: 50px;
+        min-width: 80px;
+        min-height: 60px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 8px 12px;
+        line-height: 1.2;
     }
     
     .level-button.active {
@@ -331,7 +342,7 @@
                 <div class="clustering-controls">
                     <h4 class="text-success mb-3">🌳 Hierarchical Tree Parameters</h4>
                     <div class="row align-items-end">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label for="n-levels-input" class="form-label"><strong>Number of Levels:</strong></label>
                                 <div class="input-group" style="max-width: 200px;">
@@ -344,7 +355,7 @@
                             </div>
                         </div>
                         
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label for="linkage-method" class="form-label"><strong>Linkage Method:</strong></label>
                                 <select class="form-select form-select-lg" id="linkage-method">
@@ -359,7 +370,20 @@
                             </div>
                         </div>
                         
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="sampling-method" class="form-label"><strong>Sampling Method:</strong></label>
+                                <select class="form-select form-select-lg" id="sampling-method">
+                                    <option value="intelligent" selected>Intelligent (Gap-filling)</option>
+                                    <option value="natural">Natural (Original)</option>
+                                </select>
+                                <div class="form-text">
+                                    Intelligent fills cluster count gaps
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label d-block">&nbsp;</label>
                                 <button id="build-tree-btn" class="btn btn-success btn-lg w-100" disabled>
@@ -464,8 +488,11 @@
                                 <button id="expand-all-btn" class="btn btn-outline-secondary btn-sm me-2">
                                     <i class="bi bi-arrows-expand"></i> Expand All
                                 </button>
-                                <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm">
+                                <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm me-2">
                                     <i class="bi bi-arrows-collapse"></i> Collapse All
+                                </button>
+                                <button id="save-artifact-btn" class="btn btn-success btn-sm">
+                                    <i class="bi bi-save"></i> Save to Artifact
                                 </button>
                             </div>
                         </div>
@@ -481,11 +508,6 @@
                                     <i class="bi bi-diagram-2"></i> Show Tree View
                                 </button>
                             </div>
-                        </div>
-                        
-                        <!-- Flattened View Stats (shown when level is selected) -->
-                        <div id="flattened-stats" class="clustering-stats" style="display: none;">
-                            <!-- Flattened stats will be populated here -->
                         </div>
                         
                         <div id="tree-content">
@@ -547,6 +569,11 @@ $(document).ready(function() {
         $('.cluster-header').removeClass('expanded');
         $('.cluster-content').hide();
         $('.collapse-icon').removeClass('expanded');
+    });
+    
+    // Save artifact button
+    $('#save-artifact-btn').click(function() {
+        saveCurrentTreeAsArtifact();
     });
 });
 
@@ -647,6 +674,7 @@ function updateCourseStats() {
 function buildHierarchicalTree() {
     const nLevels = parseInt($('#n-levels-input').val());
     const linkageMethod = $('#linkage-method').val();
+    const samplingMethod = $('#sampling-method').val();
     
     // Hide previous results
     $('#results-section').hide();
@@ -667,7 +695,8 @@ function buildHierarchicalTree() {
     // Build the tree
     const requestData = {
         n_levels: nLevels,
-        linkage_method: linkageMethod
+        linkage_method: linkageMethod,
+        sampling_method: samplingMethod
     };
     
     if (selectedCourse) {
@@ -767,11 +796,12 @@ function displayStats(data) {
             </div>
         </div>
         <div class="row">
-            <div class="col-12">
+            <div class="col-md-6">
+                <strong>Sampling Method:</strong> ${data.sampling_method} 
                 <small class="text-muted">
-                    <strong>Complete Hierarchical Structure:</strong> Every learning goal has a full hierarchical path through all levels. 
-                    When flattening at any level, no goals are lost - they're just organized at different granularities.
-                    <span class="text-success">✓ Path-complete design ensures 100% goal preservation.</span>
+                    ${data.sampling_method === 'intelligent' ? 
+                        '(Gap-filling approach - explores full cluster range)' : 
+                        '(Natural dendrogram distances - respects data structure)'}
                 </small>
             </div>
         </div>
@@ -795,8 +825,8 @@ function displayTree(treeStructure) {
     
     findMaxLevel(treeStructure);
     
-    // Generate level buttons
-    generateLevelButtons(maxLevel);
+    // Generate level buttons with metrics
+    generateLevelButtons(maxLevel, currentTreeData.level_metrics);
     
     function buildTreeNode(node, level = 0) {
         const levelClass = level <= 10 ? `tree-level-${level}` : 'tree-level-deep';
@@ -892,14 +922,19 @@ function findRepresentativeGoal(node) {
     return '';
 }
 
-function generateLevelButtons(maxLevel) {
+function generateLevelButtons(maxLevel, levelMetrics) {
     const levelLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'];
     let buttonsHtml = '';
     
     for (let i = 0; i <= maxLevel && i < levelLabels.length; i++) {
+        const metrics = levelMetrics && levelMetrics[i] ? levelMetrics[i] : { clusters: '?', silhouette: 0 };
+        const silhouetteDisplay = (metrics.silhouette * 100).toFixed(0); // Convert to percentage and round
+        
         buttonsHtml += `
             <button class="btn btn-outline-success level-button" data-level="${i}" onclick="flattenAtLevel(${i})">
-                Level ${levelLabels[i]}
+                <div class="fw-bold">Level ${levelLabels[i]}</div>
+                <small class="d-block">${metrics.clusters} groups</small>
+                <small class="d-block text-success">S: ${silhouetteDisplay}%</small>
             </button>
         `;
     }
@@ -950,56 +985,12 @@ function flattenAtLevel(targetLevel) {
         console.log(`✅ All ${totalGoalsAtLevel} goals preserved at level ${targetLevel}`);
     }
     
-    // Calculate metrics for this flattened level
-    calculateFlattenedMetrics(nodesAtLevel, targetLevel, totalGoalsAtLevel);
-    
     // Display flattened view
     displayFlattenedView(nodesAtLevel, targetLevel);
     
     // Hide tree, show flattened content
     $('#tree-content').hide();
     $('#flattened-content').show();
-}
-
-function calculateFlattenedMetrics(nodes, level, totalGoals) {
-    const levelLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-    
-    // Calculate some basic statistics about cluster sizes
-    const clusterSizes = nodes.map(node => node.size);
-    const avgClusterSize = (totalGoals / nodes.length).toFixed(1);
-    const minClusterSize = Math.min(...clusterSizes);
-    const maxClusterSize = Math.max(...clusterSizes);
-    
-    const statsHtml = `
-        <h5><i class="bi bi-layers"></i> Level ${levelLabels[level]} Flattened View</h5>
-        <div class="row mb-2">
-            <div class="col-md-3">
-                <strong>Total Goals:</strong> ${totalGoals}
-                <small class="d-block text-success">✓ All goals preserved</small>
-            </div>
-            <div class="col-md-3">
-                <strong>Clusters:</strong> ${nodes.length}
-                <small class="d-block text-muted">Groups at this level</small>
-            </div>
-            <div class="col-md-3">
-                <strong>Avg. Cluster Size:</strong> ${avgClusterSize}
-                <small class="d-block text-muted">Range: ${minClusterSize}-${maxClusterSize}</small>
-            </div>
-            <div class="col-md-3">
-                <strong>Level:</strong> ${levelLabels[level]}
-                <small class="d-block text-muted">Hierarchical depth</small>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col-12">
-                <small class="text-muted">
-                    This view shows all learning goals organized into ${nodes.length} clusters at Level ${levelLabels[level]}. 
-                    Every learning goal has a complete hierarchical path (e.g., A1B2C3) ensuring no goals are lost at any level.
-                </small>
-            </div>
-        </div>
-    `;
-    $('#flattened-stats').html(statsHtml).show();
 }
 
 function displayFlattenedView(nodes, level) {
@@ -1110,6 +1101,90 @@ function toggleCluster(nodeId) {
 function truncateText(text, maxLength) {
     if (!text || text.length <= maxLength) return text || '';
     return text.substring(0, maxLength) + '...';
+}
+
+function saveCurrentTreeAsArtifact() {
+    if (!currentTreeData) {
+        alert('No tree data to save. Please build a tree first.');
+        return;
+    }
+    
+    // Prompt for artifact name
+    const artifactName = prompt('Enter a name for this artifact:', 
+        `Tree_${currentTreeData.n_levels}levels_${currentTreeData.linkage_method}_${new Date().toLocaleDateString()}`);
+    
+    if (!artifactName) {
+        return; // User cancelled
+    }
+    
+    const saveBtn = $('#save-artifact-btn');
+    saveBtn.prop('disabled', true).html('<i class="bi bi-spinner-border spinner-border-sm"></i> Saving...');
+    
+    // Prepare artifact data
+    const artifactData = {
+        name: artifactName,
+        tree_structure: currentTreeData.tree_structure,
+        parameters: {
+            n_levels: currentTreeData.n_levels,
+            linkage_method: currentTreeData.linkage_method,
+            sampling_method: currentTreeData.sampling_method,
+            course_filter: selectedCourse
+        },
+        metadata: {
+            total_goals: currentTreeData.total_goals,
+            processing_time: currentTreeData.processing_time,
+            level_metrics: currentTreeData.level_metrics || {},
+            created_from: 'cluster_tree'
+        }
+    };
+    
+    $.ajax({
+        url: '/api/save-artifact',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(artifactData)
+    })
+    .done(function(response) {
+        if (response.success) {
+            saveBtn.removeClass('btn-success').addClass('btn-success')
+                   .html('<i class="bi bi-check"></i> Saved!');
+            
+            // Show success message with link to artifacts page
+            const successMsg = `Artifact "${artifactName}" saved successfully! <a href="/artifacts" target="_blank">View Artifacts</a>`;
+            showTemporaryMessage(successMsg, 'success');
+            
+            setTimeout(() => {
+                saveBtn.removeClass('btn-success').addClass('btn-success')
+                       .html('<i class="bi bi-save"></i> Save to Artifact');
+            }, 3000);
+        } else {
+            alert('Failed to save artifact: ' + response.message);
+        }
+    })
+    .fail(function() {
+        alert('Failed to save artifact: Network error');
+    })
+    .always(function() {
+        saveBtn.prop('disabled', false);
+    });
+}
+
+function showTemporaryMessage(message, type) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const alertHtml = `
+        <div class="alert ${alertClass} alert-dismissible fade show mt-3" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+    
+    // Insert after the tree container
+    $('.tree-container').after(alertHtml);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        $('.alert').fadeOut();
+    }, 5000);
 }
 </script>
 {% endblock %} 

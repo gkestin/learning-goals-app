@@ -48,13 +48,27 @@
                                 <a class="nav-link {% if request.path == url_for('main.search_page') %}active{% endif %}" 
                                    href="{{ url_for('main.search_page') }}">Search</a>
                             </li>
+                            <!-- Hidden menu items - pages still exist but removed from navigation
                             <li class="nav-item">
                                 <a class="nav-link {% if request.path == url_for('main.cluster_page') %}active{% endif %}" 
-                                   href="{{ url_for('main.cluster_page') }}">Cluster Analysis</a>
+                                   href="{{ url_for('main.cluster_page') }}">Cluster</a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link {% if request.path == url_for('main.cluster_tree') %}active{% endif %}" 
-                                   href="{{ url_for('main.cluster_tree') }}">Hierarchical Tree</a>
+                                   href="{{ url_for('main.cluster_tree') }}">Cluster Tree</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {% if request.path == url_for('main.cluster_hdbscan_page') %}active{% endif %}" 
+                                   href="{{ url_for('main.cluster_hdbscan_page') }}">HDBSCAN</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link {% if request.path == url_for('main.learning_goals_hierarchy_page') %}active{% endif %}" 
+                                   href="{{ url_for('main.learning_goals_hierarchy_page') }}">Hierarchy</a>
+                            </li>
+                            -->
+                            <li class="nav-item">
+                                <a class="nav-link {% if request.path == url_for('main.artifacts_page') %}active{% endif %}" 
+                                   href="{{ url_for('main.artifacts_page') }}">Artifacts</a>
                             </li>
                         </ul>
                     </div>

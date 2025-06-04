@@ -9,6 +9,7 @@ from app.models import Document
 from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
 from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
 from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document, move_storage_file, smart_resolve_storage_path
+from datetime import datetime
 
 main = Blueprint('main', __name__)
 
@@ -566,19 +567,23 @@ def api_available_courses():
                 if course_name not in course_stats:
                     course_stats[course_name] = {
                         'documents': 0,
-                        'total_goals': 0
+                        'total_goals': 0,
+                        'creators': set()
                     }
                 
                 course_stats[course_name]['documents'] += 1
                 course_stats[course_name]['total_goals'] += len(doc.learning_goals)
+                if doc.creator:
+                    course_stats[course_name]['creators'].add(doc.creator)
         
         # Format course list with statistics
         formatted_courses = []
         for course in sorted(courses):
             formatted_courses.append({
                 'name': course,
-                'documents': course_stats[course]['documents'],
-                'total_goals': course_stats[course]['total_goals']
+                'document_count': course_stats[course]['documents'],
+                'goal_count': course_stats[course]['total_goals'],
+                'creator_count': len(course_stats[course]['creators'])
             })
         
         return jsonify({
@@ -1432,9 +1437,10 @@ def api_cluster_tree():
         data = request.get_json()
         n_levels = data.get('n_levels', 8)
         linkage_method = data.get('linkage_method', 'ward')
+        sampling_method = data.get('sampling_method', 'intelligent')
         course_filter = data.get('course')
         
-        print(f"Building hierarchical tree: {n_levels} levels, {linkage_method} linkage")
+        print(f"Building hierarchical tree: {n_levels} levels, {linkage_method} linkage, {sampling_method} sampling")
         
         # Validate parameters
         if n_levels < 3 or n_levels > 15:
@@ -1447,6 +1453,12 @@ def api_cluster_tree():
             return jsonify({
                 'success': False,
                 'message': 'Invalid linkage method'
+            })
+        
+        if sampling_method not in ['natural', 'intelligent']:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid sampling method'
             })
         
         # Get all learning goals from Firebase
@@ -1484,8 +1496,28 @@ def api_cluster_tree():
         # Build hierarchical tree
         print(f"🌳 Building hierarchical tree...")
         tree_result = clustering_service.build_hierarchical_tree(
-            embeddings, all_goals, all_sources, n_levels, linkage_method
+            embeddings, all_goals, all_sources, n_levels, linkage_method, sampling_method
         )
+        
+        # Convert numpy types to native Python types for JSON serialization
+        def convert_numpy_types(obj):
+            """Recursively convert numpy types to native Python types"""
+            import numpy as np
+            
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+        
+        tree_result = convert_numpy_types(tree_result)
         
         print(f"✅ Hierarchical tree built successfully!")
         
@@ -1567,3 +1599,1100 @@ def cluster_tree_flattened():
     </body>
     </html>
     """ 
+
+# HDBSCAN Clustering Routes
+@main.route('/cluster-hdbscan')
+def cluster_hdbscan_page():
+    """HDBSCAN clustering page"""
+    return render_template('cluster_hdbscan.html')
+
+@main.route('/api/cluster-hdbscan', methods=['POST'])
+def api_cluster_hdbscan():
+    """API endpoint for HDBSCAN clustering with progress streaming"""
+    from flask import Response, stream_with_context
+    from app.clustering_service import LearningGoalsClusteringService
+    import json
+    import threading
+    import queue
+    import time
+    import uuid
+    
+    def generate_hdbscan_progress():
+        try:
+            # Get request data
+            request_data = request.get_json() or {}
+            min_cluster_size = request_data.get('min_cluster_size', 5)
+            min_samples = request_data.get('min_samples', None)
+            alpha = request_data.get('alpha', 1.0)
+            epsilon = request_data.get('epsilon', 0.0)
+            course_filter = request_data.get('course_filter', None)
+            
+            # Validate basic parameters first
+            if min_cluster_size < 2:
+                min_cluster_size = 2
+            
+            if min_samples is not None and min_samples < 1:
+                min_samples = 1
+            
+            # Validate alpha parameter - HDBSCAN requires alpha > 0
+            if alpha is None or alpha <= 0:
+                alpha = 1.0
+                print(f"⚠️ Invalid alpha value, setting to default: {alpha}")
+            
+            # Convert alpha to float to ensure proper type
+            try:
+                alpha = float(alpha)
+                if alpha <= 0:
+                    alpha = 1.0
+                    print(f"⚠️ Alpha must be > 0, setting to default: {alpha}")
+            except (ValueError, TypeError):
+                alpha = 1.0
+                print(f"⚠️ Could not convert alpha to float, setting to default: {alpha}")
+            
+            # Send initial status
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Initializing HDBSCAN clustering...'})}\n\n"
+            
+            # Get all learning goals from Firebase
+            if course_filter:
+                loading_message = f"Loading learning goals from course: {course_filter}..."
+                yield f"data: {json.dumps({'status': 'loading', 'message': loading_message})}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'loading', 'message': 'Loading learning goals...'})}\n\n"
+            
+            all_documents = search_documents(limit=1000)
+            all_goals = []
+            all_sources = []
+            
+            for doc in all_documents:
+                # Apply course filter if specified
+                if course_filter and doc.course_name != course_filter:
+                    continue
+                    
+                for goal in doc.learning_goals:
+                    all_goals.append(goal)
+                    all_sources.append({
+                        'document_name': doc.name,
+                        'creator': doc.creator,
+                        'course_name': doc.course_name
+                    })
+            
+            # Validate and adjust parameters based on actual data
+            if len(all_goals) < 2:
+                error_message = f'Need at least 2 learning goals for HDBSCAN clustering. Found {len(all_goals)} goals.'
+                if course_filter:
+                    error_message += f' Course "{course_filter}" has too few goals.'
+                yield f"data: {json.dumps({'status': 'error', 'message': error_message})}\n\n"
+                return
+            
+            if len(all_goals) < min_cluster_size:
+                # Auto-adjust min_cluster_size to be reasonable
+                adjusted_min_cluster_size = max(2, min(min_cluster_size, len(all_goals) // 3))
+                if adjusted_min_cluster_size < 2:
+                    adjusted_min_cluster_size = 2
+                    
+                warning_message = f'Adjusted min_cluster_size from {min_cluster_size} to {adjusted_min_cluster_size} based on {len(all_goals)} available goals.'
+                yield f"data: {json.dumps({'status': 'warning', 'message': warning_message})}\n\n"
+                min_cluster_size = adjusted_min_cluster_size
+                
+                # Also adjust min_samples if needed
+                if min_samples is not None and min_samples > min_cluster_size:
+                    min_samples = min_cluster_size
+                    yield f"data: {json.dumps({'status': 'warning', 'message': f'Adjusted min_samples to {min_samples} to match min_cluster_size'})}\n\n"
+            
+            loaded_message = f"Loaded {len(all_goals)} learning goals"
+            if course_filter:
+                loaded_message += f" from course: {course_filter}"
+            yield f"data: {json.dumps({'status': 'loaded', 'message': loaded_message, 'totalGoals': len(all_goals)})}\n\n"
+            
+            # Initialize clustering service
+            clustering_service = LearningGoalsClusteringService()
+            
+            # Generate embeddings
+            yield f"data: {json.dumps({'status': 'embeddings', 'message': 'Generating STEM-optimized embeddings...', 'step': 'embeddings', 'progress': 0})}\n\n"
+            embeddings = clustering_service.generate_embeddings(all_goals)
+            
+            # Store embeddings for download
+            session_id = str(uuid.uuid4())
+            embeddings_storage[session_id] = {
+                'goals': all_goals,
+                'embeddings': embeddings.tolist(),
+                'timestamp': time.time()
+            }
+            
+            yield f"data: {json.dumps({'status': 'embeddings_complete', 'message': 'Embeddings generated', 'step': 'embeddings', 'progress': 100, 'embeddings_session_id': session_id})}\n\n"
+            
+            # Perform HDBSCAN clustering
+            yield f"data: {json.dumps({'status': 'clustering', 'message': 'Performing HDBSCAN clustering...', 'step': 'clustering', 'progress': 0})}\n\n"
+            
+            labels = clustering_service.cluster_hdbscan(
+                embeddings, 
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                alpha=alpha,
+                epsilon=epsilon
+            )
+            
+            yield f"data: {json.dumps({'status': 'clustering_complete', 'message': 'HDBSCAN clustering completed', 'step': 'clustering', 'progress': 100})}\n\n"
+            
+            # Calculate quality metrics
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Calculating quality metrics...', 'step': 'metrics', 'progress': 0})}\n\n"
+            
+            quality_metrics = clustering_service.calculate_hdbscan_quality_metrics(embeddings, labels)
+            
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Calculating cluster stability...', 'step': 'metrics', 'progress': 50})}\n\n"
+            
+            # Format clusters and outliers
+            formatted_clusters, outliers = clustering_service.format_hdbscan_clusters(
+                all_goals, all_sources, labels, include_outliers=True
+            )
+            
+            yield f"data: {json.dumps({'status': 'metrics_complete', 'message': 'Quality metrics calculated', 'step': 'metrics', 'progress': 100})}\n\n"
+            
+            # Prepare results
+            results = {
+                'success': True,
+                'clusters': formatted_clusters,
+                'outliers': outliers,
+                'metrics': quality_metrics,
+                'parameters': {
+                    'min_cluster_size': min_cluster_size,
+                    'min_samples': min_samples if min_samples is not None else min_cluster_size,
+                    'alpha': alpha,
+                    'epsilon': epsilon
+                },
+                'total_goals': len(all_goals),
+                'course_filter': course_filter
+            }
+            
+            # Send final results
+            yield f"data: {json.dumps({'status': 'complete', 'message': 'HDBSCAN clustering complete!', 'results': results})}\n\n"
+            
+        except Exception as e:
+            print(f"HDBSCAN clustering error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'status': 'error', 'message': f'HDBSCAN clustering failed: {str(e)}'})}\n\n"
+    
+    return Response(stream_with_context(generate_hdbscan_progress()), 
+                   mimetype='text/plain',
+                   headers={'Cache-Control': 'no-cache'})
+
+@main.route('/api/optimize-hdbscan', methods=['POST'])
+def api_optimize_hdbscan():
+    """API endpoint for HDBSCAN parameter optimization with progress streaming"""
+    from flask import Response, stream_with_context
+    from app.clustering_service import LearningGoalsClusteringService
+    import json
+    import threading
+    import queue
+    import time
+    import uuid
+    
+    def generate_optimization_progress():
+        try:
+            # Get request data
+            request_data = request.get_json() or {}
+            min_cluster_size_range = request_data.get('min_cluster_size_range', None)
+            min_samples_range = request_data.get('min_samples_range', None)
+            course_filter = request_data.get('course_filter', None)
+            
+            # Send initial status
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Initializing HDBSCAN parameter optimization...'})}\n\n"
+            
+            # Get all learning goals from Firebase
+            if course_filter:
+                loading_message = f"Loading learning goals from course: {course_filter}..."
+                yield f"data: {json.dumps({'status': 'loading', 'message': loading_message})}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'loading', 'message': 'Loading learning goals...'})}\n\n"
+            
+            all_documents = search_documents(limit=1000)
+            
+            # Extract learning goals with course filtering
+            all_goals = []
+            for doc in all_documents:
+                # Apply course filter if specified
+                if course_filter and doc.course_name != course_filter:
+                    continue
+                all_goals.extend(doc.learning_goals)
+            
+            if course_filter:
+                loaded_message = f"Loaded {len(all_goals)} learning goals from course: {course_filter}"
+                yield f"data: {json.dumps({'status': 'loaded', 'message': loaded_message, 'totalGoals': len(all_goals)})}\n\n"
+            else:
+                loaded_message = f"Loaded {len(all_goals)} learning goals from {len(all_documents)} documents"
+                yield f"data: {json.dumps({'status': 'loaded', 'message': loaded_message, 'totalGoals': len(all_goals)})}\n\n"
+            
+            if len(all_goals) < 4:
+                if course_filter:
+                    error_message = f'Need at least 4 learning goals for optimization. Course "{course_filter}" only has {len(all_goals)} goals.'
+                    yield f"data: {json.dumps({'status': 'error', 'message': error_message})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Need at least 4 learning goals for optimization'})}\n\n"
+                return
+            
+            # Initialize clustering service
+            clustering_service = LearningGoalsClusteringService()
+            
+            # Use a queue for progress updates from the optimization thread
+            progress_queue = queue.Queue()
+            optimization_result = {}
+            
+            def run_optimization():
+                try:
+                    # Stream progress callback
+                    def stream_progress(message, completed, total, percentage):
+                        progress_queue.put({
+                            'type': 'progress',
+                            'message': message,
+                            'completed': completed,
+                            'total': total,
+                            'percentage': percentage
+                        })
+                    
+                    # Check for stop signal (implement basic mechanism)
+                    global optimization_should_stop
+                    optimization_should_stop = False
+                    
+                    def check_stop_wrapper(original_func):
+                        def wrapper(*args, **kwargs):
+                            if optimization_should_stop:
+                                raise InterruptedError("Optimization stopped by user")
+                            return original_func(*args, **kwargs)
+                        return wrapper
+                    
+                    # Generate embeddings first
+                    progress_queue.put({'type': 'embeddings_start'})
+                    embeddings = clustering_service.generate_embeddings(all_goals)
+                    
+                    # Store embeddings for download
+                    session_id = str(uuid.uuid4())
+                    embeddings_storage[session_id] = {
+                        'goals': all_goals,
+                        'embeddings': embeddings.tolist(),
+                        'timestamp': time.time()
+                    }
+                    
+                    progress_queue.put({'type': 'embeddings_complete', 'session_id': session_id})
+                    
+                    # Start optimization
+                    progress_queue.put({'type': 'optimization_start'})
+                    
+                    results, best_composite_k, best_separation_k = clustering_service.find_optimal_cluster_sizes(
+                        embeddings, 
+                        progress_callback=stream_progress,
+                        use_elbow_detection=True
+                    )
+                    
+                    if results:
+                        # Calculate additional metrics for the best results
+                        embeddings_final = clustering_service.generate_embeddings(all_goals)
+                        
+                        # Get metrics for best composite result
+                        labels_composite = clustering_service.cluster_fast(embeddings_final, best_composite_k)
+                        silhouette_composite = clustering_service.calculate_cluster_quality_fast(embeddings_final, labels_composite)
+                        separation_composite, cohesion_composite = clustering_service.calculate_cluster_separation_metrics_fast(embeddings_final, labels_composite)
+                        
+                        # Get metrics for best separation result  
+                        labels_separation = clustering_service.cluster_fast(embeddings_final, best_separation_k)
+                        silhouette_separation = clustering_service.calculate_cluster_quality_fast(embeddings_final, labels_separation)
+                        separation_separation, cohesion_separation = clustering_service.calculate_cluster_separation_metrics_fast(embeddings_final, labels_separation)
+                        
+                        optimization_result['results'] = {
+                            'success': True,
+                            'total_goals': len(all_goals),
+                            'best_composite_k': best_composite_k,
+                            'best_separation_k': best_separation_k,
+                            'best_cohesion_k': results.get('best_cohesion_k', best_composite_k),
+                            'best_silhouette_k': results.get('best_silhouette_k', best_composite_k),
+                            'max_composite_score': round(float(results['max_composite']), 3),
+                            'max_separation_score': round(float(results['max_separation']), 3),
+                            'max_cohesion_score': round(float(results['max_cohesion']), 3),
+                            'max_silhouette_score': round(float(results['max_silhouette']), 3),
+                            'recommendation': {
+                                'explanation': f"For {len(all_goals)} learning goals, the algorithm recommends {best_composite_k} clusters for balanced quality, or {best_separation_k} clusters for maximum separation."
+                            }
+                        }
+                    else:
+                        optimization_result['results'] = {
+                            'success': False,
+                            'message': 'Optimization failed to find suitable cluster sizes'
+                        }
+                    
+                    progress_queue.put({'type': 'complete'})
+                    
+                except Exception as e:
+                    print(f"Optimization error: {e}")
+                    progress_queue.put({'type': 'error', 'message': str(e)})
+            
+            # Start optimization in background thread
+            opt_thread = threading.Thread(target=run_optimization)
+            opt_thread.start()
+            
+            # Process progress updates
+            while True:
+                try:
+                    # Check for progress updates
+                    update = progress_queue.get(timeout=1)
+                    
+                    if update['type'] == 'embeddings_start':
+                        yield f"data: {json.dumps({'status': 'embeddings', 'message': 'Generating embeddings...'})}\n\n"
+                    elif update['type'] == 'embeddings_complete':
+                        yield f"data: {json.dumps({'status': 'embeddings_complete', 'message': 'Embeddings generated', 'embeddings_session_id': update['session_id']})}\n\n"
+                    elif update['type'] == 'optimization_start':
+                        yield f"data: {json.dumps({'status': 'optimization_start', 'message': 'Starting elbow detection...'})}\n\n"
+                    elif update['type'] == 'progress':
+                        yield f"data: {json.dumps({'status': 'optimizing', 'message': update['message']})}\n\n"
+                    elif update['type'] == 'complete':
+                        yield f"data: {json.dumps({'status': 'optimization_complete', 'message': 'Optimization complete'})}\n\n"
+                        yield f"data: {json.dumps({'status': 'results', 'results': optimization_result['results']})}\n\n"
+                        break
+                    elif update['type'] == 'error':
+                        yield f"data: {json.dumps({'status': 'error', 'message': update['message']})}\n\n"
+                        break
+                    
+                except queue.Empty:
+                    # No update received, check if thread is still alive
+                    if not opt_thread.is_alive():
+                        break
+                    continue
+                    
+        except Exception as e:
+            print(f"Stream error: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+    
+    return Response(stream_with_context(generate_optimization_progress()), 
+                   mimetype='text/plain',
+                   headers={'Cache-Control': 'no-cache'})
+
+@main.route('/api/export-hdbscan-clusters', methods=['POST'])
+def api_export_hdbscan_clusters():
+    """Export HDBSCAN clustering results as CSV or JSON"""
+    try:
+        data = request.get_json()
+        clusters = data.get('clusters', [])
+        outliers = data.get('outliers', [])
+        export_format = data.get('format', 'csv').lower()
+        include_outliers = data.get('include_outliers', True)
+        
+        if export_format == 'csv':
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # Write header
+            writer.writerow(['cluster_id', 'cluster_size', 'learning_goal', 'document_name', 'creator', 'course_name', 'is_outlier'])
+            
+            # Write cluster data
+            for cluster in clusters:
+                cluster_id = cluster['id']
+                cluster_size = cluster['size']
+                
+                for goal, source in zip(cluster['goals'], cluster['sources']):
+                    writer.writerow([
+                        cluster_id,
+                        cluster_size,
+                        goal,
+                        source['document_name'],
+                        source['creator'],
+                        source['course_name'],
+                        False
+                    ])
+            
+            # Write outlier data if requested
+            if include_outliers:
+                for outlier in outliers:
+                    writer.writerow([
+                        -1,  # Outlier cluster ID
+                        1,   # Outlier size is always 1
+                        outlier['goal'],
+                        outlier['source']['document_name'],
+                        outlier['source']['creator'],
+                        outlier['source']['course_name'],
+                        True
+                    ])
+            
+            output.seek(0)
+            return Response(
+                output.getvalue(),
+                mimetype='text/csv',
+                headers={'Content-Disposition': 'attachment; filename=hdbscan_clusters.csv'}
+            )
+            
+        elif export_format == 'json':
+            export_data = {
+                'clusters': clusters,
+                'outliers': outliers if include_outliers else [],
+                'export_timestamp': time.time(),
+                'total_clusters': len(clusters),
+                'total_outliers': len(outliers),
+                'include_outliers': include_outliers
+            }
+            
+            return Response(
+                json.dumps(export_data, indent=2),
+                mimetype='application/json',
+                headers={'Content-Disposition': 'attachment; filename=hdbscan_clusters.json'}
+            )
+        else:
+            return jsonify({'success': False, 'message': 'Unsupported export format'}), 400
+            
+    except Exception as e:
+        print(f"Export error: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500 
+
+
+# Learning Goals Hierarchy Management Routes
+@main.route('/learning-goals-hierarchy')
+def learning_goals_hierarchy_page():
+    """Learning Goals Hierarchy management page"""
+    return render_template('learning_goals_hierarchy.html')
+
+@main.route('/api/upload-hierarchy', methods=['POST'])
+def api_upload_hierarchy():
+    """API endpoint for uploading hierarchical learning goals from CSV"""
+    from app.models import LearningGoalsHierarchy
+    from app.firebase_service import save_hierarchy
+    
+    try:
+        data = request.get_json()
+        hierarchy_data = data.get('hierarchy', [])
+        metadata = data.get('metadata', {})
+        
+        if not hierarchy_data:
+            return jsonify({
+                'success': False,
+                'message': 'No hierarchy data provided'
+            })
+        
+        # Calculate data size estimate
+        total_goals = sum(len(node.get('goals', [])) for node in hierarchy_data)
+        estimated_size = estimate_hierarchy_size(hierarchy_data)
+        optimization_applied = False
+        
+        print(f"📊 Hierarchy upload stats: {total_goals} goals, estimated size: {estimated_size/1024:.1f}KB")
+        
+        # Create hierarchy object
+        hierarchy = LearningGoalsHierarchy(
+            name=f"CSV Upload {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            description="Hierarchy uploaded from CSV file",
+            creator="System",  # Could be enhanced to track actual user
+            course_name="",
+            institution="",
+            root_nodes=hierarchy_data,
+            metadata=metadata
+        )
+        
+        # Save to database (optimization happens automatically if needed)
+        hierarchy_id = save_hierarchy(hierarchy)
+        
+        # Check if optimization was likely applied based on size
+        if estimated_size > 800000:  # 800KB threshold
+            optimization_applied = True
+            print(f"🔧 Large hierarchy detected, optimization likely applied")
+        
+        # Calculate stats
+        total_groups = len(hierarchy_data)
+        avg_goals_per_group = round(total_goals / total_groups, 1) if total_groups > 0 else 0
+        
+        stats = {
+            'total_goals': total_goals,
+            'total_groups': total_groups,
+            'avg_goals_per_group': avg_goals_per_group,
+            'uploaded_at': metadata.get('uploaded_at', datetime.now().isoformat()),
+            'hierarchy_id': hierarchy_id,
+            'estimated_size_kb': round(estimated_size / 1024, 1),
+            'optimization_applied': optimization_applied
+        }
+        
+        return jsonify({
+            'success': True,
+            'message': 'Hierarchy uploaded successfully',
+            'hierarchy_id': hierarchy_id,
+            'stats': stats,
+            'optimization_applied': optimization_applied
+        })
+        
+    except Exception as e:
+        print(f"Hierarchy upload error: {e}")
+        error_message = str(e)
+        
+        # Provide better error messages for common issues
+        if "exceeds the maximum allowed size" in error_message:
+            error_message = "Hierarchy data is too large. The system is optimizing storage structure automatically. Please try uploading again in a moment."
+        elif "timeout" in error_message.lower():
+            error_message = "Upload timed out due to large data size. The system will optimize storage and try again automatically."
+        
+        return jsonify({
+            'success': False,
+            'message': f'Upload failed: {error_message}'
+        })
+
+def estimate_hierarchy_size(hierarchy_data):
+    """Estimate the size of hierarchy data in bytes"""
+    import json
+    
+    # Convert to JSON string to estimate size
+    try:
+        json_str = json.dumps(hierarchy_data)
+        return len(json_str.encode('utf-8'))
+    except Exception:
+        # Fallback estimation
+        total_goals = sum(len(node.get('goals', [])) for node in hierarchy_data)
+        avg_goal_length = 80  # Estimated average goal length
+        overhead_per_node = 200  # Estimated metadata overhead per node
+        
+        estimated_size = (total_goals * avg_goal_length) + (len(hierarchy_data) * overhead_per_node)
+        return estimated_size
+
+@main.route('/api/save-hierarchy', methods=['POST'])
+def api_save_hierarchy():
+    """API endpoint for saving modified hierarchical learning goals"""
+    from app.models import LearningGoalsHierarchy
+    from app.firebase_service import save_hierarchy
+    
+    try:
+        data = request.get_json()
+        hierarchy_data = data.get('hierarchy', [])
+        metadata = data.get('metadata', {})
+        
+        if not hierarchy_data:
+            return jsonify({
+                'success': False,
+                'message': 'No hierarchy data provided'
+            })
+        
+        # Create updated hierarchy object
+        hierarchy = LearningGoalsHierarchy(
+            name=f"Updated Hierarchy {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            description="Modified hierarchy with user edits",
+            creator="System",  # Could be enhanced to track actual user
+            course_name="",
+            institution="",
+            root_nodes=hierarchy_data,
+            metadata=metadata
+        )
+        
+        # Save to database
+        hierarchy_id = save_hierarchy(hierarchy)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Hierarchy saved successfully',
+            'hierarchy_id': hierarchy_id
+        })
+        
+    except Exception as e:
+        print(f"Hierarchy save error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Save failed: {str(e)}'
+        })
+
+@main.route('/api/get-hierarchies', methods=['GET'])
+def api_get_hierarchies():
+    """API endpoint for retrieving saved hierarchies"""
+    from app.firebase_service import get_hierarchies
+    
+    try:
+        # Get query parameters
+        limit = request.args.get('limit', 20, type=int)
+        creator = request.args.get('creator', None)
+        course_name = request.args.get('course_name', None)
+        
+        # Get hierarchies from database
+        hierarchies = get_hierarchies(limit=limit, creator=creator, course_name=course_name)
+        
+        # Format response
+        formatted_hierarchies = []
+        for hierarchy in hierarchies:
+            formatted_hierarchies.append({
+                'id': hierarchy.id,
+                'name': hierarchy.name,
+                'description': hierarchy.description,
+                'creator': hierarchy.creator,
+                'course_name': hierarchy.course_name,
+                'total_goals': hierarchy.get_total_goals(),
+                'total_groups': hierarchy.get_total_groups(),
+                'created_at': hierarchy.created_at.isoformat() if hierarchy.created_at else None,
+                'modified_at': hierarchy.modified_at.isoformat() if hierarchy.modified_at else None,
+                'is_active': hierarchy.is_active
+            })
+        
+        return jsonify({
+            'success': True,
+            'hierarchies': formatted_hierarchies,
+            'total': len(formatted_hierarchies)
+        })
+        
+    except Exception as e:
+        print(f"Get hierarchies error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to retrieve hierarchies: {str(e)}'
+        })
+
+@main.route('/api/get-hierarchy/<hierarchy_id>', methods=['GET'])
+def api_get_hierarchy(hierarchy_id):
+    """API endpoint for retrieving a specific hierarchy"""
+    from app.firebase_service import get_hierarchy
+    
+    try:
+        hierarchy = get_hierarchy(hierarchy_id)
+        
+        if not hierarchy:
+            return jsonify({
+                'success': False,
+                'message': 'Hierarchy not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'hierarchy': {
+                'id': hierarchy.id,
+                'name': hierarchy.name,
+                'description': hierarchy.description,
+                'creator': hierarchy.creator,
+                'course_name': hierarchy.course_name,
+                'institution': hierarchy.institution,
+                'root_nodes': hierarchy.root_nodes,
+                'metadata': hierarchy.metadata,
+                'total_goals': hierarchy.get_total_goals(),
+                'total_groups': hierarchy.get_total_groups(),
+                'created_at': hierarchy.created_at.isoformat() if hierarchy.created_at else None,
+                'modified_at': hierarchy.modified_at.isoformat() if hierarchy.modified_at else None,
+                'is_active': hierarchy.is_active
+            }
+        })
+        
+    except Exception as e:
+        print(f"Get hierarchy error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to retrieve hierarchy: {str(e)}'
+        })
+
+@main.route('/api/delete-hierarchy/<hierarchy_id>', methods=['POST'])
+def api_delete_hierarchy(hierarchy_id):
+    """API endpoint for deleting a hierarchy"""
+    from app.firebase_service import delete_hierarchy
+    
+    try:
+        success = delete_hierarchy(hierarchy_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Hierarchy deleted successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to delete hierarchy'
+            }), 500
+        
+    except Exception as e:
+        print(f"Delete hierarchy error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Delete failed: {str(e)}'
+        })
+
+# Tree Artifact Management Routes
+@main.route('/artifacts')
+def artifacts_page():
+    """Artifacts management page"""
+    return render_template('artifacts.html')
+
+@main.route('/api/save-artifact', methods=['POST'])
+def api_save_artifact():
+    """API endpoint for saving tree artifacts from cluster_tree.html"""
+    from app.models import Artifact
+    from app.firebase_service import save_artifact
+    
+    try:
+        data = request.get_json()
+        
+        name = data.get('name', '')
+        tree_structure = data.get('tree_structure', [])
+        parameters = data.get('parameters', {})
+        metadata = data.get('metadata', {})
+        
+        if not name or not tree_structure:
+            return jsonify({
+                'success': False,
+                'message': 'Name and tree structure are required'
+            })
+        
+        # Create artifact object
+        artifact = Artifact(
+            name=name,
+            tree_structure=tree_structure,
+            parameters=parameters,
+            metadata=metadata
+        )
+        
+        # Save to database
+        artifact_id = save_artifact(artifact)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Artifact saved successfully',
+            'artifact_id': artifact_id,
+            'artifact_name': name
+        })
+        
+    except Exception as e:
+        print(f"Artifact save error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Save failed: {str(e)}'
+        })
+
+@main.route('/api/get-artifacts', methods=['GET'])
+def api_get_artifacts():
+    """API endpoint for retrieving saved artifacts"""
+    from app.firebase_service import get_artifacts
+    
+    try:
+        # Get query parameters
+        limit = request.args.get('limit', 20, type=int)
+        creator = request.args.get('creator', None)
+        
+        # Get artifacts from database
+        artifacts = get_artifacts(limit=limit, creator=creator)
+        
+        # Format response
+        formatted_artifacts = []
+        for artifact in artifacts:
+            formatted_artifacts.append({
+                'id': artifact.id,
+                'name': artifact.name,
+                'total_goals': artifact.get_total_goals(),
+                'parameter_summary': artifact.get_parameter_summary(),
+                'created_at': artifact.created_at.isoformat() if artifact.created_at else None,
+                'modified_at': artifact.modified_at.isoformat() if artifact.modified_at else None,
+                'parameters': artifact.parameters,
+                'metadata': artifact.metadata
+            })
+        
+        return jsonify({
+            'success': True,
+            'artifacts': formatted_artifacts,
+            'total': len(formatted_artifacts)
+        })
+        
+    except Exception as e:
+        print(f"Get artifacts error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to retrieve artifacts: {str(e)}'
+        })
+
+@main.route('/api/get-artifact/<artifact_id>', methods=['GET'])
+def api_get_artifact(artifact_id):
+    """API endpoint for retrieving a specific artifact"""
+    from app.firebase_service import get_artifact
+    
+    try:
+        artifact = get_artifact(artifact_id)
+        
+        if not artifact:
+            return jsonify({
+                'success': False,
+                'message': 'Artifact not found'
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'artifact': {
+                'id': artifact.id,
+                'name': artifact.name,
+                'tree_structure': artifact.tree_structure,
+                'parameters': artifact.parameters,
+                'metadata': artifact.metadata,
+                'total_goals': artifact.get_total_goals(),
+                'parameter_summary': artifact.get_parameter_summary(),
+                'created_at': artifact.created_at.isoformat() if artifact.created_at else None,
+                'modified_at': artifact.modified_at.isoformat() if artifact.modified_at else None
+            }
+        })
+        
+    except Exception as e:
+        print(f"Get artifact error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to retrieve artifact: {str(e)}'
+        })
+
+@main.route('/api/update-artifact-label', methods=['POST'])
+def api_update_artifact_label():
+    """API endpoint for updating artifact node labels"""
+    from app.firebase_service import update_artifact_node_label
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        node_id = data.get('node_id')
+        new_label = data.get('new_label')
+        
+        if not all([artifact_id, node_id, new_label]):
+            return jsonify({
+                'success': False,
+                'message': 'artifact_id, node_id, and new_label are required'
+            })
+        
+        success = update_artifact_node_label(artifact_id, node_id, new_label)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Label updated successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to update label'
+            })
+        
+    except Exception as e:
+        print(f"Update artifact label error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Update failed: {str(e)}'
+        })
+
+@main.route('/api/delete-artifact/<artifact_id>', methods=['POST'])
+def api_delete_artifact(artifact_id):
+    """API endpoint for deleting an artifact"""
+    from app.firebase_service import delete_artifact
+    
+    try:
+        success = delete_artifact(artifact_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Artifact deleted successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to delete artifact'
+            }), 500
+        
+    except Exception as e:
+        print(f"Delete artifact error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Delete failed: {str(e)}'
+        })
+
+@main.route('/api/update-artifact-representative-text', methods=['POST'])
+def api_update_artifact_representative_text():
+    """API endpoint for updating artifact node representative text and state"""
+    from app.firebase_service import update_artifact_node_representative_text
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        node_id = data.get('node_id')
+        representative_text = data.get('representative_text')
+        text_state = data.get('text_state', 'manual')
+        
+        if not all([artifact_id, node_id, representative_text]):
+            return jsonify({
+                'success': False,
+                'message': 'artifact_id, node_id, and representative_text are required'
+            })
+        
+        success = update_artifact_node_representative_text(
+            artifact_id, node_id, representative_text, text_state
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Representative text updated successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to update representative text'
+            })
+        
+    except Exception as e:
+        print(f"Update artifact representative text error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Update failed: {str(e)}'
+        })
+
+
+@main.route('/api/generate-representative-text', methods=['POST'])
+def api_generate_representative_text():
+    """API endpoint for generating representative text using AI"""
+    from app.firebase_service import update_artifact_node_representative_text
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        node_id = data.get('node_id')
+        prompt = data.get('prompt')
+        full_prompt = data.get('full_prompt')
+        model = data.get('model', 'gpt-4o')
+        skip_save = data.get('skip_save', False)  # NEW: Skip database save for batch operations
+        
+        if not all([artifact_id, node_id, prompt, full_prompt]):
+            return jsonify({
+                'success': False,
+                'message': 'All required fields must be provided'
+            })
+        
+        # Validate model
+        if model not in ['gpt-4o', 'gpt-4o-mini', 'gpt-4o-2024-11-20']:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid model specified'
+            })
+        
+        # Generate text using OpenAI
+        api_key = current_app.config['OPENAI_API_KEY']
+        generation_result = generate_representative_text_with_ai(
+            full_prompt, api_key, model
+        )
+        
+        if not generation_result['success']:
+            return jsonify({
+                'success': False,
+                'message': generation_result['message']
+            })
+        
+        generated_text = generation_result['text']
+        
+        # Only update database if skip_save is False (for individual generations)
+        if not skip_save:
+            # Update the artifact with the generated text and AI state
+            success = update_artifact_node_representative_text(
+                artifact_id, node_id, generated_text, 'ai', prompt
+            )
+            
+            if success:
+                return jsonify({
+                    'success': True,
+                    'generated_text': generated_text,
+                    'message': 'Representative text generated and saved successfully'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Generated text but failed to save to database'
+                })
+        else:
+            # For batch operations, just return the generated text without saving
+            return jsonify({
+                'success': True,
+                'generated_text': generated_text,
+                'message': 'Representative text generated (not saved - batch mode)'
+            })
+        
+    except Exception as e:
+        print(f"Generate representative text error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Generation failed: {str(e)}'
+        })
+
+
+def generate_representative_text_with_ai(prompt, api_key, model='gpt-4o'):
+    """Generate representative text using OpenAI API"""
+    try:
+        from openai import OpenAI
+        
+        # Set up OpenAI client
+        client = OpenAI(api_key=api_key)
+        
+        # Create the AI prompt
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an educational expert helping to create concise, overarching learning goals that capture the essence of multiple specific learning objectives. Your response should be a single, clear learning goal or skill statement without quotes or extra formatting."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=150,
+            temperature=0.3,
+            top_p=1.0,
+            frequency_penalty=0.0,
+            presence_penalty=0.0
+        )
+        
+        # Extract the generated text
+        generated_text = response.choices[0].message.content.strip()
+        
+        # Clean up the text (remove quotes if present)
+        if generated_text.startswith('"') and generated_text.endswith('"'):
+            generated_text = generated_text[1:-1]
+        
+        return {
+            'success': True,
+            'text': generated_text
+        }
+        
+    except Exception as e:
+        print(f"OpenAI API error: {e}")
+        return {
+            'success': False,
+            'message': f'AI generation failed: {str(e)}'
+        }
+
+@main.route('/api/batch-update-artifact-representative-texts', methods=['POST'])
+def api_batch_update_artifact_representative_texts():
+    """API endpoint for batch updating multiple artifact node representative texts"""
+    from app.firebase_service import batch_update_artifact_node_representative_texts
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        updates = data.get('updates', [])
+        
+        if not artifact_id or not updates:
+            return jsonify({
+                'success': False,
+                'message': 'artifact_id and updates array are required'
+            })
+        
+        # Validate updates format
+        for update in updates:
+            if not all(key in update for key in ['node_id', 'representative_text', 'text_state']):
+                return jsonify({
+                    'success': False,
+                    'message': 'Each update must have node_id, representative_text, and text_state'
+                })
+        
+        success = batch_update_artifact_node_representative_texts(artifact_id, updates)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Successfully updated {len(updates)} representative texts'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to update representative texts'
+            })
+        
+    except Exception as e:
+        print(f"Batch update artifact representative texts error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Batch update failed: {str(e)}'
+        })

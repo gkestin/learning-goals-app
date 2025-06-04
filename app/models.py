@@ -78,3 +78,214 @@ class Document:
             # Fallback to original behavior if smart resolution fails
             encoded_path = self.storage_path.replace('/', '%2F')
             return f"__FIREBASE_STORAGE_URL_BASE__{encoded_path}?alt=media" 
+
+class HierarchyNode:
+    """Model for storing hierarchical learning goals structure"""
+    
+    def __init__(self, id=None, label="", original_label="", goals=None, levels=None, 
+                 signature=None, children=None, is_expanded=False, parent_id=None, 
+                 hierarchy_id=None, created_at=None, modified_at=None):
+        self.id = id
+        self.label = label
+        self.original_label = original_label or label
+        self.goals = goals or []
+        self.levels = levels or {}  # Dictionary of level_number: value
+        self.signature = signature or []  # Pattern signature for grouping
+        self.children = children or []
+        self.is_expanded = is_expanded
+        self.parent_id = parent_id
+        self.hierarchy_id = hierarchy_id
+        self.created_at = created_at or datetime.now()
+        self.modified_at = modified_at or datetime.now()
+    
+    @staticmethod
+    def from_dict(data, node_id=None):
+        """Create a HierarchyNode instance from Firestore document data"""
+        node = HierarchyNode(
+            id=node_id,
+            label=data.get('label', ''),
+            original_label=data.get('original_label', ''),
+            goals=data.get('goals', []),
+            levels=data.get('levels', {}),
+            signature=data.get('signature', []),
+            children=data.get('children', []),
+            is_expanded=data.get('is_expanded', False),
+            parent_id=data.get('parent_id', None),
+            hierarchy_id=data.get('hierarchy_id', None),
+            created_at=data.get('created_at', datetime.now()),
+            modified_at=data.get('modified_at', datetime.now())
+        )
+        return node
+    
+    def to_dict(self):
+        """Convert HierarchyNode instance to a dictionary for Firestore"""
+        return {
+            'label': self.label,
+            'original_label': self.original_label,
+            'goals': self.goals,
+            'levels': self.levels,
+            'signature': self.signature,
+            'children': self.children,
+            'is_expanded': self.is_expanded,
+            'parent_id': self.parent_id,
+            'hierarchy_id': self.hierarchy_id,
+            'created_at': self.created_at,
+            'modified_at': self.modified_at
+        }
+
+
+class LearningGoalsHierarchy:
+    """Model for storing the complete hierarchical learning goals structure"""
+    
+    def __init__(self, id=None, name="", description="", creator="", course_name="", 
+                 institution="", root_nodes=None, metadata=None, created_at=None, 
+                 modified_at=None, is_active=True):
+        self.id = id
+        self.name = name
+        self.description = description
+        self.creator = creator
+        self.course_name = course_name
+        self.institution = institution
+        self.root_nodes = root_nodes or []
+        self.metadata = metadata or {}
+        self.created_at = created_at or datetime.now()
+        self.modified_at = modified_at or datetime.now()
+        self.is_active = is_active
+    
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'description': self.description,
+            'creator': self.creator,
+            'course_name': self.course_name,
+            'institution': self.institution,
+            'root_nodes': self.root_nodes,
+            'metadata': self.metadata,
+            'created_at': self.created_at,
+            'modified_at': self.modified_at,
+            'is_active': self.is_active
+        }
+    
+    @classmethod
+    def from_dict(cls, data, hierarchy_id=None):
+        hierarchy = cls(
+            id=hierarchy_id,
+            name=data.get('name', ''),
+            description=data.get('description', ''),
+            creator=data.get('creator', ''),
+            course_name=data.get('course_name', ''),
+            institution=data.get('institution', ''),
+            root_nodes=data.get('root_nodes', []),
+            metadata=data.get('metadata', {}),
+            created_at=data.get('created_at'),
+            modified_at=data.get('modified_at'),
+            is_active=data.get('is_active', True)
+        )
+        return hierarchy
+    
+    def get_total_goals(self):
+        """Calculate total number of goals in the hierarchy"""
+        def count_goals(nodes):
+            total = 0
+            for node in nodes:
+                if isinstance(node, dict):
+                    total += len(node.get('goals', []))
+                    total += count_goals(node.get('children', []))
+                else:
+                    total += len(getattr(node, 'goals', []))
+                    total += count_goals(getattr(node, 'children', []))
+            return total
+        
+        return count_goals(self.root_nodes)
+    
+    def get_total_groups(self):
+        """Calculate total number of groups in the hierarchy"""
+        def count_groups(nodes):
+            total = len(nodes)
+            for node in nodes:
+                if isinstance(node, dict):
+                    total += count_groups(node.get('children', []))
+                else:
+                    total += count_groups(getattr(node, 'children', []))
+            return total
+        
+        return count_groups(self.root_nodes)
+
+
+class Artifact:
+    def __init__(self, id=None, name="", tree_structure=None, parameters=None, 
+                 metadata=None, created_at=None, modified_at=None, is_active=True):
+        self.id = id
+        self.name = name
+        self.tree_structure = tree_structure or []
+        self.parameters = parameters or {}
+        self.metadata = metadata or {}
+        self.created_at = created_at or datetime.now()
+        self.modified_at = modified_at or datetime.now()
+        self.is_active = is_active
+    
+    def to_dict(self):
+        return {
+            'name': self.name,
+            'tree_structure': self.tree_structure,
+            'parameters': self.parameters,
+            'metadata': self.metadata,
+            'created_at': self.created_at,
+            'modified_at': self.modified_at,
+            'is_active': self.is_active
+        }
+    
+    @classmethod
+    def from_dict(cls, data, artifact_id=None):
+        artifact = cls(
+            id=artifact_id,
+            name=data.get('name', ''),
+            tree_structure=data.get('tree_structure', []),
+            parameters=data.get('parameters', {}),
+            metadata=data.get('metadata', {}),
+            created_at=data.get('created_at'),
+            modified_at=data.get('modified_at'),
+            is_active=data.get('is_active', True)
+        )
+        return artifact
+    
+    def get_total_goals(self):
+        """Calculate total number of goals in the artifact"""
+        # First try to get from metadata
+        metadata_goals = self.metadata.get('total_goals', 0) if self.metadata else 0
+        if metadata_goals and metadata_goals > 0:
+            return metadata_goals
+        
+        # If not in metadata, calculate from tree structure
+        if not self.tree_structure:
+            return 0
+        
+        def count_goals_in_nodes(nodes):
+            if not nodes:
+                return 0
+            
+            total = 0
+            for node in nodes:
+                if isinstance(node, dict):
+                    # Count goals in this node
+                    goals = node.get('goals', [])
+                    if goals:
+                        total += len(goals)
+                    
+                    # Count goals in children
+                    children = node.get('children', [])
+                    if children:
+                        total += count_goals_in_nodes(children)
+                    
+                    # If no goals but has size, use size
+                    if not goals and node.get('size', 0) > 0:
+                        total += node.get('size', 0)
+            
+            return total
+        
+        return count_goals_in_nodes(self.tree_structure)
+    
+    def get_parameter_summary(self):
+        """Get a summary string of the parameters used to create this artifact"""
+        params = self.parameters
+        return f"{params.get('n_levels', 'N/A')} levels, {params.get('linkage_method', 'N/A')} linkage, {params.get('sampling_method', 'N/A')} sampling" 

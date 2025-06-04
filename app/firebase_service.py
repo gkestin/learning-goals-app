@@ -601,86 +601,1701 @@ def move_storage_file(source_path, destination_path):
 
 def smart_resolve_storage_path(doc, fix_in_db=False):
     """
-    Smart helper to resolve duplicated storage paths and optionally fix them in the database.
+    Smart resolution for storage paths that may have issues with duplicated filenames.
     
     Returns:
         dict: {
-            'resolved_path': str,  # The working storage path 
-            'corrected': bool,     # Whether path was corrected
-            'original_path': str   # Original path from document
+            'resolved_path': corrected_path or None,
+            'corrected': boolean indicating if correction was made,
+            'exists': boolean indicating if file exists at resolved path
         }
     """
-    global db, bucket, using_mock
+    global bucket, using_mock
     
-    if not doc or not doc.storage_path:
-        return {
-            'resolved_path': None,
-            'corrected': False,
-            'original_path': None
-        }
+    if not bucket:
+        init_mock_services()
     
     original_path = doc.storage_path
-    
-    if using_mock:
-        # For mock, just return the original path
-        return {
-            'resolved_path': original_path,
-            'corrected': False,
-            'original_path': original_path
-        }
+    if not original_path:
+        return {'resolved_path': None, 'corrected': False, 'exists': False}
     
     # First, try the original path
-    try:
-        blob = bucket.blob(original_path)
-        # Check if the blob exists by trying to get its metadata
-        blob.reload()
-        # If we get here, the original path works
-        return {
-            'resolved_path': original_path,
-            'corrected': False,
-            'original_path': original_path
-        }
-    except Exception:
-        # Original path doesn't work, try to auto-correct
-        pass
-    
-    # Check if this is a duplicated filename pattern
-    duplicated_pattern = re.compile(r'pdfs/(.+?)_(.+?)_\2$')
-    match = duplicated_pattern.match(original_path)
-    
-    if match:
-        creator = match.group(1)
-        filename = match.group(2)
-        corrected_path = f"pdfs/{creator}_{filename}"
-        
+    if using_mock:
+        exists = original_path in bucket.files
+        if exists:
+            return {'resolved_path': original_path, 'corrected': False, 'exists': True}
+    else:
         try:
-            corrected_blob = bucket.blob(corrected_path)
-            corrected_blob.reload()  # Check if corrected path exists
-            
-            print(f"🔧 Auto-resolved duplicated path: {original_path} → {corrected_path}")
-            
-            # Optionally fix in database
-            if fix_in_db and db and doc.id:
-                try:
-                    db.collection('documents').document(doc.id).update({
-                        'storage_path': corrected_path
-                    })
-                    print(f"📝 Updated storage path in database for document {doc.id}")
-                except Exception as e:
-                    print(f"⚠️ Could not update database: {e}")
-            
-            return {
-                'resolved_path': corrected_path,
-                'corrected': True,
-                'original_path': original_path
-            }
-        except Exception:
-            pass
+            blob = bucket.blob(original_path)
+            if blob.exists():
+                return {'resolved_path': original_path, 'corrected': False, 'exists': True}
+        except Exception as e:
+            print(f"Error checking original path {original_path}: {e}")
     
-    # Neither path works
-    print(f"❌ Could not resolve storage path: {original_path}")
-    return {
-        'resolved_path': None,
-        'corrected': False,
-        'original_path': original_path
-    } 
+    # If original path doesn't work, try to resolve common issues
+    
+    # Issue 1: Duplicated filename in path (e.g., "pdfs/example.pdf/example.pdf")
+    path_parts = original_path.split('/')
+    if len(path_parts) >= 2:
+        filename = path_parts[-1]
+        if filename in path_parts[:-1]:
+            # Remove the duplicated filename from the middle
+            corrected_parts = []
+            for part in path_parts[:-1]:
+                if part != filename:
+                    corrected_parts.append(part)
+            corrected_parts.append(filename)
+            corrected_path = '/'.join(corrected_parts)
+            
+            # Test this corrected path
+            if using_mock:
+                if corrected_path in bucket.files:
+                    if fix_in_db:
+                        # Update the document in the database
+                        try:
+                            doc_ref = db.collection('documents').document(doc.id)
+                            doc_ref.update({'storage_path': corrected_path})
+                            print(f"✅ Updated storage path in DB: {original_path} -> {corrected_path}")
+                        except Exception as e:
+                            print(f"Failed to update storage path in DB: {e}")
+                    
+                    return {'resolved_path': corrected_path, 'corrected': True, 'exists': True}
+            else:
+                try:
+                    blob = bucket.blob(corrected_path)
+                    if blob.exists():
+                        if fix_in_db:
+                            # Update the document in the database
+                            try:
+                                doc_ref = db.collection('documents').document(doc.id)
+                                doc_ref.update({'storage_path': corrected_path})
+                                print(f"✅ Updated storage path in DB: {original_path} -> {corrected_path}")
+                            except Exception as e:
+                                print(f"Failed to update storage path in DB: {e}")
+                        
+                        return {'resolved_path': corrected_path, 'corrected': True, 'exists': True}
+                except Exception as e:
+                    print(f"Error checking corrected path {corrected_path}: {e}")
+    
+    # If no resolution worked, return None
+    return {'resolved_path': None, 'corrected': False, 'exists': False}
+
+
+# Hierarchy Management Functions
+def save_hierarchy(hierarchy):
+    """Save a learning goals hierarchy to Firestore with proper serialization"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Saving hierarchy '{hierarchy.name}' to mock Firestore")
+    else:
+        print(f"✅ REAL DATABASE: Saving hierarchy '{hierarchy.name}' to Firestore")
+    
+    # Create the main hierarchy document
+    doc_ref = db.collection('learning_goals_hierarchies').document()
+    
+    # Serialize the hierarchy structure for Firestore
+    serialized_hierarchy = serialize_hierarchy_for_firestore(hierarchy)
+    doc_data = serialized_hierarchy.to_dict()
+    
+    # Convert datetime to Firebase timestamp
+    if isinstance(doc_data['created_at'], datetime.datetime):
+        if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+            doc_data['created_at'] = firestore.SERVER_TIMESTAMP
+            doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+    
+    try:
+        # Save the hierarchy document
+        doc_id = doc_ref.set(doc_data)
+        
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Hierarchy saved with mock ID: {doc_ref.id}")
+        else:
+            print(f"✅ REAL DATABASE: Hierarchy saved to Firestore with ID: {doc_ref.id}")
+        
+        return doc_ref.id
+        
+    except Exception as e:
+        print(f"❌ Error saving hierarchy: {e}")
+        # If still too large, try aggressive flattening
+        if "exceeds the maximum allowed size" in str(e) or "invalid nested entity" in str(e):
+            print("📝 Applying aggressive flattening for Firestore compatibility...")
+            return save_hierarchy_with_aggressive_flattening(hierarchy, doc_ref)
+        raise
+
+
+def serialize_hierarchy_for_firestore(hierarchy):
+    """Serialize hierarchy structure to be Firestore-compatible"""
+    from app.models import LearningGoalsHierarchy
+    
+    # Flatten the nested structure to avoid Firestore nesting limits
+    flattened_nodes = flatten_hierarchy_nodes(hierarchy.root_nodes)
+    
+    # Create a serializable hierarchy
+    serialized_hierarchy = LearningGoalsHierarchy(
+        id=hierarchy.id,
+        name=hierarchy.name,
+        description=hierarchy.description,
+        creator=hierarchy.creator,
+        course_name=hierarchy.course_name,
+        institution=hierarchy.institution,
+        root_nodes=flattened_nodes,
+        metadata=hierarchy.metadata,
+        created_at=hierarchy.created_at,
+        modified_at=hierarchy.modified_at,
+        is_active=hierarchy.is_active
+    )
+    
+    return serialized_hierarchy
+
+
+def flatten_hierarchy_nodes(nodes):
+    """Flatten hierarchy nodes to avoid nested object issues in Firestore"""
+    flattened = []
+    
+    for node in nodes:
+        # Create a flattened version of the node
+        flattened_node = {
+            'id': node.get('id'),
+            'label': node.get('label', ''),
+            'originalLabel': node.get('originalLabel', ''),
+            'goals': node.get('goals', []),
+            'levels': node.get('levels', {}),
+            'signature': node.get('signature', []),
+            'isExpanded': node.get('isExpanded', False),
+            'csvLevel': node.get('csvLevel', 0),
+            'displayLevel': node.get('displayLevel', 0),
+            'size': node.get('size', 0),
+            'modified': node.get('modified', False),
+            'childIds': []  # Store child IDs instead of nested objects
+        }
+        
+        # Extract child IDs and flatten children separately
+        children = node.get('children', [])
+        if children:
+            flattened_node['childIds'] = [child.get('id') for child in children]
+            # Recursively flatten children and add them to the main list
+            flattened_children = flatten_hierarchy_nodes(children)
+            flattened.extend(flattened_children)
+        
+        flattened.append(flattened_node)
+    
+    return flattened
+
+
+def save_hierarchy_with_aggressive_flattening(hierarchy, doc_ref):
+    """Save hierarchy with maximum flattening for large datasets"""
+    from app.models import LearningGoalsHierarchy
+    
+    print("🔧 Applying maximum flattening for large hierarchy...")
+    
+    # Calculate summary statistics
+    total_goals = hierarchy.get_total_goals()
+    total_groups = hierarchy.get_total_groups()
+    
+    # Create minimal metadata
+    minimal_metadata = {
+        'total_goals': total_goals,
+        'total_groups': total_groups,
+        'optimization_level': 'maximum_flattening',
+        'original_upload_time': hierarchy.metadata.get('uploaded_at', datetime.datetime.now().isoformat())
+    }
+    
+    # Create structure summary with minimal data
+    structure_summary = create_minimal_hierarchy_summary(hierarchy.root_nodes)
+    
+    minimal_hierarchy = LearningGoalsHierarchy(
+        name=hierarchy.name,
+        description=f"{hierarchy.description} (Maximum Flattening)",
+        creator=hierarchy.creator,
+        course_name=hierarchy.course_name,
+        institution=hierarchy.institution,
+        root_nodes=structure_summary,
+        metadata=minimal_metadata,
+        created_at=hierarchy.created_at,
+        modified_at=hierarchy.modified_at,
+        is_active=hierarchy.is_active
+    )
+    
+    # Save minimal version
+    doc_data = minimal_hierarchy.to_dict()
+    
+    if isinstance(doc_data['created_at'], datetime.datetime):
+        if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+            doc_data['created_at'] = firestore.SERVER_TIMESTAMP
+            doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+    
+    doc_id = doc_ref.set(doc_data)
+    
+    # Save complete data in subcollection with chunking
+    save_complete_hierarchy_data_chunked(doc_ref.id, hierarchy.root_nodes)
+    
+    print(f"✅ Hierarchy saved with maximum flattening: {doc_ref.id}")
+    return doc_ref.id
+
+
+def create_minimal_hierarchy_summary(nodes):
+    """Create an ultra-minimal summary of hierarchy structure"""
+    if not nodes:
+        return []
+    
+    summary = []
+    
+    for i, node in enumerate(nodes):
+        if isinstance(node, dict):
+            # Handle children safely - check for None explicitly
+            children = node.get('children')
+            if children is None:
+                children = []
+            
+            # Handle goals safely - check for None explicitly  
+            goals = node.get('goals')
+            if goals is None:
+                goals = []
+            
+            node_summary = {
+                'id': node.get('id', f'node_{i}'),
+                'label': node.get('label', f'Group_{i+1}'),
+                'displayLevel': node.get('displayLevel', 0),
+                'size': node.get('size', 0),
+                'hasChildren': len(children) > 0,
+                'childCount': len(children),
+                'goalCount': len(goals)
+            }
+        else:
+            # Handle case where node might not be a dict
+            node_summary = {
+                'id': f'node_{i}',
+                'label': f'Group_{i+1}',
+                'displayLevel': 0,
+                'size': 0,
+                'hasChildren': False,
+                'childCount': 0,
+                'goalCount': 0
+            }
+        
+        summary.append(node_summary)
+    
+    return summary
+
+
+def save_complete_hierarchy_data_chunked(hierarchy_id, nodes):
+    """Save complete hierarchy data in chunked subcollections"""
+    global db, using_mock
+    
+    if using_mock:
+        return
+    
+    print(f"💾 Saving complete hierarchy data in chunks...")
+    
+    # Flatten all nodes first
+    flattened_nodes = flatten_hierarchy_nodes(nodes)
+    
+    # Save in chunks to avoid size limits
+    chunk_size = 1000  # Start with larger chunks, split if too big
+    chunks = [flattened_nodes[i:i + chunk_size] for i in range(0, len(flattened_nodes), chunk_size)]
+    
+    def save_chunk_with_retry(chunk_data, chunk_ref, chunk_id, attempt=1):
+        """Save a chunk with retry logic that splits if too big"""
+        try:
+            chunk_ref.set(chunk_data)
+            print(f"  📦 Saved chunk {chunk_id} with {len(chunk_data['nodes'])} nodes (attempt {attempt})")
+            return True
+        except Exception as e:
+            if ("exceeds the maximum allowed size" in str(e) or "invalid nested entity" in str(e)) and len(chunk_data['nodes']) > 1:
+                # Split chunk in half and try again
+                nodes = chunk_data['nodes']
+                mid = len(nodes) // 2
+                left_nodes = nodes[:mid]
+                right_nodes = nodes[mid:]
+                
+                print(f"  🔄 Chunk {chunk_id} too big ({len(nodes)} nodes), splitting into {len(left_nodes)} + {len(right_nodes)} nodes")
+                
+                # Save left half
+                left_chunk_data = {
+                    'chunk_id': f"{chunk_id}a",
+                    'nodes': left_nodes,
+                    'chunk_size': len(left_nodes),
+                    'created_at': firestore.SERVER_TIMESTAMP
+                }
+                left_chunk_ref = db.collection('learning_goals_hierarchies').document(hierarchy_id).collection('node_chunks').document(f'chunk_{chunk_id}a')
+                save_chunk_with_retry(left_chunk_data, left_chunk_ref, f"{chunk_id}a", attempt + 1)
+                
+                # Save right half
+                right_chunk_data = {
+                    'chunk_id': f"{chunk_id}b",
+                    'nodes': right_nodes,
+                    'chunk_size': len(right_nodes),
+                    'created_at': firestore.SERVER_TIMESTAMP
+                }
+                right_chunk_ref = db.collection('learning_goals_hierarchies').document(hierarchy_id).collection('node_chunks').document(f'chunk_{chunk_id}b')
+                save_chunk_with_retry(right_chunk_data, right_chunk_ref, f"{chunk_id}b", attempt + 1)
+                
+                return True
+            else:
+                print(f"  ❌ Failed to save chunk {chunk_id}: {e}")
+                return False
+    
+    total_saved = 0
+    for i, chunk in enumerate(chunks):
+        chunk_data = {
+            'chunk_id': i,
+            'nodes': chunk,
+            'chunk_size': len(chunk),
+            'created_at': firestore.SERVER_TIMESTAMP
+        }
+        
+        chunk_ref = db.collection('learning_goals_hierarchies').document(hierarchy_id).collection('node_chunks').document(f'chunk_{i}')
+        if save_chunk_with_retry(chunk_data, chunk_ref, i):
+            total_saved += len(chunk)
+    
+    print(f"✅ Complete hierarchy data saved with {total_saved} total nodes")
+
+def get_hierarchy(hierarchy_id):
+    """Retrieve a specific hierarchy by its ID and reconstruct nested structure"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Retrieving hierarchy with ID '{hierarchy_id}' from mock Firestore")
+    else:
+        print(f"✅ REAL DATABASE: Retrieving hierarchy with ID '{hierarchy_id}' from Firestore")
+        
+    doc_ref = db.collection('learning_goals_hierarchies').document(hierarchy_id)
+    doc = doc_ref.get()
+    
+    if doc.exists:
+        from app.models import LearningGoalsHierarchy
+        doc_data = doc.to_dict()
+        
+        # Check if this is a flattened hierarchy that needs reconstruction
+        if needs_hierarchy_reconstruction(doc_data):
+            doc_data = reconstruct_hierarchy_structure(hierarchy_id, doc_data)
+        
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Found mock hierarchy: {hierarchy_id}")
+        else:
+            print(f"✅ REAL DATABASE: Found hierarchy in Firestore: {hierarchy_id}")
+        return LearningGoalsHierarchy.from_dict(doc_data, hierarchy_id=doc.id)
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Hierarchy not found in mock database: {hierarchy_id}")
+    else:
+        print(f"✅ REAL DATABASE: Hierarchy not found in Firestore: {hierarchy_id}")
+    return None
+
+
+def needs_hierarchy_reconstruction(doc_data):
+    """Check if hierarchy document needs structure reconstruction"""
+    root_nodes = doc_data.get('root_nodes', [])
+    
+    # Check if this is a flattened structure (nodes have childIds instead of children)
+    for node in root_nodes:
+        if isinstance(node, dict):
+            if 'childIds' in node or ('hasChildren' in node and 'children' not in node):
+                return True
+            # Check if it's missing nested structure - handle None goals safely
+            if 'children' not in node:
+                goals = node.get('goals')
+                if goals is None:
+                    goals = []
+                if node.get('size', 0) > len(goals):
+                    return True
+    
+    return False
+
+
+def reconstruct_hierarchy_structure(hierarchy_id, doc_data):
+    """Reconstruct the nested hierarchy structure from flattened data"""
+    global db, using_mock
+    
+    metadata = doc_data.get('metadata', {})
+    optimization_level = metadata.get('optimization_level', '')
+    
+    if optimization_level == 'maximum_flattening':
+        print(f"🔧 Reconstructing maximum flattened hierarchy...")
+        return reconstruct_from_chunked_data(hierarchy_id, doc_data)
+    else:
+        print(f"🔧 Reconstructing flattened hierarchy structure...")
+        return reconstruct_from_flattened_nodes(doc_data)
+
+
+def reconstruct_from_flattened_nodes(doc_data):
+    """Reconstruct hierarchy from flattened node structure"""
+    root_nodes = doc_data.get('root_nodes', [])
+    
+    if not root_nodes:
+        return doc_data
+    
+    # Check if nodes have childIds (flattened structure)
+    if not any('childIds' in node for node in root_nodes if isinstance(node, dict)):
+        # Already in correct format
+        return doc_data
+    
+    # Create a map of all nodes by ID
+    node_map = {}
+    for node in root_nodes:
+        if isinstance(node, dict) and 'id' in node:
+            node_map[node['id']] = node.copy()
+    
+    # Reconstruct nested structure
+    reconstructed_roots = []
+    
+    for node in root_nodes:
+        if isinstance(node, dict):
+            # Find root nodes (nodes that aren't children of other nodes)
+            is_root = True
+            for other_node in root_nodes:
+                if isinstance(other_node, dict) and 'childIds' in other_node:
+                    if node['id'] in other_node['childIds']:
+                        is_root = False
+                        break
+            
+            if is_root:
+                reconstructed_node = reconstruct_node_tree(node['id'], node_map)
+                if reconstructed_node:
+                    reconstructed_roots.append(reconstructed_node)
+    
+    # Update the document data with reconstructed structure
+    doc_data['root_nodes'] = reconstructed_roots
+    
+    print(f"✅ Hierarchy structure reconstructed with {len(reconstructed_roots)} root nodes")
+    return doc_data
+
+
+def reconstruct_node_tree(node_id, node_map):
+    """Recursively reconstruct a node tree from flattened data"""
+    if node_id not in node_map:
+        return None
+    
+    node = node_map[node_id].copy()
+    
+    # Convert childIds back to nested children
+    child_ids = node.pop('childIds', [])
+    node['children'] = []
+    
+    for child_id in child_ids:
+        child_node = reconstruct_node_tree(child_id, node_map)
+        if child_node:
+            node['children'].append(child_node)
+    
+    return node
+
+
+def reconstruct_from_chunked_data(hierarchy_id, doc_data):
+    """Reconstruct hierarchy from chunked subcollection data"""
+    global db, using_mock
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Cannot reconstruct from chunks in mock mode")
+        return doc_data
+    
+    try:
+        # Load all chunks from subcollection
+        chunks_ref = db.collection('learning_goals_hierarchies').document(hierarchy_id).collection('node_chunks')
+        chunk_docs = chunks_ref.stream()
+        
+        all_nodes = []
+        for chunk_doc in chunk_docs:
+            chunk_data = chunk_doc.to_dict()
+            chunk_nodes = chunk_data.get('nodes', [])
+            all_nodes.extend(chunk_nodes)
+            print(f"  📦 Loaded chunk {chunk_data.get('chunk_id', 'unknown')} with {len(chunk_nodes)} nodes")
+        
+        if all_nodes:
+            # Reconstruct nested structure from flattened chunks
+            temp_doc_data = {'root_nodes': all_nodes}
+            reconstructed_doc_data = reconstruct_from_flattened_nodes(temp_doc_data)
+            
+            # Update original document data with reconstructed structure
+            doc_data['root_nodes'] = reconstructed_doc_data['root_nodes']
+            
+            # Update description to remove flattening note
+            if doc_data.get('description', '').endswith(' (Maximum Flattening)'):
+                doc_data['description'] = doc_data['description'][:-21]  # Remove " (Maximum Flattening)"
+            
+            print(f"✅ Chunked hierarchy reconstructed with {len(all_nodes)} total nodes")
+        else:
+            print(f"⚠️ No chunk data found, using summary structure")
+        
+    except Exception as e:
+        print(f"⚠️ Error reconstructing from chunks: {e}")
+        print(f"📋 Using minimal summary as fallback")
+    
+    return doc_data
+
+def get_hierarchies(limit=20, creator=None, course_name=None):
+    """Retrieve multiple hierarchies with optional filtering"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Searching for hierarchies in mock Firestore")
+    else:
+        print(f"✅ REAL DATABASE: Searching for hierarchies in Firestore")
+        
+    query = db.collection('learning_goals_hierarchies')
+    
+    # Apply filters
+    if creator:
+        query = query.where('creator', '==', creator)
+    if course_name:
+        query = query.where('course_name', '==', course_name)
+    
+    # Order by modified date (most recent first) and limit
+    query = query.order_by('modified_at', direction=firestore.Query.DESCENDING if not using_mock else None)
+    query = query.limit(limit)
+    
+    docs = query.stream()
+    results = []
+    
+    from app.models import LearningGoalsHierarchy
+    for doc in docs:
+        doc_data = doc.to_dict()
+        hierarchy = LearningGoalsHierarchy.from_dict(doc_data, hierarchy_id=doc.id)
+        results.append(hierarchy)
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Found {len(results)} hierarchies in mock database")
+    else:
+        print(f"✅ REAL DATABASE: Found {len(results)} hierarchies in Firestore")
+        
+    return results
+
+
+def delete_hierarchy(hierarchy_id):
+    """Delete a hierarchy from Firestore"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Deleting hierarchy from mock Firestore: {hierarchy_id}")
+            if hierarchy_id in db.collections.get('learning_goals_hierarchies', {}).documents:
+                del db.collections['learning_goals_hierarchies'].documents[hierarchy_id]
+                return True
+            return False
+        else:
+            print(f"✅ REAL DATABASE: Deleting hierarchy from Firestore: {hierarchy_id}")
+            db.collection('learning_goals_hierarchies').document(hierarchy_id).delete()
+            return True
+        
+    except Exception as e:
+        print(f"❌ Error deleting hierarchy: {e}")
+        return False
+
+
+def update_hierarchy_node_label(hierarchy_id, node_id, new_label):
+    """Update a specific node's label within a hierarchy"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        # Get the hierarchy
+        hierarchy = get_hierarchy(hierarchy_id)
+        if not hierarchy:
+            return False
+        
+        # Find and update the node
+        def update_node_in_tree(nodes, target_node_id, new_label):
+            for node in nodes:
+                if isinstance(node, dict):
+                    if node.get('id') == target_node_id:
+                        node['label'] = new_label
+                        node['modified_at'] = datetime.datetime.now().isoformat()
+                        return True
+                    if 'children' in node:
+                        if update_node_in_tree(node['children'], target_node_id, new_label):
+                            return True
+                else:
+                    if node.id == target_node_id:
+                        node.label = new_label
+                        node.modified_at = datetime.datetime.now()
+                        return True
+                    if hasattr(node, 'children') and node.children:
+                        if update_node_in_tree(node.children, target_node_id, new_label):
+                            return True
+            return False
+        
+        # Update the node
+        node_updated = update_node_in_tree(hierarchy.root_nodes, node_id, new_label)
+        
+        if node_updated:
+            # Update the hierarchy's modified timestamp
+            hierarchy.modified_at = datetime.datetime.now()
+            
+            # Save back to database
+            if using_mock:
+                print(f"⚠️ MOCK DATABASE: Updating hierarchy node in mock Firestore: {hierarchy_id}/{node_id}")
+                db.collections['learning_goals_hierarchies'].documents[hierarchy_id].data = hierarchy.to_dict()
+            else:
+                print(f"✅ REAL DATABASE: Updating hierarchy node in Firestore: {hierarchy_id}/{node_id}")
+                doc_ref = db.collection('learning_goals_hierarchies').document(hierarchy_id)
+                doc_ref.set(hierarchy.to_dict())
+            
+            return True
+        
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error updating hierarchy node: {e}")
+        return False
+
+
+# Artifact Management Functions
+def save_artifact(artifact):
+    """Save a tree artifact to Firestore with proper serialization"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Saving artifact '{artifact.name}' to mock Firestore")
+    else:
+        print(f"✅ REAL DATABASE: Saving artifact '{artifact.name}' to Firestore")
+    
+    # Create the artifact document
+    doc_ref = db.collection('tree_artifacts').document()
+    
+    # Serialize the artifact structure for Firestore
+    serialized_artifact = serialize_artifact_for_firestore(artifact)
+    doc_data = serialized_artifact.to_dict()
+    
+    # Convert datetime to Firebase timestamp
+    if isinstance(doc_data['created_at'], datetime.datetime):
+        if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+            doc_data['created_at'] = firestore.SERVER_TIMESTAMP
+            doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+    
+    try:
+        # Save the artifact document
+        doc_id = doc_ref.set(doc_data)
+        
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Artifact saved with mock ID: {doc_ref.id}")
+        else:
+            print(f"✅ REAL DATABASE: Artifact saved to Firestore with ID: {doc_ref.id}")
+        
+        return doc_ref.id
+        
+    except Exception as e:
+        print(f"❌ Error saving artifact: {e}")
+        # If still too large, try aggressive flattening
+        if "exceeds the maximum allowed size" in str(e) or "invalid nested entity" in str(e):
+            print("📝 Applying aggressive flattening for artifact Firestore compatibility...")
+            return save_artifact_with_aggressive_flattening(artifact, doc_ref)
+        raise
+
+
+def serialize_artifact_for_firestore(artifact):
+    """Serialize artifact structure to be Firestore-compatible"""
+    from app.models import Artifact
+    
+    # Flatten the nested tree structure to avoid Firestore nesting limits
+    flattened_structure = flatten_tree_nodes(artifact.tree_structure)
+    
+    # Create a serializable artifact
+    serialized_artifact = Artifact(
+        id=artifact.id,
+        name=artifact.name,
+        tree_structure=flattened_structure,
+        parameters=artifact.parameters,
+        metadata=artifact.metadata,
+        created_at=artifact.created_at,
+        modified_at=artifact.modified_at,
+        is_active=artifact.is_active
+    )
+    
+    return serialized_artifact
+
+
+def flatten_tree_nodes(nodes):
+    """Flatten tree nodes to avoid nested object issues in Firestore"""
+    if not nodes:
+        return []
+    
+    flattened = []
+    
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue  # Skip non-dict nodes
+        
+        # Create a flattened version of the node with safe defaults
+        flattened_node = {
+            'id': node.get('id', str(uuid.uuid4())),  # Generate ID if missing
+            'label': node.get('label', ''),
+            'goals': node.get('goals', []),
+            'sources': node.get('sources', []),
+            'size': node.get('size', 0),
+            'representative_goal': node.get('representative_goal', ''),
+            'childIds': []  # Store child IDs instead of nested objects
+        }
+        
+        # Extract child IDs and flatten children separately
+        children = node.get('children', [])
+        if children and isinstance(children, list):
+            # Get child IDs safely
+            child_ids = []
+            for child in children:
+                if isinstance(child, dict) and child.get('id'):
+                    child_ids.append(child.get('id'))
+                elif isinstance(child, dict):
+                    # Generate ID for child if missing
+                    child_id = str(uuid.uuid4())
+                    child['id'] = child_id
+                    child_ids.append(child_id)
+            
+            flattened_node['childIds'] = child_ids
+            
+            # Recursively flatten children and add them to the main list
+            flattened_children = flatten_tree_nodes(children)
+            flattened.extend(flattened_children)
+        
+        flattened.append(flattened_node)
+    
+    return flattened
+
+
+def save_artifact_with_aggressive_flattening(artifact, doc_ref):
+    """Save artifact with maximum flattening for large datasets"""
+    from app.models import Artifact
+    
+    print("🔧 Applying maximum flattening for large artifact...")
+    
+    # Calculate summary statistics safely
+    tree_structure = artifact.tree_structure or []
+    total_goals = calculate_total_goals_in_tree(tree_structure)
+    
+    # Create minimal metadata
+    minimal_metadata = {
+        'total_goals': total_goals,
+        'optimization_level': 'maximum_flattening',
+        'original_save_time': datetime.datetime.now().isoformat()
+    }
+    
+    # Create structure summary with minimal data
+    structure_summary = create_minimal_tree_summary(tree_structure)
+    
+    minimal_artifact = Artifact(
+        name=f"{artifact.name} (Flattened)",
+        tree_structure=structure_summary,
+        parameters=artifact.parameters or {},
+        metadata=minimal_metadata,
+        created_at=artifact.created_at,
+        modified_at=artifact.modified_at,
+        is_active=artifact.is_active
+    )
+    
+    # Save minimal version
+    doc_data = minimal_artifact.to_dict()
+    
+    if isinstance(doc_data['created_at'], datetime.datetime):
+        if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+            doc_data['created_at'] = firestore.SERVER_TIMESTAMP
+            doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+    
+    doc_id = doc_ref.set(doc_data)
+    
+    # Save complete data in subcollection with chunking
+    save_complete_artifact_data_chunked(doc_ref.id, tree_structure)
+    
+    print(f"✅ Artifact saved with maximum flattening: {doc_ref.id}")
+    return doc_ref.id
+
+
+def calculate_total_goals_in_tree(nodes):
+    """Calculate total number of goals in a tree structure"""
+    if not nodes:
+        return 0
+    
+    total = 0
+    for node in nodes:
+        if isinstance(node, dict):
+            # Count goals in this node - handle None explicitly
+            goals = node.get('goals')
+            if goals is None:
+                goals = []
+            if goals:
+                total += len(goals)
+            
+            # Count goals in children - handle None explicitly
+            children = node.get('children')
+            if children is None:
+                children = []
+            if children:
+                total += calculate_total_goals_in_tree(children)
+            
+            # If no goals but has size, use size
+            if not goals and node.get('size', 0) > 0:
+                total += node.get('size', 0)
+    
+    return total
+
+
+def create_minimal_tree_summary(nodes):
+    """Create an ultra-minimal summary of tree structure"""
+    if not nodes:
+        return []
+    
+    summary = []
+    
+    for i, node in enumerate(nodes):
+        if isinstance(node, dict):
+            # Handle children safely - check for None explicitly
+            children = node.get('children')
+            if children is None:
+                children = []
+            
+            # Handle goals safely - check for None explicitly  
+            goals = node.get('goals')
+            if goals is None:
+                goals = []
+            
+            node_summary = {
+                'id': node.get('id', f'node_{i}'),
+                'label': node.get('label', f'Group_{i+1}'),
+                'displayLevel': node.get('displayLevel', 0),
+                'size': node.get('size', 0),
+                'hasChildren': len(children) > 0,
+                'childCount': len(children),
+                'goalCount': len(goals)
+            }
+        else:
+            # Handle case where node might not be a dict
+            node_summary = {
+                'id': f'node_{i}',
+                'label': f'Group_{i+1}',
+                'displayLevel': 0,
+                'size': 0,
+                'hasChildren': False,
+                'childCount': 0,
+                'goalCount': 0
+            }
+        
+        summary.append(node_summary)
+    
+    return summary
+
+
+def save_complete_artifact_data_chunked(artifact_id, nodes):
+    """Save complete artifact data in chunked subcollections"""
+    global db, using_mock
+    
+    if using_mock:
+        return
+    
+    if not nodes:
+        print("⚠️ No nodes to save in chunks")
+        return
+    
+    print(f"💾 Saving complete artifact data in chunks...")
+    
+    # Flatten all nodes first
+    flattened_nodes = flatten_tree_nodes(nodes)
+    
+    if not flattened_nodes:
+        print("⚠️ No flattened nodes to save")
+        return
+    
+    # Save in chunks to avoid size limits
+    chunk_size = 1000  # Start with larger chunks, split if too big
+    chunks = [flattened_nodes[i:i + chunk_size] for i in range(0, len(flattened_nodes), chunk_size)]
+    
+    def save_chunk_with_retry(chunk_data, chunk_ref, chunk_id, attempt=1):
+        """Save a chunk with retry logic that splits if too big"""
+        try:
+            chunk_ref.set(chunk_data)
+            print(f"  📦 Saved artifact chunk {chunk_id} with {len(chunk_data['nodes'])} nodes (attempt {attempt})")
+            return True
+        except Exception as e:
+            if ("exceeds the maximum allowed size" in str(e) or "invalid nested entity" in str(e)) and len(chunk_data['nodes']) > 1:
+                # Split chunk in half and try again
+                nodes = chunk_data['nodes']
+                mid = len(nodes) // 2
+                left_nodes = nodes[:mid]
+                right_nodes = nodes[mid:]
+                
+                print(f"  🔄 Artifact chunk {chunk_id} too big ({len(nodes)} nodes), splitting into {len(left_nodes)} + {len(right_nodes)} nodes")
+                
+                # Save left half
+                left_chunk_data = {
+                    'chunk_id': f"{chunk_id}a",
+                    'nodes': left_nodes,
+                    'chunk_size': len(left_nodes),
+                    'created_at': firestore.SERVER_TIMESTAMP
+                }
+                left_chunk_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks').document(f'chunk_{chunk_id}a')
+                save_chunk_with_retry(left_chunk_data, left_chunk_ref, f"{chunk_id}a", attempt + 1)
+                
+                # Save right half
+                right_chunk_data = {
+                    'chunk_id': f"{chunk_id}b",
+                    'nodes': right_nodes,
+                    'chunk_size': len(right_nodes),
+                    'created_at': firestore.SERVER_TIMESTAMP
+                }
+                right_chunk_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks').document(f'chunk_{chunk_id}b')
+                save_chunk_with_retry(right_chunk_data, right_chunk_ref, f"{chunk_id}b", attempt + 1)
+                
+                return True
+            else:
+                print(f"  ❌ Failed to save artifact chunk {chunk_id}: {e}")
+                return False
+    
+    total_saved = 0
+    for i, chunk in enumerate(chunks):
+        chunk_data = {
+            'chunk_id': i,
+            'nodes': chunk,
+            'chunk_size': len(chunk),
+            'created_at': firestore.SERVER_TIMESTAMP
+        }
+        
+        chunk_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks').document(f'chunk_{i}')
+        if save_chunk_with_retry(chunk_data, chunk_ref, i):
+            total_saved += len(chunk)
+    
+    print(f"✅ Complete artifact data saved with {total_saved} total nodes")
+
+def get_artifact(artifact_id):
+    """Retrieve a specific artifact by its ID and reconstruct tree structure"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Retrieving artifact with ID '{artifact_id}' from mock Firestore")
+    else:
+        print(f"✅ REAL DATABASE: Retrieving artifact with ID '{artifact_id}' from Firestore")
+        
+    doc_ref = db.collection('tree_artifacts').document(artifact_id)
+    doc = doc_ref.get()
+    
+    if doc.exists:
+        from app.models import Artifact
+        doc_data = doc.to_dict()
+        
+        # Check if this is a flattened artifact that needs reconstruction
+        if needs_artifact_reconstruction(doc_data):
+            doc_data = reconstruct_artifact_structure(artifact_id, doc_data)
+        
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Found mock artifact: {artifact_id}")
+        else:
+            print(f"✅ REAL DATABASE: Found artifact in Firestore: {artifact_id}")
+        return Artifact.from_dict(doc_data, artifact_id=doc.id)
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Artifact not found in mock database: {artifact_id}")
+    else:
+        print(f"✅ REAL DATABASE: Artifact not found in Firestore: {artifact_id}")
+    return None
+
+
+def needs_artifact_reconstruction(doc_data):
+    """Check if artifact document needs structure reconstruction"""
+    tree_structure = doc_data.get('tree_structure', [])
+    
+    # Check if this is a flattened structure (nodes have childIds instead of children)
+    for node in tree_structure:
+        if isinstance(node, dict):
+            if 'childIds' in node or ('hasChildren' in node and 'children' not in node):
+                return True
+            # Check if it's missing nested structure - handle None goals safely
+            if 'children' not in node:
+                goals = node.get('goals')
+                if goals is None:
+                    goals = []
+                if node.get('size', 0) > len(goals):
+                    return True
+    
+    return False
+
+
+def reconstruct_artifact_structure(artifact_id, doc_data):
+    """Reconstruct the nested artifact structure from flattened data"""
+    global db, using_mock
+    
+    metadata = doc_data.get('metadata', {})
+    optimization_level = metadata.get('optimization_level', '')
+    
+    if optimization_level == 'maximum_flattening':
+        print(f"🔧 Reconstructing maximum flattened artifact...")
+        return reconstruct_artifact_from_chunked_data(artifact_id, doc_data)
+    else:
+        print(f"🔧 Reconstructing flattened artifact structure...")
+        return reconstruct_artifact_from_flattened_nodes(doc_data)
+
+
+def reconstruct_artifact_from_flattened_nodes(doc_data):
+    """Reconstruct artifact from flattened node structure"""
+    tree_structure = doc_data.get('tree_structure', [])
+    
+    if not tree_structure:
+        return doc_data
+    
+    # Check if nodes have childIds (flattened structure)
+    if not any('childIds' in node for node in tree_structure if isinstance(node, dict)):
+        # Already in correct format
+        return doc_data
+    
+    # Create a map of all nodes by ID
+    node_map = {}
+    for node in tree_structure:
+        if isinstance(node, dict) and 'id' in node:
+            node_map[node['id']] = node.copy()
+    
+    # Reconstruct nested structure
+    reconstructed_roots = []
+    
+    for node in tree_structure:
+        if isinstance(node, dict):
+            # Find root nodes (nodes that aren't children of other nodes)
+            is_root = True
+            for other_node in tree_structure:
+                if isinstance(other_node, dict) and 'childIds' in other_node:
+                    if node['id'] in other_node['childIds']:
+                        is_root = False
+                        break
+            
+            if is_root:
+                reconstructed_node = reconstruct_artifact_node_tree(node['id'], node_map)
+                if reconstructed_node:
+                    reconstructed_roots.append(reconstructed_node)
+    
+    # Update the document data with reconstructed structure
+    doc_data['tree_structure'] = reconstructed_roots
+    
+    print(f"✅ Artifact structure reconstructed with {len(reconstructed_roots)} root nodes")
+    return doc_data
+
+
+def reconstruct_artifact_node_tree(node_id, node_map):
+    """Recursively reconstruct an artifact node tree from flattened data"""
+    if node_id not in node_map:
+        return None
+    
+    node = node_map[node_id].copy()
+    
+    # Convert childIds back to nested children
+    child_ids = node.pop('childIds', [])
+    node['children'] = []
+    
+    for child_id in child_ids:
+        child_node = reconstruct_artifact_node_tree(child_id, node_map)
+        if child_node:
+            node['children'].append(child_node)
+    
+    return node
+
+
+def reconstruct_artifact_from_chunked_data(artifact_id, doc_data):
+    """Reconstruct artifact from chunked subcollection data"""
+    global db, using_mock
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Cannot reconstruct from chunks in mock mode")
+        return doc_data
+    
+    try:
+        # Load all chunks from subcollection
+        chunks_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks')
+        chunk_docs = chunks_ref.stream()
+        
+        all_nodes = []
+        for chunk_doc in chunk_docs:
+            chunk_data = chunk_doc.to_dict()
+            chunk_nodes = chunk_data.get('nodes', [])
+            all_nodes.extend(chunk_nodes)
+            print(f"  📦 Loaded artifact chunk {chunk_data.get('chunk_id', 'unknown')} with {len(chunk_nodes)} nodes")
+        
+        if all_nodes:
+            # Reconstruct nested structure from flattened chunks
+            temp_doc_data = {'tree_structure': all_nodes}
+            reconstructed_doc_data = reconstruct_artifact_from_flattened_nodes(temp_doc_data)
+            
+            # Update original document data with reconstructed structure
+            doc_data['tree_structure'] = reconstructed_doc_data['tree_structure']
+            
+            # Update name to remove flattening note
+            if doc_data.get('name', '').endswith(' (Flattened)'):
+                doc_data['name'] = doc_data['name'][:-12]  # Remove " (Flattened)"
+            
+            print(f"✅ Chunked artifact reconstructed with {len(all_nodes)} total nodes")
+        else:
+            print(f"⚠️ No chunk data found, using summary structure")
+        
+    except Exception as e:
+        print(f"⚠️ Error reconstructing from chunks: {e}")
+        print(f"📋 Using minimal summary as fallback")
+    
+    return doc_data
+
+def get_artifacts(limit=20, creator=None):
+    """Retrieve multiple artifacts with optional filtering"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Searching for artifacts in mock Firestore")
+    else:
+        print(f"✅ REAL DATABASE: Searching for artifacts in Firestore")
+        
+    query = db.collection('tree_artifacts')
+    
+    # Apply filters
+    if creator:
+        query = query.where('creator', '==', creator)
+    
+    # Order by modified date (most recent first) and limit
+    if not using_mock:
+        query = query.order_by('modified_at', direction=firestore.Query.DESCENDING)
+    query = query.limit(limit)
+    
+    docs = query.stream()
+    results = []
+    
+    from app.models import Artifact
+    for doc in docs:
+        doc_data = doc.to_dict()
+        artifact = Artifact.from_dict(doc_data, artifact_id=doc.id)
+        results.append(artifact)
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Found {len(results)} artifacts in mock database")
+    else:
+        print(f"✅ REAL DATABASE: Found {len(results)} artifacts in Firestore")
+        
+    return results
+
+
+def delete_artifact(artifact_id):
+    """Delete an artifact from Firestore"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Deleting artifact from mock Firestore: {artifact_id}")
+            if artifact_id in db.collections.get('tree_artifacts', {}).documents:
+                del db.collections['tree_artifacts'].documents[artifact_id]
+                return True
+            return False
+        else:
+            print(f"✅ REAL DATABASE: Deleting artifact from Firestore: {artifact_id}")
+            db.collection('tree_artifacts').document(artifact_id).delete()
+            return True
+        
+    except Exception as e:
+        print(f"❌ Error deleting artifact: {e}")
+        return False
+
+
+def update_artifact_node_label(artifact_id, node_id, new_label):
+    """Update a specific node's label within an artifact"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        # Get the artifact (this will automatically reconstruct if needed)
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            return False
+        
+        # Check if this artifact was saved with chunking
+        metadata = artifact.metadata or {}
+        is_chunked = metadata.get('optimization_level') == 'maximum_flattening'
+        
+        if is_chunked:
+            # For chunked artifacts, only update the chunks and minimal summary
+            print(f"🔧 Updating chunked artifact {artifact_id} node {node_id}")
+            
+            # Update the chunked data
+            success = update_chunked_artifact_node_label(artifact_id, node_id, new_label)
+            if not success:
+                return False
+            
+            # Update the minimal summary in the main document if the node exists there
+            if using_mock:
+                print(f"⚠️ MOCK DATABASE: Chunked update for artifact: {artifact_id}/{node_id}")
+                return True
+            else:
+                # Get the current main document
+                doc_ref = db.collection('tree_artifacts').document(artifact_id)
+                doc = doc_ref.get()
+                if doc.exists:
+                    doc_data = doc.to_dict()
+                    tree_structure = doc_data.get('tree_structure', [])
+                    
+                    # Update the node in the minimal summary if it exists
+                    updated_summary = False
+                    for node in tree_structure:
+                        if isinstance(node, dict) and node.get('id') == node_id:
+                            node['label'] = new_label
+                            updated_summary = True
+                            break
+                    
+                    # Only update the main document if we found the node in the summary
+                    if updated_summary:
+                        doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+                        doc_ref.set(doc_data)
+                        print(f"✅ Updated minimal summary for chunked artifact")
+                    
+                    return True
+                return False
+        else:
+            # For regular artifacts, use the normal update process
+            return update_regular_artifact_node_label(artifact, artifact_id, node_id, new_label)
+        
+    except Exception as e:
+        print(f"❌ Error updating artifact node: {e}")
+        return False
+
+
+def update_regular_artifact_node_label(artifact, artifact_id, node_id, new_label):
+    """Update node label for regular (non-chunked) artifacts"""
+    global db, using_mock
+    
+    # Find and update the node in tree structure
+    def update_node_in_tree(nodes, target_node_id, new_label):
+        for node in nodes:
+            if isinstance(node, dict):
+                if node.get('id') == target_node_id:
+                    node['label'] = new_label
+                    return True
+                if 'children' in node:
+                    if update_node_in_tree(node['children'], target_node_id, new_label):
+                        return True
+        return False
+    
+    # Update the node
+    node_updated = update_node_in_tree(artifact.tree_structure, node_id, new_label)
+    
+    if node_updated:
+        # Update the artifact's modified timestamp
+        artifact.modified_at = datetime.datetime.now()
+        
+        # Re-serialize the artifact for Firestore (handle flattening if needed)
+        serialized_artifact = serialize_artifact_for_firestore(artifact)
+        doc_data = serialized_artifact.to_dict()
+        
+        # Convert datetime to Firebase timestamp
+        if isinstance(doc_data['modified_at'], datetime.datetime):
+            if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+                doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+        
+        # Save back to database
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Updating artifact representative text in mock Firestore: {artifact_id}/{node_id}")
+            if 'tree_artifacts' not in db.collections:
+                db.collections['tree_artifacts'] = type(db.collections['documents'])('tree_artifacts')
+            db.collections['tree_artifacts'].documents[artifact_id].data = doc_data
+        else:
+            print(f"✅ REAL DATABASE: Updating artifact representative text in Firestore: {artifact_id}/{node_id}")
+            doc_ref = db.collection('tree_artifacts').document(artifact_id)
+            doc_ref.set(doc_data)
+        
+        return True
+    
+    return False
+
+
+def update_chunked_artifact_node_label(artifact_id, node_id, new_label):
+    """Update node label in chunked artifact data"""
+    global db, using_mock
+    
+    if using_mock:
+        return True
+    
+    print(f"🔧 Updating chunked artifact data for node {node_id}")
+    
+    # Get all chunks
+    chunks_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks')
+    chunk_docs = chunks_ref.stream()
+    
+    for chunk_doc in chunk_docs:
+        chunk_data = chunk_doc.to_dict()
+        nodes = chunk_data.get('nodes', [])
+        updated = False
+        
+        # Update the node in this chunk if found
+        for node in nodes:
+            if isinstance(node, dict) and node.get('id') == node_id:
+                node['label'] = new_label
+                updated = True
+                break
+        
+        # Save the chunk back if it was updated
+        if updated:
+            chunk_data['nodes'] = nodes
+            chunk_doc.reference.set(chunk_data)
+            print(f"  📦 Updated node {node_id} in chunk {chunk_data.get('chunk_id', 'unknown')}")
+            return True
+    
+    # If we didn't find the node in any chunk, return False
+    print(f"  ⚠️ Node {node_id} not found in any chunk")
+    return False
+
+def update_artifact_node_representative_text(artifact_id, node_id, representative_text, text_state='manual', ai_prompt=None):
+    """Update a specific node's representative text, state, and AI prompt within an artifact"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        # Get the artifact (this will automatically reconstruct if needed)
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            return False
+        
+        # Check if this artifact was saved with chunking
+        metadata = artifact.metadata or {}
+        is_chunked = metadata.get('optimization_level') == 'maximum_flattening'
+        
+        if is_chunked:
+            # For chunked artifacts, only update the chunks and minimal summary
+            print(f"🔧 Updating chunked artifact {artifact_id} node {node_id} representative text")
+            
+            # Update the chunked data
+            success = update_chunked_artifact_node_representative_text(
+                artifact_id, node_id, representative_text, text_state, ai_prompt
+            )
+            if not success:
+                return False
+            
+            # Update the minimal summary in the main document if the node exists there
+            if using_mock:
+                print(f"⚠️ MOCK DATABASE: Chunked representative text update for artifact: {artifact_id}/{node_id}")
+                return True
+            else:
+                # Get the current main document
+                doc_ref = db.collection('tree_artifacts').document(artifact_id)
+                doc = doc_ref.get()
+                if doc.exists:
+                    doc_data = doc.to_dict()
+                    tree_structure = doc_data.get('tree_structure', [])
+                    
+                    # Update the node in the minimal summary if it exists
+                    updated_summary = False
+                    for node in tree_structure:
+                        if isinstance(node, dict) and node.get('id') == node_id:
+                            # Update relevant fields in the summary
+                            node['representative_goal'] = representative_text
+                            node['text_state'] = text_state
+                            if ai_prompt:
+                                node['ai_prompt'] = ai_prompt
+                            updated_summary = True
+                            break
+                    
+                    # Only update the main document if we found the node in the summary
+                    if updated_summary:
+                        doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+                        doc_ref.set(doc_data)
+                        print(f"✅ Updated minimal summary for chunked artifact representative text")
+                    
+                    return True
+                return False
+        else:
+            # For regular artifacts, use the normal update process
+            return update_regular_artifact_node_representative_text(
+                artifact, artifact_id, node_id, representative_text, text_state, ai_prompt
+            )
+        
+    except Exception as e:
+        print(f"❌ Error updating artifact node representative text: {e}")
+        return False
+
+
+def update_regular_artifact_node_representative_text(artifact, artifact_id, node_id, representative_text, text_state, ai_prompt):
+    """Update representative text for regular (non-chunked) artifacts"""
+    global db, using_mock
+    
+    # Find and update the node in tree structure
+    def update_node_in_tree(nodes, target_node_id, representative_text, text_state, ai_prompt):
+        for node in nodes:
+            if isinstance(node, dict):
+                if node.get('id') == target_node_id:
+                    node['representative_goal'] = representative_text
+                    node['text_state'] = text_state
+                    if ai_prompt:
+                        node['ai_prompt'] = ai_prompt
+                    return True
+                if 'children' in node:
+                    if update_node_in_tree(node['children'], target_node_id, representative_text, text_state, ai_prompt):
+                        return True
+        return False
+    
+    # Update the node
+    node_updated = update_node_in_tree(artifact.tree_structure, node_id, representative_text, text_state, ai_prompt)
+    
+    if node_updated:
+        # Update the artifact's modified timestamp
+        artifact.modified_at = datetime.datetime.now()
+        
+        # Re-serialize the artifact for Firestore (handle flattening if needed)
+        serialized_artifact = serialize_artifact_for_firestore(artifact)
+        doc_data = serialized_artifact.to_dict()
+        
+        # Convert datetime to Firebase timestamp
+        if isinstance(doc_data['modified_at'], datetime.datetime):
+            if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+                doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+        
+        # Save back to database
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Updating artifact representative text in mock Firestore: {artifact_id}/{node_id}")
+            if 'tree_artifacts' not in db.collections:
+                db.collections['tree_artifacts'] = type(db.collections['documents'])('tree_artifacts')
+            db.collections['tree_artifacts'].documents[artifact_id].data = doc_data
+        else:
+            print(f"✅ REAL DATABASE: Updating artifact representative text in Firestore: {artifact_id}/{node_id}")
+            doc_ref = db.collection('tree_artifacts').document(artifact_id)
+            doc_ref.set(doc_data)
+        
+        return True
+    
+    return False
+
+
+def update_chunked_artifact_node_representative_text(artifact_id, node_id, representative_text, text_state, ai_prompt):
+    """Update representative text in chunked artifact data"""
+    global db, using_mock
+    
+    if using_mock:
+        return True
+    
+    print(f"🔧 Updating chunked artifact representative text for node {node_id}")
+    
+    # Get all chunks
+    chunks_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks')
+    chunk_docs = chunks_ref.stream()
+    
+    for chunk_doc in chunk_docs:
+        chunk_data = chunk_doc.to_dict()
+        nodes = chunk_data.get('nodes', [])
+        updated = False
+        
+        # Update the node in this chunk if found
+        for node in nodes:
+            if isinstance(node, dict) and node.get('id') == node_id:
+                node['representative_goal'] = representative_text
+                node['text_state'] = text_state
+                if ai_prompt:
+                    node['ai_prompt'] = ai_prompt
+                updated = True
+                break
+        
+        # Save the chunk back if it was updated
+        if updated:
+            chunk_data['nodes'] = nodes
+            chunk_doc.reference.set(chunk_data)
+            print(f"  📦 Updated representative text for node {node_id} in chunk {chunk_data.get('chunk_id', 'unknown')}")
+            return True
+    
+    # If we didn't find the node in any chunk, return False
+    print(f"  ⚠️ Node {node_id} not found in any chunk")
+    return False
+
+
+def batch_update_artifact_node_representative_texts(artifact_id, updates):
+    """Efficiently batch update multiple node representative texts in an artifact"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        print(f"🔧 Batch updating {len(updates)} nodes in artifact {artifact_id}")
+        
+        # Get the artifact (this will automatically reconstruct if needed)
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            print(f"❌ Artifact not found: {artifact_id}")
+            return False
+        
+        # Check if this artifact was saved with chunking
+        metadata = artifact.metadata or {}
+        is_chunked = metadata.get('optimization_level') == 'maximum_flattening'
+        
+        if is_chunked:
+            return batch_update_chunked_artifact(artifact_id, updates)
+        else:
+            return batch_update_regular_artifact(artifact, artifact_id, updates)
+        
+    except Exception as e:
+        print(f"❌ Error batch updating artifact nodes: {e}")
+        return False
+
+
+def batch_update_chunked_artifact(artifact_id, updates):
+    """Efficiently batch update chunked artifact by loading chunks once and updating all nodes"""
+    global db, using_mock
+    
+    if using_mock:
+        return True
+    
+    print(f"🔧 Batch updating chunked artifact {artifact_id}")
+    
+    # Create a mapping of updates by node_id for quick lookup
+    updates_by_node_id = {update['node_id']: update for update in updates}
+    
+    # Get all chunks
+    chunks_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks')
+    chunk_docs = list(chunks_ref.stream())
+    
+    updated_chunks = []
+    nodes_found = set()
+    
+    # Process each chunk
+    for chunk_doc in chunk_docs:
+        chunk_data = chunk_doc.to_dict()
+        nodes = chunk_data.get('nodes', [])
+        chunk_updated = False
+        
+        # Update all nodes in this chunk that need updating
+        for node in nodes:
+            if isinstance(node, dict):
+                node_id = node.get('id')
+                if node_id in updates_by_node_id:
+                    update = updates_by_node_id[node_id]
+                    node['representative_goal'] = update['representative_text']
+                    node['text_state'] = update['text_state']
+                    if update.get('ai_prompt'):
+                        node['ai_prompt'] = update['ai_prompt']
+                    
+                    nodes_found.add(node_id)
+                    chunk_updated = True
+        
+        # Mark chunk for saving if it was updated
+        if chunk_updated:
+            chunk_data['nodes'] = nodes
+            updated_chunks.append((chunk_doc.reference, chunk_data))
+    
+    # Save all updated chunks in batch
+    for chunk_ref, chunk_data in updated_chunks:
+        chunk_ref.set(chunk_data)
+        print(f"  📦 Updated chunk {chunk_data.get('chunk_id', 'unknown')} with {len([n for n in chunk_data['nodes'] if isinstance(n, dict) and n.get('id') in updates_by_node_id])} node updates")
+    
+    # Update the minimal summary in the main document if needed
+    if nodes_found:
+        try:
+            doc_ref = db.collection('tree_artifacts').document(artifact_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                doc_data = doc.to_dict()
+                tree_structure = doc_data.get('tree_structure', [])
+                
+                # Update nodes in the minimal summary if they exist
+                summary_updated = False
+                for node in tree_structure:
+                    if isinstance(node, dict):
+                        node_id = node.get('id')
+                        if node_id in updates_by_node_id:
+                            update = updates_by_node_id[node_id]
+                            node['representative_goal'] = update['representative_text']
+                            node['text_state'] = update['text_state']
+                            if update.get('ai_prompt'):
+                                node['ai_prompt'] = update['ai_prompt']
+                            summary_updated = True
+                
+                # Save the main document if summary was updated
+                if summary_updated:
+                    doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+                    doc_ref.set(doc_data)
+                    print(f"  📄 Updated minimal summary for {len(nodes_found)} nodes")
+        except Exception as e:
+            print(f"⚠️ Error updating minimal summary: {e}")
+    
+    # Check if all nodes were found and updated
+    not_found = set(updates_by_node_id.keys()) - nodes_found
+    if not_found:
+        print(f"  ⚠️ Nodes not found: {list(not_found)}")
+    
+    print(f"✅ Batch update completed: {len(nodes_found)}/{len(updates)} nodes updated")
+    return len(nodes_found) > 0
+
+
+def batch_update_regular_artifact(artifact, artifact_id, updates):
+    """Batch update regular (non-chunked) artifact by updating tree structure once"""
+    global db, using_mock
+    
+    print(f"🔧 Batch updating regular artifact {artifact_id}")
+    
+    # Create a mapping of updates by node_id for quick lookup
+    updates_by_node_id = {update['node_id']: update for update in updates}
+    
+    # Find and update all nodes in tree structure
+    def update_nodes_in_tree(nodes, updates_map):
+        nodes_found = set()
+        for node in nodes:
+            if isinstance(node, dict):
+                node_id = node.get('id')
+                if node_id in updates_map:
+                    update = updates_map[node_id]
+                    node['representative_goal'] = update['representative_text']
+                    node['text_state'] = update['text_state']
+                    if update.get('ai_prompt'):
+                        node['ai_prompt'] = update['ai_prompt']
+                    nodes_found.add(node_id)
+                
+                # Recursively update children
+                if 'children' in node:
+                    child_nodes_found = update_nodes_in_tree(node['children'], updates_map)
+                    nodes_found.update(child_nodes_found)
+        
+        return nodes_found
+    
+    # Update all nodes in the tree structure
+    nodes_found = update_nodes_in_tree(artifact.tree_structure, updates_by_node_id)
+    
+    if nodes_found:
+        # Update the artifact's modified timestamp
+        artifact.modified_at = datetime.datetime.now()
+        
+        # Re-serialize the artifact for Firestore (handle flattening if needed)
+        serialized_artifact = serialize_artifact_for_firestore(artifact)
+        doc_data = serialized_artifact.to_dict()
+        
+        # Convert datetime to Firebase timestamp
+        if isinstance(doc_data['modified_at'], datetime.datetime):
+            if hasattr(firestore, 'SERVER_TIMESTAMP') and not using_mock:
+                doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+        
+        # Save back to database
+        if using_mock:
+            print(f"⚠️ MOCK DATABASE: Batch updating artifact in mock Firestore: {artifact_id}")
+            if 'tree_artifacts' not in db.collections:
+                db.collections['tree_artifacts'] = type(db.collections['documents'])('tree_artifacts')
+            db.collections['tree_artifacts'].documents[artifact_id].data = doc_data
+        else:
+            print(f"✅ REAL DATABASE: Batch updating artifact in Firestore: {artifact_id}")
+            doc_ref = db.collection('tree_artifacts').document(artifact_id)
+            doc_ref.set(doc_data)
+    
+    # Check if all nodes were found and updated
+    not_found = set(updates_by_node_id.keys()) - nodes_found
+    if not_found:
+        print(f"  ⚠️ Nodes not found: {list(not_found)}")
+    
+    print(f"✅ Batch update completed: {len(nodes_found)}/{len(updates)} nodes updated")
+    return len(nodes_found) > 0

@@ -1,0 +1,16 @@
+learning_goal,level_0,level_1,level_2,level_3,level_4,level_5,level_6,level_7,level_8,level_9
+Describe the shape of solution trajectories of the Lotka-Volterra model,5364,556,128,50,31,23,15,12,7,6
+Analyze predator-prey dynamics using phase plane analysis,5364,556,128,50,31,23,15,12,8,4
+Solve coupled differential equations numerically,5364,556,128,50,31,23,15,11,5,3
+Interpret stability of equilibrium points in dynamical systems,5364,556,128,50,31,23,14,9,6,2
+Apply Lyapunov stability criteria to nonlinear systems,5364,556,128,50,31,22,13,8,4,2
+Model population growth with carrying capacity,5364,556,128,49,30,21,12,7,4,1
+Explain the concept of limit cycles in phase portraits,5364,556,128,49,30,21,11,6,3,1
+Derive the Jacobian matrix for linearization,5364,556,127,48,29,20,10,6,3,1
+Calculate eigenvalues for system stability analysis,5364,556,127,48,29,19,9,5,2,1
+Implement Runge-Kutta methods for ODE systems,5364,555,126,47,28,18,8,4,2,1
+Compare different numerical integration schemes,5364,555,125,46,27,17,7,3,1,1
+Analyze bifurcation diagrams for parameter studies,5364,554,124,45,26,16,6,2,1,0
+Identify types of bifurcations in dynamical systems,5364,553,123,44,25,15,5,1,0,0
+Apply perturbation methods to nonlinear equations,5363,552,122,43,24,14,4,0,0,0
+Study chaos in discrete dynamical systems,5362,551,121,42,23,13,3,0,0,0 

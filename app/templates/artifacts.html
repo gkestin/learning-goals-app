@@ -1,0 +1,1707 @@
+{% extends "base.html" %}
+
+{% block title %}Tree Artifacts{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    .clustering-controls {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
+    
+    /* Tree Structure Styling - updated for new layout */
+    .tree-container {
+        font-family: 'Monaco', 'Consolas', monospace;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .tree-node {
+        margin: 2px 0;
+        border-left: 2px solid transparent;
+        transition: all 0.2s ease;
+    }
+    
+    .tree-node:hover {
+        background-color: rgba(0, 123, 255, 0.05);
+        border-left-color: #007bff;
+    }
+    
+    /* Smart indentation - consistent small increments */
+    .tree-level-0 { margin-left: 0px; }
+    .tree-level-1,
+    .tree-level-2,
+    .tree-level-3,
+    .tree-level-4,
+    .tree-level-5,
+    .tree-level-6,
+    .tree-level-7,
+    .tree-level-8,
+    .tree-level-9,
+    .tree-level-10,
+    .tree-level-deep { /* All non-root levels get the same single-step indent */
+        margin-left: 12px;
+    }
+    
+    /* Beyond level 10, use a different visual cue */
+    .tree-level-deep {
+        /* margin-left: 12px; is handled above */
+        border-left: 3px dotted #6c757d; /* This border is part of the node itself */
+        padding-left: 10px; /* This will indent the *content* of tree-level-deep nodes further */
+    }
+    
+    .cluster-header {
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        cursor: pointer;
+        background-color: white;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        margin-bottom: 3px;
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-header:hover {
+        background-color: #e3f2fd;
+        border-color: #007bff;
+        transform: translateX(2px);
+    }
+    
+    .cluster-header.expanded {
+        background-color: #e8f5e9;
+        border-color: #28a745;
+    }
+    
+    /* Style for nodes that don't subdivide (single child) */
+    .cluster-header.no-subdivision {
+        background-color: #f8f9fa;
+        border-style: dashed;
+        opacity: 0.8;
+    }
+    
+    .cluster-header.no-subdivision:hover {
+        background-color: #e9ecef;
+        opacity: 1;
+    }
+    
+    /* NEW: Representative text styling - now the main editable element */
+    .cluster-representative {
+        font-size: 1em;
+        font-weight: bold;
+        color: #212529;
+        background-color: transparent;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 4px 8px;
+        margin-right: 8px;
+        flex: 1;
+        min-height: 24px;
+        cursor: text;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .cluster-representative:hover {
+        border-color: #007bff;
+        background-color: rgba(255, 255, 255, 0.8);
+    }
+    
+    .cluster-representative.editing {
+        border-color: #28a745;
+        background-color: white;
+        outline: none;
+        box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+    }
+    
+    /* FontAwesome state icons */
+    .text-state-icon {
+        font-size: 0.8em;
+        opacity: 0.7;
+        margin-right: 4px;
+        flex-shrink: 0;
+    }
+    
+    .text-state-icon.fa-quote-left {
+        color: #6c757d;
+    }
+    
+    .text-state-icon.fa-pencil {
+        color: #228B22; /* Green for manual edit */
+    }
+    
+    .text-state-icon.fa-wand-magic-sparkles {
+        color: #6f42c1;
+    }
+    
+    /* State-based text coloring for representative text */
+    .cluster-representative[data-state="default"] .representative-text,
+    .cluster-representative:not([data-state]) .representative-text {
+        color: #495057; /* Dark grey for default/representative */
+    }
+    
+    .cluster-representative[data-state="manual"] .representative-text {
+        color: #228B22; /* Green for manually edited */
+    }
+    
+    .cluster-representative[data-state="ai"] .representative-text {
+        color: #6f42c1; /* Purple for AI generated */
+    }
+    
+    /* Auto-generate button */
+    .auto-generate-btn {
+        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        border: 1px solid #6f42c1;
+        border-radius: 6px;
+        padding: 6px 10px;
+        margin-right: 12px;
+        cursor: pointer;
+        color: #6f42c1;
+        font-size: 0.75em;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+        box-shadow: 0 1px 2px rgba(111, 66, 193, 0.1);
+    }
+    
+    .auto-generate-btn:hover {
+        background: linear-gradient(135deg, #6f42c1, #8a5cf5);
+        border-color: #6f42c1;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(111, 66, 193, 0.2);
+    }
+    
+    /* NEW: Small gray label - now secondary with more spacing */
+    .cluster-label {
+        font-size: 0.75em;
+        color: #6c757d;
+        font-weight: normal;
+        margin-right: 15px;
+        margin-left: 5px;
+        padding: 2px 6px;
+        background-color: #f8f9fa;
+        border-radius: 3px;
+        flex-shrink: 0;
+    }
+    
+    .cluster-size {
+        background-color: #007bff;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+    
+    .cluster-actions {
+        margin-left: 8px;
+        display: flex;
+        gap: 5px;
+    }
+    
+    .collapse-icon {
+        transition: transform 0.2s ease;
+        margin-right: 8px;
+        color: #6c757d;
+        flex-shrink: 0;
+    }
+    
+    .collapse-icon.expanded {
+        transform: rotate(90deg);
+    }
+    
+    .cluster-content {
+        padding: 15px 8px 15px 0px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        margin-bottom: 10px;
+    }
+    
+    .goal-item {
+        padding: 8px 12px;
+        margin: 5px 0;
+        background-color: white;
+        border-left: 3px solid #007bff;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .goal-text {
+        font-size: 0.9em;
+        line-height: 1.4;
+        margin-bottom: 4px;
+        color: #343a40;
+    }
+    
+    .goal-source {
+        font-size: 0.6em;
+        color: #6c757d;
+        font-style: italic;
+    }
+    
+    .clustering-stats {
+        background-color: #e3f2fd;
+        border: 1px solid #90caf9;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    
+    /* Level Controls - matching cluster_tree */
+    .level-button {
+        font-weight: bold;
+        min-width: 80px;
+        min-height: 60px;
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 8px 12px;
+        line-height: 1.2;
+    }
+    
+    .level-button.active {
+        background-color: #28a745;
+        border-color: #28a745;
+        color: white;
+    }
+    
+    /* Flattened Content */
+    .flattened-cluster {
+        margin-bottom: 20px;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .flattened-cluster-header {
+        background-color: #f8f9fa;
+        padding: 12px 15px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .flattened-cluster-title {
+        font-weight: bold;
+        color: #495057;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .flattened-cluster-content {
+        padding: 15px;
+        background-color: white;
+    }
+    
+    .artifact-badge {
+        background: linear-gradient(45deg, #6f42c1, #e83e8c);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.7em;
+        font-weight: bold;
+    }
+
+    /* AI Generation Modal */
+    .goal-preview {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        font-size: 0.85em;
+    }
+    
+    .goal-preview-item {
+        padding: 4px 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    .goal-preview-item:last-child {
+        border-bottom: none;
+    }
+    
+    .goal-preview-text {
+        font-weight: 500;
+        color: #495057;
+    }
+    
+    .goal-preview-source {
+        font-size: 0.75em;
+        color: #6c757d;
+        margin-top: 2px;
+    }
+    
+    /* Collapsible artifact selection styling */
+    .artifact-selection-container {
+        margin-bottom: 20px;
+    }
+    
+    .collapsed-title {
+        padding: 5px 0;
+        margin-bottom: 5px;
+    }
+    
+    .collapsed-title .btn {
+        font-size: 0.85em;
+        color: #6c757d !important;
+        transition: all 0.2s ease;
+    }
+    
+    .collapsed-title .btn:hover {
+        color: #6f42c1 !important;
+    }
+    
+    .collapsed-title .btn i {
+        transition: transform 0.2s ease;
+    }
+    
+    /* Show collapsed title only when section is collapsed */
+    .artifact-selection-container:has(#artifact-selection.show) .collapsed-title,
+    .artifact-selection-container:has(#artifact-selection.collapsing) .collapsed-title {
+        display: none;
+    }
+    
+    /* Alternative approach for broader browser support */
+    .collapsed-title.hidden {
+        display: none;
+    }
+    
+    /* Chevron rotation */
+    .collapsed-title .btn[aria-expanded="true"] i {
+        transform: rotate(90deg);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-purple text-white" style="background: linear-gradient(45deg, #6f42c1, #e83e8c);">
+                <h2 class="card-title h4 mb-0">
+                    <i class="bi bi-archive"></i> Tree Artifacts Explorer
+                    <span class="artifact-badge">SAVED TREES</span>
+                </h2>
+                <small>View and edit saved hierarchical clustering trees from cluster analysis</small>
+            </div>
+            <div class="card-body">
+                
+                <!-- Artifact Selection -->
+                <div class="artifact-selection-container">
+                    <!-- Collapsed Title (visible when collapsed) -->
+                    <div class="collapsed-title" id="collapsed-title">
+                        <button class="btn btn-link p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#artifact-selection" aria-expanded="false" aria-controls="artifact-selection">
+                            <small class="text-muted">
+                                <i class="bi bi-chevron-right me-1"></i>
+                                📂 Saved Artifacts
+                            </small>
+                        </button>
+                    </div>
+                    
+                    <!-- Expanded Content (collapsed by default) -->
+                    <div class="collapse" id="artifact-selection">
+                        <div class="clustering-controls">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h4 class="text-purple mb-0" style="color: #6f42c1;">📂 Saved Artifacts</h4>
+                                <button class="btn btn-link p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#artifact-selection" aria-expanded="true" aria-controls="artifact-selection">
+                                    <i class="bi bi-chevron-up text-muted"></i>
+                                </button>
+                            </div>
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="artifact-selector" class="form-label"><strong>Select Artifact:</strong></label>
+                                        <select class="form-select form-select-lg" id="artifact-selector">
+                                            <option value="">Loading artifacts...</option>
+                                        </select>
+                                        <div class="form-text">
+                                            Choose a saved tree to view and edit
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label d-block">&nbsp;</label>
+                                        <button id="load-artifact-btn" class="btn btn-purple btn-lg w-100" style="background: linear-gradient(45deg, #6f42c1, #e83e8c); border: none;" disabled>
+                                            📂 Load Artifact
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label d-block">&nbsp;</label>
+                                        <button id="delete-artifact-btn" class="btn btn-outline-danger btn-lg w-100" disabled>
+                                            <i class="bi bi-trash"></i> Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Artifact Display -->
+                <div id="artifact-section" style="display: none;">
+                    <!-- Stats Section -->
+                    <div id="artifact-stats" class="clustering-stats">
+                        <!-- Stats will be populated here -->
+                    </div>
+                    
+                    <!-- Hierarchical Tree Container -->
+                    <div class="tree-container">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5><i class="bi bi-diagram-2"></i> Hierarchical Tree (Editable)</h5>
+                            <div>
+                                <button id="expand-all-btn" class="btn btn-outline-secondary btn-sm me-2">
+                                    <i class="bi bi-arrows-expand"></i> Expand All
+                                </button>
+                                <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm me-2">
+                                    <i class="bi bi-arrows-collapse"></i> Collapse All
+                                </button>
+                                <button id="save-changes-btn" class="btn btn-success btn-sm">
+                                    <i class="bi bi-save"></i> Save Changes
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Level Flattening Controls -->
+                        <div id="level-controls" class="mb-3">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="fw-bold text-muted">Flatten at Level:</span>
+                                <div id="level-buttons" class="btn-group" role="group">
+                                    <!-- Level buttons will be populated here -->
+                                </div>
+                                <button id="show-tree-btn" class="btn btn-outline-primary btn-sm ms-2" style="display: none;">
+                                    <i class="bi bi-diagram-2"></i> Show Tree View
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="tree-content">
+                            <!-- Tree will be populated here -->
+                        </div>
+                        
+                        <!-- Flattened Content (shown when level is selected) -->
+                        <div id="flattened-content" style="display: none;">
+                            <!-- Flattened view will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Loading Spinner -->
+                <div id="loading-section" class="text-center" style="display: none; padding: 50px;">
+                    <div class="spinner-border text-purple" role="status" style="width: 3rem; height: 3rem;">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <h5 class="mt-3">Loading artifact...</h5>
+                    <p class="text-muted">Please wait while we load your tree data.</p>
+                </div>
+
+                <!-- No Artifacts -->
+                <div id="no-artifacts" class="text-center" style="display: none;">
+                    <i class="bi bi-archive" style="font-size: 3rem; color: #6c757d;"></i>
+                    <h3 class="mt-3">No Artifacts Found</h3>
+                    <p class="text-muted">Create some tree artifacts from the <a href="{{ url_for('main.cluster_tree') }}">Cluster Tree</a> page first.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Generation Modal -->
+<div class="modal fade" id="aiGenerationModal" tabindex="-1" aria-labelledby="aiGenerationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="aiGenerationModalLabel">
+                    <i class="fa fa-wand-magic-sparkles text-purple"></i> AI Generate Representative Text
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Model Selection -->
+                <div class="mb-3">
+                    <label for="ai-model-select" class="form-label"><strong>AI Model:</strong></label>
+                    <select class="form-select" id="ai-model-select">
+                        <option value="gpt-4o">GPT-4o (Recommended)</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini (Faster)</option>
+                        <option value="gpt-4o-2024-11-20">GPT-4.1 (Latest)</option>
+                    </select>
+                </div>
+                
+                <!-- Prompt Input -->
+                <div class="mb-3">
+                    <label for="ai-prompt" class="form-label"><strong>Prompt:</strong></label>
+                    <textarea class="form-control" id="ai-prompt" rows="3" placeholder="Enter your prompt..."></textarea>
+                    <div class="form-text">
+                        This prompt will be sent along with all learning goals from the selected region.
+                    </div>
+                </div>
+                
+                <!-- Recursive Generation Option -->
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="recursive-generation" onchange="updateRecursivePreview()">
+                        <label class="form-check-label" for="recursive-generation">
+                            <strong>Apply to all nested groups recursively</strong>
+                        </label>
+                    </div>
+                    <div class="form-text">
+                        When checked, generates representative text for every collapsible region nested under the selected one.
+                    </div>
+                    <div id="recursive-warning" class="alert alert-warning mt-2" style="display: none;">
+                        <i class="fa fa-exclamation-triangle"></i> 
+                        <strong>Warning:</strong> This will run <span id="recursive-count">0</span> AI generation queries.
+                        This may take several minutes and consume significant AI credits.
+                    </div>
+                </div>
+                
+                <!-- Learning Goals Preview -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0"><strong>Learning Goals Context:</strong></label>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="toggle-goals-preview">
+                            <i class="bi bi-chevron-down"></i> Show Goals
+                        </button>
+                    </div>
+                    <div id="goals-preview" class="goal-preview" style="display: none;">
+                        <!-- Goals will be populated here -->
+                    </div>
+                    <div class="form-text">
+                        <span id="goals-count">0</span> learning goals will be included as context<span id="recursive-context-info"></span>.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-purple" id="generate-ai-text" style="background: linear-gradient(45deg, #6f42c1, #e83e8c); border: none;">
+                    <i class="fa fa-wand-magic-sparkles"></i> Generate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let currentArtifact = null;
+let currentArtifactId = null;
+let availableArtifacts = [];
+let flattenedAtLevel = null;
+let currentAINodeId = null;
+
+$(document).ready(function() {
+    // Load available artifacts on page load
+    loadAvailableArtifacts();
+    
+    // Handle collapse/expand of artifact selection
+    $('#artifact-selection').on('show.bs.collapse', function() {
+        $('#collapsed-title').addClass('hidden');
+    });
+    
+    $('#artifact-selection').on('hide.bs.collapse', function() {
+        $('#collapsed-title').removeClass('hidden');
+    });
+    
+    // Artifact selector change handler
+    $('#artifact-selector').change(function() {
+        const selectedId = $(this).val();
+        $('#load-artifact-btn').prop('disabled', !selectedId);
+        $('#delete-artifact-btn').prop('disabled', !selectedId);
+    });
+    
+    // Load artifact button handler
+    $('#load-artifact-btn').click(function() {
+        const selectedId = $('#artifact-selector').val();
+        if (selectedId) {
+            loadArtifact(selectedId);
+        }
+    });
+    
+    // Delete artifact button handler
+    $('#delete-artifact-btn').click(function() {
+        const selectedId = $('#artifact-selector').val();
+        if (selectedId && confirm('Are you sure you want to delete this artifact? This action cannot be undone.')) {
+            deleteArtifact(selectedId);
+        }
+    });
+    
+    // Tree control buttons
+    $('#expand-all-btn').click(expandAll);
+    $('#collapse-all-btn').click(collapseAll);
+    $('#save-changes-btn').click(saveChanges);
+    $('#show-tree-btn').click(showTreeView);
+    
+    // AI Generation Modal handlers
+    $('#toggle-goals-preview').click(function() {
+        const preview = $('#goals-preview');
+        const btn = $(this);
+        const icon = btn.find('i');
+        
+        if (preview.is(':visible')) {
+            preview.slideUp();
+            icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
+            btn.html('<i class="bi bi-chevron-down"></i> Show Goals');
+        } else {
+            preview.slideDown();
+            icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+            btn.html('<i class="bi bi-chevron-up"></i> Hide Goals');
+        }
+    });
+    
+    $('#generate-ai-text').click(function() {
+        generateAIText();
+    });
+});
+
+function loadAvailableArtifacts() {
+    // Show loading spinner
+    $('#loading-section').show();
+    $('#artifact-section').hide();
+    $('#no-artifacts').hide();
+    
+    $.get('/api/get-artifacts')
+        .done(function(response) {
+            if (response.success && response.artifacts.length > 0) {
+                availableArtifacts = response.artifacts;
+                
+                // Populate artifact selector
+                let optionsHtml = '<option value="">Select an artifact...</option>';
+                response.artifacts.forEach(artifact => {
+                    const date = new Date(artifact.created_at).toLocaleDateString();
+                    optionsHtml += `<option value="${artifact.id}">${artifact.name} (${artifact.total_goals} goals, ${date})</option>`;
+                });
+                
+                $('#artifact-selector').html(optionsHtml);
+                
+                // Auto-load the first artifact
+                const firstArtifactId = response.artifacts[0].id;
+                $('#artifact-selector').val(firstArtifactId);
+                $('#load-artifact-btn').prop('disabled', false);
+                $('#delete-artifact-btn').prop('disabled', false);
+                
+                // Load the first artifact automatically
+                loadArtifact(firstArtifactId);
+                
+            } else {
+                $('#loading-section').hide();
+                $('#artifact-selector').html('<option value="">No artifacts found</option>');
+                $('#no-artifacts').show();
+            }
+        })
+        .fail(function() {
+            $('#loading-section').hide();
+            $('#artifact-selector').html('<option value="">Error loading artifacts</option>');
+            $('#no-artifacts').show();
+        });
+}
+
+function loadArtifact(artifactId) {
+    currentArtifactId = artifactId;
+    
+    $.get(`/api/get-artifact/${artifactId}`)
+        .done(function(response) {
+            if (response.success) {
+                currentArtifact = response.artifact;
+                $('#loading-section').hide();
+                displayArtifact(currentArtifact);
+            } else {
+                $('#loading-section').hide();
+                alert('Failed to load artifact: ' + response.message);
+            }
+        })
+        .fail(function() {
+            $('#loading-section').hide();
+            alert('Failed to load artifact: Network error');
+        });
+}
+
+function displayArtifact(artifact) {
+    $('#no-artifacts').hide();
+    $('#artifact-section').show();
+    
+    // Display stats
+    displayStats(artifact);
+    
+    // Display tree using the updated functions
+    displayTree(artifact.tree_structure);
+    
+    console.log('Artifact loaded:', artifact.name);
+}
+
+function displayStats(artifact) {
+    // Ensure total_goals is treated as a number to avoid string concatenation issues
+    const totalGoals = parseInt(artifact.total_goals) || 0;
+    
+    const statsHtml = `
+        <h5><i class="bi bi-archive"></i> Artifact: ${artifact.name}</h5>
+        <div class="row mb-2">
+            <div class="col-md-3">
+                <strong>Total Goals:</strong> ${totalGoals}
+            </div>
+            <div class="col-md-3">
+                <strong>Parameters:</strong> ${artifact.parameter_summary}
+            </div>
+            <div class="col-md-3">
+                <strong>Created:</strong> ${new Date(artifact.created_at).toLocaleDateString()}
+            </div>
+            <div class="col-md-3">
+                <strong>Modified:</strong> ${new Date(artifact.modified_at).toLocaleDateString()}
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <strong>Source:</strong> ${artifact.metadata.created_from || 'Unknown'}
+                ${artifact.parameters.course_filter ? ` | Course: ${artifact.parameters.course_filter}` : ''}
+            </div>
+        </div>
+    `;
+    $('#artifact-stats').html(statsHtml);
+}
+
+function displayTree(treeStructure) {
+    // Generate level buttons
+    generateLevelButtons(treeStructure);
+    
+    // Build tree HTML with new layout
+    const treeHtml = treeStructure.map(node => buildTreeNode(node, 0)).join('');
+    $('#tree-content').html(treeHtml);
+    
+    // Show tree view
+    $('#tree-content').show();
+    $('#flattened-content').hide();
+    $('#show-tree-btn').hide();
+}
+
+function generateLevelButtons(nodes) {
+    const maxDepth = findMaxDepth(nodes);
+    let buttonsHtml = '';
+    
+    for (let level = 0; level <= maxDepth; level++) {
+        const levelLabel = String.fromCharCode(65 + level); // A, B, C, etc.
+        const groupCount = countGroupsAtLevel(nodes, level);
+        const totalGoals = countGoalsAtLevel(nodes, level);
+        const avgGoalsPerGroup = groupCount > 0 ? Math.round(totalGoals / groupCount) : 0;
+        
+        buttonsHtml += `
+            <button class="btn btn-outline-secondary level-button" data-level="${level}">
+                <strong>${levelLabel}</strong>
+                <small>${groupCount} groups</small>
+                <small style="font-size: 0.65em; opacity: 0.8;">${avgGoalsPerGroup} avg goals</small>
+            </button>
+        `;
+    }
+    
+    $('#level-buttons').html(buttonsHtml);
+    
+    // Add click handlers
+    $('.level-button').click(function() {
+        const level = parseInt($(this).data('level'));
+        flattenAtLevel(level);
+    });
+}
+
+function countGroupsAtLevel(nodes, targetLevel, currentLevel = 0) {
+    let count = 0;
+    nodes.forEach(node => {
+        if (currentLevel === targetLevel) {
+            count += 1; // Count this group
+        } else if (node.children && node.children.length > 0 && currentLevel < targetLevel) {
+            count += countGroupsAtLevel(node.children, targetLevel, currentLevel + 1);
+        }
+    });
+    return count;
+}
+
+function findMaxDepth(nodes, currentDepth = 0) {
+    let maxDepth = currentDepth;
+    nodes.forEach(node => {
+        if (node.children && node.children.length > 0) {
+            maxDepth = Math.max(maxDepth, findMaxDepth(node.children, currentDepth + 1));
+        }
+    });
+    return maxDepth;
+}
+
+function countGoalsAtLevel(nodes, targetLevel, currentLevel = 0) {
+    let count = 0;
+    nodes.forEach(node => {
+        if (currentLevel === targetLevel) {
+            count += countAllGoalsInSubtree(node);
+        } else if (node.children && node.children.length > 0 && currentLevel < targetLevel) {
+            count += countGoalsAtLevel(node.children, targetLevel, currentLevel + 1);
+        }
+    });
+    return count;
+}
+
+function countAllGoalsInSubtree(node) {
+    let count = (node.goals || []).length;
+    if (node.children) {
+        node.children.forEach(child => {
+            count += countAllGoalsInSubtree(child);
+        });
+    }
+    return count;
+}
+
+function buildTreeNode(node, level = 0) {
+    const levelClass = level <= 10 ? `tree-level-${level}` : 'tree-level-deep';
+    const hasChildren = node.children && node.children.length > 0;
+    const hasGoals = node.goals && node.goals.length > 0;
+    
+    // Get representative text and determine state
+    let representativeText = node.representative_goal || '';
+    let textState = node.text_state || 'default';
+    let aiPrompt = node.ai_prompt || '';
+    
+    // Get appropriate icon based on state
+    let stateIcon = 'fa-quote-left'; // default
+    if (textState === 'manual') {
+        stateIcon = 'fa-pencil';
+    } else if (textState === 'ai') {
+        stateIcon = 'fa-wand-magic-sparkles';
+    }
+    
+    // If no representative text, create one from goals
+    if (!representativeText && hasGoals) {
+        representativeText = node.goals.reduce((longest, current) => 
+            current.length > longest.length ? current : longest
+        );
+    } else if (!representativeText && hasChildren) {
+        representativeText = findRepresentativeGoal(node);
+    }
+    
+    let nodeHtml = `<div class="tree-node ${levelClass}" data-level="${level}" data-node-id="${node.id}">`;
+    
+    // Check if this node represents no subdivision
+    const isNoSubdivision = hasChildren && node.children.length === 1 && 
+                           node.children[0].size === node.size;
+    const subdivisionClass = isNoSubdivision ? ' no-subdivision' : '';
+    
+    // NEW LAYOUT: [Large Black Text][Icon][Auto-Gen Button][Small Gray Label][Size]
+    nodeHtml += `
+        <div class="cluster-header${subdivisionClass}" onclick="toggleCluster('${node.id}')">
+            ${hasChildren ? '<i class="bi bi-chevron-right collapse-icon"></i>' : '<i class="bi bi-circle-fill collapse-icon" style="font-size: 0.5em;"></i>'}
+            
+            <div class="cluster-representative" 
+                 contenteditable="true"
+                 data-state="${textState}"
+                 onclick="event.stopPropagation(); startEditing(this)"
+                 onblur="saveRepresentativeText(this, '${node.id}')"
+                 onkeydown="handleRepresentativeKeydown(event, this, '${node.id}')">
+                <i class="fa ${stateIcon} text-state-icon"></i>
+                <span class="representative-text">${representativeText}</span>
+            </div>
+            
+            <button class="auto-generate-btn" onclick="event.stopPropagation(); openAIGenerationModal('${node.id}')" title="Generate with AI">
+                <i class="fa fa-wand-magic-sparkles"></i>
+            </button>
+            
+            <span class="cluster-label">${node.label}</span>
+            <span class="cluster-size">${node.size || 0}</span>
+        </div>
+    `;
+    
+    // Cluster content (goals for leaf nodes, children for branch nodes)
+    if ((hasGoals || hasChildren) && (hasGoals || node.size > 0)) {
+        nodeHtml += `<div class="cluster-content" id="content-${node.id}" style="display: none;">`;
+        
+        if (hasGoals) {
+            node.goals.forEach(function(goal, index) {
+                const source = node.sources ? node.sources[index] : {};
+                nodeHtml += `
+                    <div class="goal-item">
+                        <div class="goal-text">"${goal}"</div>
+                        <div class="goal-source">
+                            📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                            👤 ${truncateText(source.creator || 'Unknown', 15)}
+                            ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        if (hasChildren) {
+            node.children.forEach(child => {
+                nodeHtml += buildTreeNode(child, level + 1);
+            });
+        }
+        
+        nodeHtml += `</div>`;
+    }
+    
+    nodeHtml += `</div>`;
+    return nodeHtml;
+}
+
+function findRepresentativeGoal(node) {
+    // Recursively find a representative goal from children
+    if (node.goals && node.goals.length > 0) {
+        return node.goals.reduce((longest, current) => 
+            current.length > longest.length ? current : longest
+        );
+    }
+    
+    if (node.children) {
+        for (let child of node.children) {
+            const childRep = findRepresentativeGoal(child);
+            if (childRep) return childRep;
+        }
+    }
+    
+    return '';
+}
+
+function truncateText(text, maxLength) {
+    if (!text) return '';
+    return text.length <= maxLength ? text : text.substring(0, maxLength - 3) + '...';
+}
+
+function startEditing(element) {
+    $(element).addClass('editing');
+    // Don't interfere with the browser's natural cursor placement
+    // The contenteditable element will handle cursor positioning automatically
+}
+
+function editRepresentativeText(element) {
+    $(element).addClass('editing');
+    
+    // Don't auto-select all text - let the user click where they want to edit
+    // Just ensure the element is focused
+    element.focus();
+    
+    // If the user wants to select all, they can use Ctrl+A
+    // For now, just place the cursor at the end if no selection is made
+    setTimeout(() => {
+        if (window.getSelection().toString() === '') {
+            // No text is selected, place cursor at click position
+            // The browser will naturally handle this when we don't interfere
+        }
+    }, 10);
+}
+
+function saveRepresentativeText(element, nodeId) {
+    $(element).removeClass('editing');
+    const textSpan = $(element).find('.representative-text');
+    const newText = textSpan.text().trim();
+    
+    if (!newText) {
+        alert('Representative text cannot be empty');
+        return;
+    }
+    
+    // Update the state to manual and change icon
+    const icon = $(element).find('.text-state-icon');
+    icon.removeClass('fa-quote-left fa-wand-magic-sparkles').addClass('fa-pencil');
+    
+    // Set data-state attribute to manual
+    $(element).attr('data-state', 'manual');
+    
+    // Mark as changed for saving later
+    element.setAttribute('data-changed', 'true');
+    element.style.backgroundColor = '#fff3cd'; // Light yellow to indicate unsaved changes
+}
+
+function handleRepresentativeKeydown(event, element, nodeId) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        element.blur();
+    } else if (event.key === 'Escape') {
+        // Restore original text (would need to be stored)
+        element.blur();
+    }
+}
+
+function openAIGenerationModal(nodeId) {
+    currentAINodeId = nodeId;
+    
+    // Find the node in the current artifact
+    const node = findNodeById(currentArtifact.tree_structure, nodeId);
+    if (!node) {
+        alert('Node not found');
+        return;
+    }
+    
+    // Set default prompt or use saved prompt
+    const defaultPrompt = "Please provide a brief overarching learning goal (or skill) that encapsulates, specifically all of the learning goals or skills in the list below.";
+    const savedPrompt = node.ai_prompt || defaultPrompt;
+    $('#ai-prompt').val(savedPrompt);
+    
+    // Reset recursive checkbox
+    $('#recursive-generation').prop('checked', false);
+    
+    // Collect all goals from this region
+    const allGoals = collectAllGoalsFromNode(node);
+    
+    // Populate goals preview
+    let goalsHtml = '';
+    allGoals.forEach((goalData, index) => {
+        goalsHtml += `
+            <div class="goal-preview-item">
+                <div class="goal-preview-text">"${goalData.goal}"</div>
+                <div class="goal-preview-source">
+                    📄 ${goalData.source.document_name || 'Unknown'} | 
+                    👤 ${goalData.source.creator || 'Unknown'}
+                    ${goalData.source.course_name ? ` | 📚 ${goalData.source.course_name}` : ''}
+                </div>
+            </div>
+        `;
+    });
+    
+    $('#goals-preview').html(goalsHtml);
+    $('#goals-count').text(allGoals.length);
+    
+    // Update recursive preview
+    updateRecursivePreview();
+    
+    // Show the modal
+    $('#aiGenerationModal').modal('show');
+}
+
+function findNodeById(nodes, targetId) {
+    for (let node of nodes) {
+        if (node.id === targetId) {
+            return node;
+        }
+        if (node.children) {
+            const found = findNodeById(node.children, targetId);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function collectAllGoalsFromNode(node) {
+    let allGoals = [];
+    
+    // Add goals from this node
+    if (node.goals) {
+        node.goals.forEach((goal, index) => {
+            const source = node.sources ? node.sources[index] : {};
+            allGoals.push({
+                goal: goal,
+                source: source
+            });
+        });
+    }
+    
+    // Add goals from children recursively
+    if (node.children) {
+        node.children.forEach(child => {
+            allGoals = allGoals.concat(collectAllGoalsFromNode(child));
+        });
+    }
+    
+    return allGoals;
+}
+
+function generateAIText() {
+    const model = $('#ai-model-select').val();
+    const prompt = $('#ai-prompt').val().trim();
+    const isRecursive = $('#recursive-generation').is(':checked');
+    
+    if (!prompt) {
+        alert('Please enter a prompt');
+        return;
+    }
+    
+    if (!currentAINodeId) {
+        alert('No node selected');
+        return;
+    }
+    
+    // Find the node
+    const node = findNodeById(currentArtifact.tree_structure, currentAINodeId);
+    if (!node) {
+        alert('Node not found');
+        return;
+    }
+    
+    if (isRecursive) {
+        // Get user confirmation for recursive generation
+        const recursiveNodes = collectRecursiveNodes(node);
+        const confirmMessage = `This will generate AI text for ${recursiveNodes.length} groups. This may take several minutes and consume significant AI credits. Continue?`;
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        generateRecursiveAIText(recursiveNodes, model, prompt);
+    } else {
+        generateSingleAIText(node, model, prompt);
+    }
+}
+
+function generateSingleAIText(node, model, prompt) {
+    const generateBtn = $('#generate-ai-text');
+    generateBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Generating...');
+    
+    // Collect goals for this node only
+    const allGoals = collectAllGoalsFromNode(node);
+    const goalsList = allGoals.map(g => `"${g.goal}"`).join('\n');
+    const fullPrompt = `${prompt}\n\nLearning goals:\n${goalsList}`;
+    
+    // Send to API
+    $.ajax({
+        url: '/api/generate-representative-text',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            artifact_id: currentArtifactId,
+            node_id: currentAINodeId,
+            prompt: prompt,
+            full_prompt: fullPrompt,
+            model: model
+        })
+    })
+    .done(function(response) {
+        if (response.success) {
+            updateNodeUI(currentAINodeId, response.generated_text, 'ai');
+            $('#aiGenerationModal').modal('hide');
+        } else {
+            alert('Failed to generate text: ' + response.message);
+        }
+    })
+    .fail(function() {
+        alert('Failed to generate text: Network error');
+    })
+    .always(function() {
+        generateBtn.prop('disabled', false).html('<i class="fa fa-wand-magic-sparkles"></i> Generate');
+    });
+}
+
+function generateRecursiveAIText(recursiveNodes, model, prompt) {
+    const generateBtn = $('#generate-ai-text');
+    generateBtn.prop('disabled', true);
+    
+    let completed = 0;
+    let successful = 0;
+    let errors = 0;
+    const total = recursiveNodes.length;
+    
+    // Collect all results in memory - NO database saves during generation
+    const generatedResults = [];
+    const failedNodes = [];
+    
+    // Add progress indicator to the modal title
+    const modalTitle = $('#aiGenerationModalLabel');
+    const originalTitle = modalTitle.html();
+    
+    // Process each node
+    recursiveNodes.forEach((nodeData, index) => {
+        const goalsList = nodeData.goals.map(g => `"${g.goal}"`).join('\n');
+        const fullPrompt = `${prompt}\n\nLearning goals:\n${goalsList}`;
+        
+        // Update progress in button and modal title
+        const progressText = `Generating ${index + 1}/${total}`;
+        generateBtn.html(`<i class="fa fa-spinner fa-spin"></i> ${progressText}...`);
+        modalTitle.html(`<i class="fa fa-wand-magic-sparkles text-purple"></i> AI Generate - ${progressText}`);
+        
+        // Small delay between requests to avoid overwhelming the API
+        setTimeout(() => {
+            $.ajax({
+                url: '/api/generate-representative-text',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    artifact_id: currentArtifactId,
+                    node_id: nodeData.id,
+                    prompt: prompt,
+                    full_prompt: fullPrompt,
+                    model: model,
+                    skip_save: true  // NEW: Skip individual saves during batch operations
+                })
+            })
+            .done(function(response) {
+                if (response.success) {
+                    // Store result in memory and update UI immediately
+                    generatedResults.push({
+                        node_id: nodeData.id,
+                        representative_text: response.generated_text,
+                        text_state: 'ai'
+                    });
+                    
+                    // Update UI immediately for visual feedback
+                    updateNodeUI(nodeData.id, response.generated_text, 'ai');
+                    successful++;
+                } else {
+                    failedNodes.push({
+                        node_id: nodeData.id,
+                        error: response.message
+                    });
+                    errors++;
+                    console.error(`Failed to generate for node ${nodeData.id}:`, response.message);
+                }
+            })
+            .fail(function() {
+                failedNodes.push({
+                    node_id: nodeData.id,
+                    error: 'Network error'
+                });
+                errors++;
+                console.error(`Network error for node ${nodeData.id}`);
+            })
+            .always(function() {
+                completed++;
+                
+                // Update progress with completion status
+                const completedText = `Completed ${completed}/${total} (${successful} successful, ${errors} failed)`;
+                generateBtn.html(`<i class="fa fa-spinner fa-spin"></i> ${completedText}`);
+                modalTitle.html(`<i class="fa fa-wand-magic-sparkles text-purple"></i> AI Generate - ${completedText}`);
+                
+                if (completed === total) {
+                    // All generations complete - now save everything in one batch
+                    if (generatedResults.length > 0) {
+                        batchSaveAIResults(generatedResults, originalTitle, modalTitle, generateBtn, successful, errors, total);
+                    } else {
+                        // No successful results to save
+                        setTimeout(() => {
+                            modalTitle.html(originalTitle);
+                            generateBtn.prop('disabled', false).html('<i class="fa fa-wand-magic-sparkles"></i> Generate');
+                            alert(`❌ All generations failed. No changes to save.`);
+                        }, 1000);
+                    }
+                }
+            });
+        }, index * 500); // 500ms delay between requests
+    });
+}
+
+function batchSaveAIResults(generatedResults, originalTitle, modalTitle, generateBtn, successful, errors, total) {
+    // Since individual saves already happened in the backend, we just need to:
+    // 1. Clean up UI change indicators 
+    // 2. Show final success message
+    // 3. Avoid redundant database saves
+    
+    // Show finalizing progress
+    const finalizingText = `Finalizing ${generatedResults.length} changes...`;
+    generateBtn.html(`<i class="fa fa-spinner fa-spin"></i> ${finalizingText}`);
+    modalTitle.html(`<i class="fa fa-check-circle text-purple"></i> AI Generate - ${finalizingText}`);
+    
+    // Simulate brief processing time for UX (no actual backend call needed)
+    setTimeout(() => {
+        // Clear all change indicators since saves already happened during generation
+        generatedResults.forEach(result => {
+            const nodeElements = $(`[data-changed="true"]`).filter(function() {
+                const nodeId = $(this).closest('[data-node-id]').data('node-id');
+                return nodeId === result.node_id;
+            });
+            nodeElements.each(function() {
+                $(this).removeAttr('data-changed');
+                $(this).css('backgroundColor', '');
+            });
+        });
+        
+        // Show final success
+        generateBtn.html(`<i class="fa fa-check text-success"></i> All completed successfully!`);
+        modalTitle.html(`<i class="fa fa-check text-success"></i> Generation Complete!`);
+        
+        setTimeout(() => {
+            modalTitle.html(originalTitle);
+            generateBtn.prop('disabled', false).html('<i class="fa fa-wand-magic-sparkles"></i> Generate');
+            $('#aiGenerationModal').modal('hide');
+            
+            if (errors === 0) {
+                alert(`🎉 Successfully generated and saved text for all ${total} groups!\n\n⚡ Each result was saved individually as generated.`);
+            } else {
+                alert(`📊 Generation completed!\n✅ Generated & Saved: ${successful}\n❌ Failed: ${errors}\n📝 Total: ${total}\n\n⚡ All successful results were saved as they were generated.`);
+            }
+        }, 1500);
+    }, 800); // Brief delay for finalizing UX
+}
+
+function updateNodeUI(nodeId, generatedText, state) {
+    let nodeElement, textSpan, icon;
+    
+    if ($('#flattened-content').is(':visible')) {
+        // Flattened view is active - find the representative element by node ID
+        // We need to find which flattened cluster contains this node ID
+        nodeElement = $(`#flattened-content .cluster-representative`).filter(function() {
+            // Check if the onblur attribute contains this nodeId
+            const onblurAttr = $(this).attr('onblur');
+            return onblurAttr && onblurAttr.includes(`'${nodeId}'`);
+        });
+    } else {
+        // Tree view is active - use the existing selector
+        nodeElement = $(`.tree-node[data-node-id="${nodeId}"] > .cluster-header > .cluster-representative`);
+    }
+    
+    if (nodeElement.length === 0) {
+        console.error(`Could not find node element for ID: ${nodeId}`);
+        return;
+    }
+    
+    textSpan = nodeElement.find('.representative-text');
+    icon = nodeElement.find('.text-state-icon');
+    
+    textSpan.text(generatedText);
+    icon.removeClass('fa-quote-left fa-pencil').addClass('fa-wand-magic-sparkles');
+    
+    // Set data-state attribute
+    nodeElement.attr('data-state', state);
+    
+    // Mark as changed for saving
+    nodeElement[0].setAttribute('data-changed', 'true');
+    nodeElement[0].style.backgroundColor = '#e1f5fe'; // Light blue for AI
+}
+
+function collectRecursiveNodes(rootNode) {
+    const nodes = [];
+    
+    function collectNode(node) {
+        // Add this node if it has goals or children (any collapsible region)
+        const hasChildren = node.children && node.children.length > 0;
+        const hasGoals = node.goals && node.goals.length > 0;
+        
+        if (hasChildren || hasGoals) {
+            const allGoals = collectAllGoalsFromNode(node);
+            // Only include groups with more than 1 goal (no point generating for single goals)
+            if (allGoals.length > 1) {
+                nodes.push({
+                    id: node.id,
+                    label: node.label,
+                    goals: allGoals
+                });
+            }
+        }
+        
+        // Recursively collect from children
+        if (hasChildren) {
+            node.children.forEach(child => {
+                collectNode(child);
+            });
+        }
+    }
+    
+    collectNode(rootNode);
+    return nodes;
+}
+
+function updateRecursivePreview() {
+    const isRecursive = $('#recursive-generation').is(':checked');
+    const warning = $('#recursive-warning');
+    const recursiveInfo = $('#recursive-context-info');
+    
+    if (isRecursive && currentAINodeId) {
+        const node = findNodeById(currentArtifact.tree_structure, currentAINodeId);
+        if (node) {
+            const recursiveNodes = collectRecursiveNodes(node);
+            $('#recursive-count').text(recursiveNodes.length);
+            warning.show();
+            
+            // Update context info
+            if (recursiveNodes.length > 1) {
+                recursiveInfo.text(` (${recursiveNodes.length} total queries)`);
+            } else {
+                recursiveInfo.text('');
+            }
+        }
+    } else {
+        warning.hide();
+        recursiveInfo.text('');
+    }
+}
+
+function flattenAtLevel(level) {
+    flattenedAtLevel = level;
+    
+    // Update button states
+    $('.level-button').removeClass('active');
+    $(`.level-button[data-level="${level}"]`).addClass('active');
+    
+    // Generate flattened view
+    const flattened = flattenTreeAtLevel(currentArtifact.tree_structure, level);
+    displayFlattenedView(flattened, level);
+    
+    // Show flattened content, hide tree
+    $('#tree-content').hide();
+    $('#flattened-content').show();
+    $('#show-tree-btn').show();
+}
+
+function flattenTreeAtLevel(nodes, targetLevel, currentLevel = 0) {
+    let flattened = [];
+    
+    nodes.forEach(node => {
+        if (currentLevel === targetLevel) {
+            // Collect all goals from this node and its children
+            const allGoals = collectAllGoalsFromNode(node);
+            if (allGoals.length > 0) {
+                flattened.push({
+                    label: node.label,
+                    representative: node.representative_goal || '',
+                    goals: allGoals.map(g => g.goal),
+                    size: allGoals.length,
+                    originalNode: node
+                });
+            }
+        } else if (node.children && node.children.length > 0 && currentLevel < targetLevel) {
+            flattened = flattened.concat(flattenTreeAtLevel(node.children, targetLevel, currentLevel + 1));
+        }
+    });
+    
+    return flattened;
+}
+
+function displayFlattenedView(flattened, level) {
+    const levelLabel = String.fromCharCode(65 + level);
+    const totalGoals = flattened.reduce((sum, cluster) => sum + cluster.size, 0);
+    
+    let flattenedHtml = `
+        <div class="mb-3">
+            <h5><i class="bi bi-list-ul"></i> Flattened View - Level ${levelLabel}</h5>
+            <small class="text-muted">${flattened.length} clusters, ${totalGoals} total goals</small>
+        </div>
+    `;
+    
+    flattened.forEach((cluster, index) => {
+        // Get the original node's state information
+        const originalNode = cluster.originalNode;
+        const representativeText = originalNode.representative_goal || '';
+        const textState = originalNode.text_state || 'default';
+        
+        // Get appropriate icon based on state
+        let stateIcon = 'fa-quote-left'; // default
+        if (textState === 'manual') {
+            stateIcon = 'fa-pencil';
+        } else if (textState === 'ai') {
+            stateIcon = 'fa-wand-magic-sparkles';
+        }
+        
+        flattenedHtml += `
+            <div class="flattened-cluster">
+                <div class="cluster-header" onclick="toggleFlattenedCluster('flattened-${index}')">
+                    <i class="bi bi-chevron-right collapse-icon"></i>
+                    
+                    <div class="cluster-representative" 
+                         contenteditable="true"
+                         data-state="${textState}"
+                         onclick="event.stopPropagation(); startEditing(this)"
+                         onblur="saveRepresentativeText(this, '${originalNode.id}')"
+                         onkeydown="handleRepresentativeKeydown(event, this, '${originalNode.id}')">
+                        <i class="fa ${stateIcon} text-state-icon"></i>
+                        <span class="representative-text">${representativeText}</span>
+                    </div>
+                    
+                    <button class="auto-generate-btn" onclick="event.stopPropagation(); openAIGenerationModal('${originalNode.id}')" title="Generate with AI">
+                        <i class="fa fa-wand-magic-sparkles"></i>
+                    </button>
+                    
+                    <span class="cluster-label">${cluster.label}</span>
+                    <span class="cluster-size">${cluster.size}</span>
+                </div>
+                <div class="cluster-content" id="flattened-content-${index}" style="display: none;">
+        `;
+        
+        cluster.goals.forEach(goal => {
+            flattenedHtml += `
+                <div class="goal-item">
+                    <div class="goal-text">"${goal}"</div>
+                </div>
+            `;
+        });
+        
+        flattenedHtml += `
+                </div>
+            </div>
+        `;
+    });
+    
+    $('#flattened-content').html(flattenedHtml);
+}
+
+function showTreeView() {
+    flattenedAtLevel = null;
+    $('.level-button').removeClass('active');
+    $('#tree-content').show();
+    $('#flattened-content').hide();
+    $('#show-tree-btn').hide();
+}
+
+function toggleCluster(nodeId) {
+    const content = $(`#content-${nodeId}`);
+    const icon = $(`.tree-node[data-node-id="${nodeId}"] > .cluster-header > .collapse-icon`);
+    const header = $(`.tree-node[data-node-id="${nodeId}"] > .cluster-header`);
+    
+    if (content.is(':visible')) {
+        content.slideUp(200);
+        icon.removeClass('expanded');
+        header.removeClass('expanded');
+    } else {
+        content.slideDown(200);
+        icon.addClass('expanded');
+        header.addClass('expanded');
+    }
+}
+
+function toggleFlattenedCluster(clusterId) {
+    const index = clusterId.replace('flattened-', '');
+    const content = $(`#flattened-content-${index}`);
+    const clusterElement = content.closest('.flattened-cluster');
+    const icon = clusterElement.find('.cluster-header .collapse-icon');
+    const header = clusterElement.find('.cluster-header');
+    
+    if (content.is(':visible')) {
+        content.slideUp(200);
+        icon.removeClass('expanded');
+        header.removeClass('expanded');
+    } else {
+        content.slideDown(200);
+        icon.addClass('expanded');
+        header.addClass('expanded');
+    }
+}
+
+function expandAll() {
+    if ($('#flattened-content').is(':visible')) {
+        // Flattened view is active
+        $('#flattened-content .cluster-content').slideDown(200);
+        $('#flattened-content .collapse-icon').addClass('expanded');
+        $('#flattened-content .cluster-header').addClass('expanded');
+    } else {
+        // Tree view is active
+        $('.cluster-content').slideDown(200);
+        $('.collapse-icon').addClass('expanded');
+        $('.cluster-header').addClass('expanded');
+    }
+}
+
+function collapseAll() {
+    if ($('#flattened-content').is(':visible')) {
+        // Flattened view is active
+        $('#flattened-content .cluster-content').slideUp(200);
+        $('#flattened-content .collapse-icon').removeClass('expanded');
+        $('#flattened-content .cluster-header').removeClass('expanded');
+    } else {
+        // Tree view is active
+        $('.cluster-content').slideUp(200);
+        $('.collapse-icon').removeClass('expanded');
+        $('.cluster-header').removeClass('expanded');
+    }
+}
+
+function saveChanges() {
+    if (!currentArtifactId) {
+        alert('No artifact loaded');
+        return;
+    }
+    
+    const saveBtn = $('#save-changes-btn');
+    
+    // Find all changed representative texts
+    const changedTexts = [];
+    $('[data-changed="true"]').each(function() {
+        const nodeId = $(this).closest('[data-node-id]').data('node-id');
+        const newText = $(this).find('.representative-text').text().trim();
+        const state = $(this).attr('data-state') || 'manual';
+        
+        changedTexts.push({
+            node_id: nodeId,
+            representative_text: newText,
+            text_state: state
+        });
+    });
+    
+    if (changedTexts.length === 0) {
+        alert('No changes to save');
+        return;
+    }
+    
+    // Show progress - start with spinner and count
+    saveBtn.prop('disabled', true).html(`<i class="fa fa-spinner fa-spin"></i> Saving ${changedTexts.length} changes...`);
+    
+    // Use batch update API for much better performance
+    $.ajax({
+        url: '/api/batch-update-artifact-representative-texts',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            artifact_id: currentArtifactId,
+            updates: changedTexts
+        })
+    })
+    .done(function(response) {
+        if (response.success) {
+            // Show success animation
+            saveBtn.html('<i class="fa fa-check text-success"></i> Saved Successfully!');
+            
+            // All successful - clear change indicators
+            $('[data-changed="true"]').each(function() {
+                $(this).removeAttr('data-changed');
+                $(this).css('backgroundColor', '');
+            });
+            
+            // Brief success message then return to normal
+            setTimeout(() => {
+                saveBtn.html('<i class="bi bi-save"></i> Save Changes');
+            }, 2500);
+        } else {
+            saveBtn.html('<i class="fa fa-exclamation-triangle text-warning"></i> Save Failed');
+            alert('Failed to save changes: ' + response.message);
+            
+            setTimeout(() => {
+                saveBtn.html('<i class="bi bi-save"></i> Save Changes');
+            }, 3000);
+        }
+    })
+    .fail(function() {
+        saveBtn.html('<i class="fa fa-times text-danger"></i> Network Error');
+        alert('Failed to save changes: Network error');
+        
+        setTimeout(() => {
+            saveBtn.html('<i class="bi bi-save"></i> Save Changes');
+        }, 3000);
+    })
+    .always(function() {
+        // Always re-enable the button after the operation completes
+        setTimeout(() => {
+            saveBtn.prop('disabled', false);
+        }, 2500);
+    });
+}
+
+function deleteArtifact(artifactId) {
+    $.post(`/api/delete-artifact/${artifactId}`)
+        .done(function(response) {
+            if (response.success) {
+                // Reset everything
+                currentArtifact = null;
+                currentArtifactId = null;
+                $('#artifact-section').hide();
+                
+                // Reload artifacts list
+                loadAvailableArtifacts();
+                
+                alert('Artifact deleted successfully');
+            } else {
+                alert('Failed to delete artifact: ' + response.message);
+            }
+        })
+        .fail(function() {
+            alert('Failed to delete artifact: Network error');
+        });
+}
+</script>
+{% endblock %}

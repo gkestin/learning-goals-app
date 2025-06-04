@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 from scipy.spatial.distance import pdist
+import hdbscan
 
 # STEM context prefix for better embeddings
 STEM_CONTEXT = "In STEM education, students should be able to: "
@@ -1016,11 +1017,11 @@ class LearningGoalsClusteringService:
         
         return all_results
 
-    def build_hierarchical_tree(self, embeddings, goals, sources, n_levels=8, linkage_method='ward'):
+    def build_hierarchical_tree(self, embeddings, goals, sources, n_levels=8, linkage_method='ward', sampling_method='intelligent'):
         """Build a complete hierarchical clustering tree with multiple levels and quality metrics"""
         start_time = time.time()
         
-        print(f"🌳 Building hierarchical tree with {n_levels} levels using {linkage_method} linkage")
+        print(f"🌳 Building hierarchical tree with {n_levels} levels using {linkage_method} linkage ({sampling_method} sampling)")
         
         # Compute distance matrix and linkage
         print("📊 Computing distance matrix...")
@@ -1030,82 +1031,187 @@ class LearningGoalsClusteringService:
         linkage_matrix = linkage(distances, method=linkage_method)
         
         # Build tree structure by cutting at different levels
-        tree_structure = self._build_tree_levels(
-            embeddings, goals, sources, linkage_matrix, n_levels
+        tree_result = self._build_tree_levels(
+            embeddings, goals, sources, linkage_matrix, n_levels, sampling_method
         )
         
         elapsed = time.time() - start_time
         print(f"⚡ Hierarchical tree built in {elapsed:.2f} seconds")
         
         return {
-            'tree_structure': tree_structure,
+            'tree_structure': tree_result['nodes'],
+            'level_metrics': tree_result['level_metrics'],
             'total_goals': len(goals),
             'n_levels': n_levels,
             'linkage_method': linkage_method,
+            'sampling_method': sampling_method,
             'processing_time': round(elapsed, 2)
         }
     
-    def _build_tree_levels(self, embeddings, goals, sources, linkage_matrix, n_levels):
+    def _build_tree_levels(self, embeddings, goals, sources, linkage_matrix, n_levels, sampling_method):
         """Build the actual tree structure with nested nodes ensuring complete hierarchical paths"""
         n_samples = len(embeddings)
         
-        # Calculate cluster counts for each level (decreasing granularity)
-        # We'll use the finest granularity for the deepest level and work backwards
-        max_clusters = min(n_samples // 2, 200)  # Cap at reasonable number
-        min_clusters = max(2, min(10, n_samples // 10))  # At least 2, reasonable minimum
+        print(f"📊 Building {n_levels} levels using {sampling_method} sampling")
         
-        # Create logarithmic spacing for more interesting levels
-        if n_levels > 1:
-            # Start with many clusters, end with few
-            cluster_counts = np.logspace(
-                np.log10(max_clusters), 
-                np.log10(min_clusters), 
-                n_levels
-            ).astype(int)
-            # Ensure uniqueness and sort descending (finest to coarsest)
-            cluster_counts = sorted(list(set(cluster_counts)), reverse=True)
-            level_cluster_counts = cluster_counts[:n_levels]
-        else:
-            level_cluster_counts = [min_clusters]
-        
-        print(f"📊 Building {n_levels} levels with cluster counts: {level_cluster_counts}")
-        
-        # Build hierarchical labeling from finest to coarsest
         level_labelings = {}
+        level_metrics = {}
         
-        # Start with the finest clustering (most clusters)
-        finest_n_clusters = level_cluster_counts[0]
-        if finest_n_clusters >= n_samples:
-            finest_n_clusters = n_samples - 1
-        if finest_n_clusters < 2:
-            finest_n_clusters = 2
+        if sampling_method == 'natural':
+            # Original approach: Use sequential distance thresholds (0, 1, 2, 3...)
+            print("  Using natural dendrogram distances (original approach)")
             
-        finest_labels = fcluster(linkage_matrix, finest_n_clusters, criterion='maxclust')
-        level_labelings[0] = finest_labels - 1  # Convert to 0-based indexing
-        
-        # For each subsequent level, create coarser groupings by merging clusters
-        for level in range(1, n_levels):
-            n_clusters = level_cluster_counts[level]
-            if n_clusters >= n_samples:
-                n_clusters = n_samples - 1
-            if n_clusters < 2:
-                n_clusters = 2
+            for level in range(n_levels):
+                distance_threshold = level  # 0, 1, 2, 3, 4, 5, 6, 7, 8, 9...
                 
-            coarse_labels = fcluster(linkage_matrix, n_clusters, criterion='maxclust')
-            level_labelings[level] = coarse_labels - 1  # Convert to 0-based indexing
+                try:
+                    cluster_labels = fcluster(linkage_matrix, distance_threshold, criterion='distance')
+                    level_labelings[level] = cluster_labels - 1  # Convert to 0-based indexing
+                    
+                    # Calculate silhouette score for this level
+                    n_clusters_at_level = len(set(level_labelings[level]))
+                    
+                    # Only calculate metrics if we have multiple clusters and valid clustering
+                    if n_clusters_at_level > 1 and n_clusters_at_level < n_samples:
+                        silhouette_score = self.calculate_cluster_quality_fast(embeddings, level_labelings[level])
+                    else:
+                        silhouette_score = 0.0  # Default for single cluster or invalid clustering
+                    
+                    level_metrics[level] = {
+                        'clusters': n_clusters_at_level,
+                        'silhouette': silhouette_score,
+                        'distance_threshold': distance_threshold
+                    }
+                    
+                    print(f"    Level {level} (distance={distance_threshold}): {n_clusters_at_level} clusters, silhouette={silhouette_score:.3f}")
+                    
+                except Exception as e:
+                    print(f"    Warning: Could not create level {level} with distance {distance_threshold}: {e}")
+                    # Fallback: use previous level's clustering or create single cluster
+                    if level > 0:
+                        level_labelings[level] = level_labelings[level - 1]
+                        level_metrics[level] = level_metrics[level - 1].copy()
+                        level_metrics[level]['distance_threshold'] = distance_threshold
+                    else:
+                        # Create single cluster as fallback
+                        level_labelings[level] = np.zeros(n_samples, dtype=int)
+                        level_metrics[level] = {
+                            'clusters': 1,
+                            'silhouette': 0.0,
+                            'distance_threshold': distance_threshold
+                        }
+        
+        else:  # intelligent sampling
+            # Intelligent approach: Sample dendrogram to get even cluster count distribution
+            print("  Using intelligent dendrogram sampling (gap-filling approach)")
+            
+            # Get all unique distances from the linkage matrix to understand the structure
+            all_distances = np.sort(linkage_matrix[:, 2])
+            
+            # We want cluster counts roughly distributed across the range
+            # Target cluster counts: from n_samples down to 2, distributed across n_levels
+            target_max_clusters = min(n_samples, n_samples // 1)  # Start high
+            target_min_clusters = max(2, min(10, n_samples // 100))  # End reasonable
+            
+            # Create a logarithmic distribution of target cluster counts
+            if n_levels > 1:
+                target_cluster_counts = np.logspace(
+                    np.log10(target_max_clusters), 
+                    np.log10(target_min_clusters), 
+                    n_levels
+                ).astype(int)
+                # Ensure uniqueness and sort descending (finest to coarsest)
+                target_cluster_counts = sorted(list(set(target_cluster_counts)), reverse=True)
+                # Ensure we have exactly n_levels by padding if needed
+                while len(target_cluster_counts) < n_levels:
+                    target_cluster_counts.append(target_cluster_counts[-1])
+                target_cluster_counts = target_cluster_counts[:n_levels]
+            else:
+                target_cluster_counts = [target_min_clusters]
+            
+            print(f"    Target cluster counts: {target_cluster_counts}")
+            
+            # Build hierarchical labeling by finding distances that give target cluster counts
+            for level in range(n_levels):
+                target_clusters = target_cluster_counts[level]
+                
+                # Find the distance threshold that gives closest to target_clusters
+                best_distance = None
+                best_cluster_count = None
+                best_diff = float('inf')
+                
+                # Sample different distances to find the one closest to our target
+                for distance in all_distances:
+                    try:
+                        cluster_labels = fcluster(linkage_matrix, distance, criterion='distance')
+                        n_clusters_at_distance = len(set(cluster_labels))
+                        
+                        # Find distance that gives cluster count closest to target
+                        diff = abs(n_clusters_at_distance - target_clusters)
+                        if diff < best_diff:
+                            best_diff = diff
+                            best_distance = distance
+                            best_cluster_count = n_clusters_at_distance
+                            
+                    except Exception:
+                        continue
+                
+                # If we couldn't find a good distance, try using maxclust as fallback
+                if best_distance is None:
+                    try:
+                        cluster_labels = fcluster(linkage_matrix, target_clusters, criterion='maxclust')
+                        best_cluster_count = len(set(cluster_labels))
+                        best_distance = 0  # Placeholder
+                    except Exception:
+                        # Final fallback: create dummy clustering
+                        cluster_labels = np.zeros(n_samples, dtype=int)
+                        best_cluster_count = 1
+                        best_distance = 0
+                else:
+                    # Use the best distance we found
+                    cluster_labels = fcluster(linkage_matrix, best_distance, criterion='distance')
+                    best_cluster_count = len(set(cluster_labels))
+                
+                level_labelings[level] = cluster_labels - 1  # Convert to 0-based indexing
+                
+                # Calculate silhouette score for this level
+                if best_cluster_count > 1 and best_cluster_count < n_samples:
+                    silhouette_score = self.calculate_cluster_quality_fast(embeddings, level_labelings[level])
+                else:
+                    silhouette_score = 0.0  # Default for single cluster or invalid clustering
+                
+                level_metrics[level] = {
+                    'clusters': best_cluster_count,
+                    'silhouette': silhouette_score,
+                    'distance_threshold': best_distance,
+                    'target_clusters': target_clusters
+                }
+                
+                print(f"    Level {level}: target={target_clusters}, actual={best_cluster_count}, distance={best_distance:.3f}, silhouette={silhouette_score:.3f}")
         
         # Build the complete tree structure ensuring every goal has a path through all levels
         root_nodes = self._build_complete_tree_nodes(
-            embeddings, goals, sources, level_labelings, level_cluster_counts
+            embeddings, goals, sources, level_labelings, n_levels
         )
         
-        return root_nodes
+        # Reverse level_metrics so that frontend Level A (0) = coarsest, Level H = finest
+        reversed_level_metrics = {}
+        for level in range(n_levels):
+            frontend_level = n_levels - 1 - level  # Reverse mapping
+            reversed_level_metrics[frontend_level] = level_metrics[level]
+        
+        return {
+            'nodes': root_nodes,
+            'level_metrics': reversed_level_metrics
+        }
     
-    def _build_complete_tree_nodes(self, embeddings, goals, sources, level_labelings, level_cluster_counts):
+    def _build_complete_tree_nodes(self, embeddings, goals, sources, level_labelings, n_levels):
         """Build complete tree nodes ensuring every goal has a full hierarchical path"""
         
         # Start with the coarsest level (fewest clusters) for root nodes
-        coarsest_level = len(level_cluster_counts) - 1
+        # This is the LAST level in our level_labelings (n_levels - 1)
+        n_levels = len(level_labelings)
+        coarsest_level = n_levels - 1
         root_labels = level_labelings[coarsest_level]
         
         # Create root nodes
@@ -1131,9 +1237,10 @@ class LearningGoalsClusteringService:
             }
             
             # Build complete children ensuring every goal gets a full path
+            # Start from coarsest_level - 1 and go down to 0 (finest)
             self._build_complete_children_recursive(
                 root_node, embeddings, goals, sources, level_labelings, 
-                level_cluster_counts, coarsest_level - 1
+                n_levels, coarsest_level - 1
             )
             
             # Calculate representative goal for root node
@@ -1146,7 +1253,7 @@ class LearningGoalsClusteringService:
         return root_nodes
     
     def _build_complete_children_recursive(self, parent_node, embeddings, goals, sources, 
-                                          level_labelings, level_cluster_counts, current_level):
+                                          level_labelings, n_levels, current_level):
         """Recursively build children ensuring every goal gets a complete hierarchical path"""
         
         if current_level < 0:
@@ -1198,7 +1305,7 @@ class LearningGoalsClusteringService:
             # Continue building this child's children
             self._build_complete_children_recursive(
                 child_node, embeddings, goals, sources, level_labelings,
-                level_cluster_counts, current_level - 1
+                n_levels, current_level - 1
             )
             
             parent_node['children'].append(child_node)
@@ -1232,7 +1339,7 @@ class LearningGoalsClusteringService:
                 # Recursively build this child's children
                 self._build_complete_children_recursive(
                     child_node, embeddings, goals, sources, level_labelings,
-                    level_cluster_counts, current_level - 1
+                    n_levels, current_level - 1
                 )
                 
                 parent_node['children'].append(child_node)
@@ -1377,4 +1484,421 @@ class LearningGoalsClusteringService:
             'goals': goals,
             'sources': sources,
             'quality': node.get('quality', {})
-        } 
+        }
+
+    # HDBSCAN Clustering Methods
+    def cluster_hdbscan(self, embeddings, min_cluster_size=3, min_samples=None, alpha=1.0, epsilon=0.0, max_cluster_size=None):
+        """
+        Perform HDBSCAN clustering with comprehensive parameter control
+        
+        Parameters:
+        - min_cluster_size: minimum points required to form a cluster (default: 3, less strict)
+        - min_samples: conservative clustering parameter (defaults to min_cluster_size)  
+        - alpha: robustness parameter for outlier detection
+        - epsilon: clustering hierarchy cutoff (0.0 = use full hierarchy)
+        - max_cluster_size: maximum cluster size (None = no limit)
+        """
+        start_time = time.time()
+        
+        # Set default min_samples if not provided
+        if min_samples is None:
+            min_samples = min_cluster_size
+        
+        # Validate parameters
+        if min_cluster_size < 2:
+            min_cluster_size = 2
+            print("⚠️ Adjusted min_cluster_size to minimum value of 2")
+            
+        if min_samples < 1:
+            min_samples = 1
+            print("⚠️ Adjusted min_samples to minimum value of 1")
+        
+        print(f"🎯 HDBSCAN clustering with min_cluster_size={min_cluster_size}, min_samples={min_samples}")
+        
+        try:
+            # Initialize HDBSCAN with optimized parameters
+            hdb = hdbscan.HDBSCAN(
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                alpha=alpha,
+                cluster_selection_epsilon=epsilon,
+                max_cluster_size=max_cluster_size,
+                metric='euclidean',  # Works well with normalized embeddings
+                cluster_selection_method='eom',  # Excess of Mass - good for varying cluster sizes
+                prediction_data=True  # Enable soft clustering predictions
+            )
+            
+            # Fit and predict cluster labels
+            cluster_labels = hdb.fit_predict(embeddings)
+            
+            # Store the fitted clusterer for access to additional metrics
+            self._last_hdbscan_clusterer = hdb
+            
+            elapsed = time.time() - start_time
+            
+            # Count clusters and outliers
+            unique_labels = set(cluster_labels)
+            n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)  # Exclude noise
+            n_outliers = sum(1 for label in cluster_labels if label == -1)
+            
+            print(f"⚡ HDBSCAN completed in {elapsed:.2f} seconds")
+            print(f"📊 Found {n_clusters} clusters and {n_outliers} outliers")
+            
+            # If all points are outliers and min_cluster_size > 2, suggest reducing it
+            if n_clusters == 0 and n_outliers == len(embeddings) and min_cluster_size > 2:
+                print(f"⚠️ All points marked as outliers. Consider reducing min_cluster_size (currently {min_cluster_size})")
+            
+            return cluster_labels
+            
+        except Exception as e:
+            print(f"❌ HDBSCAN clustering failed: {e}")
+            # Fallback to noise for all points
+            return np.full(len(embeddings), -1)
+    
+    def get_hdbscan_cluster_stability(self):
+        """Get cluster stability scores from the last HDBSCAN run"""
+        if not hasattr(self, '_last_hdbscan_clusterer') or self._last_hdbscan_clusterer is None:
+            return {}
+        
+        clusterer = self._last_hdbscan_clusterer
+        
+        try:
+            # Get cluster stability scores
+            stability_scores = {}
+            
+            if hasattr(clusterer, 'cluster_persistence_') and clusterer.cluster_persistence_ is not None:
+                # Cluster persistence is a measure of stability
+                for i, persistence in enumerate(clusterer.cluster_persistence_):
+                    stability_scores[i] = float(persistence)
+            
+            # Alternative: use condensed tree data if available
+            elif hasattr(clusterer, 'condensed_tree_') and clusterer.condensed_tree_ is not None:
+                # Extract stability from condensed tree
+                condensed_tree = clusterer.condensed_tree_
+                # Get clusters and their stability from condensed tree
+                clusters = condensed_tree[condensed_tree['child_size'] > 1]
+                for row in clusters:
+                    cluster_id = row['parent']
+                    stability = row['lambda_val']
+                    if cluster_id not in stability_scores or stability > stability_scores[cluster_id]:
+                        stability_scores[cluster_id] = float(stability)
+            
+            return stability_scores
+            
+        except Exception as e:
+            print(f"⚠️ Could not extract stability scores: {e}")
+            return {}
+    
+    def get_hdbscan_outlier_scores(self):
+        """Get outlier scores for each point from the last HDBSCAN run"""
+        if not hasattr(self, '_last_hdbscan_clusterer') or self._last_hdbscan_clusterer is None:
+            return np.array([])
+        
+        clusterer = self._last_hdbscan_clusterer
+        
+        try:
+            if hasattr(clusterer, 'outlier_scores_') and clusterer.outlier_scores_ is not None:
+                return clusterer.outlier_scores_
+            else:
+                # Fallback: use membership probabilities to calculate outlier scores
+                if hasattr(clusterer, 'probabilities_') and clusterer.probabilities_ is not None:
+                    # Higher probability = less likely to be outlier
+                    return 1.0 - clusterer.probabilities_
+                else:
+                    return np.array([])
+        except Exception as e:
+            print(f"⚠️ Could not extract outlier scores: {e}")
+            return np.array([])
+    
+    def get_hdbscan_membership_probabilities(self):
+        """Get membership probabilities for each point from the last HDBSCAN run"""
+        if not hasattr(self, '_last_hdbscan_clusterer') or self._last_hdbscan_clusterer is None:
+            return np.array([])
+        
+        clusterer = self._last_hdbscan_clusterer
+        
+        try:
+            if hasattr(clusterer, 'probabilities_') and clusterer.probabilities_ is not None:
+                return clusterer.probabilities_
+            else:
+                return np.array([])
+        except Exception as e:
+            print(f"⚠️ Could not extract membership probabilities: {e}")
+            return np.array([])
+    
+    def calculate_hdbscan_quality_metrics(self, embeddings, labels):
+        """Calculate comprehensive quality metrics for HDBSCAN clustering"""
+        metrics = {}
+        
+        try:
+            # Basic cluster statistics
+            unique_labels = set(labels)
+            n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+            n_outliers = sum(1 for label in labels if label == -1)
+            n_total = len(labels)
+            
+            metrics['n_clusters'] = n_clusters
+            metrics['n_outliers'] = n_outliers
+            metrics['outlier_percentage'] = (n_outliers / n_total * 100) if n_total > 0 else 0
+            
+            # Calculate silhouette score (excluding outliers)
+            if n_clusters > 1:
+                # Filter out outliers for silhouette calculation
+                non_outlier_mask = np.array(labels) != -1
+                if np.sum(non_outlier_mask) > n_clusters:  # Need more points than clusters
+                    filtered_embeddings = embeddings[non_outlier_mask]
+                    filtered_labels = [label for label in labels if label != -1]
+                    
+                    try:
+                        silhouette = self.calculate_cluster_quality_fast(filtered_embeddings, filtered_labels)
+                        metrics['silhouette_score'] = silhouette
+                    except Exception as e:
+                        print(f"⚠️ Silhouette calculation failed: {e}")
+                        metrics['silhouette_score'] = 0.0
+                else:
+                    metrics['silhouette_score'] = 0.0
+            else:
+                metrics['silhouette_score'] = 0.0
+            
+            # Calculate separation and cohesion metrics (excluding outliers)
+            if n_clusters > 1:
+                try:
+                    non_outlier_mask = np.array(labels) != -1
+                    if np.sum(non_outlier_mask) > n_clusters:
+                        filtered_embeddings = embeddings[non_outlier_mask]
+                        filtered_labels = [label for label in labels if label != -1]
+                        
+                        separation, cohesion = self.calculate_cluster_separation_metrics_fast(
+                            filtered_embeddings, filtered_labels
+                        )
+                        metrics['inter_cluster_separation'] = separation
+                        metrics['intra_cluster_cohesion'] = cohesion
+                    else:
+                        metrics['inter_cluster_separation'] = 0.0
+                        metrics['intra_cluster_cohesion'] = 0.0
+                except Exception as e:
+                    print(f"⚠️ Separation metrics calculation failed: {e}")
+                    metrics['inter_cluster_separation'] = 0.0
+                    metrics['intra_cluster_cohesion'] = 0.0
+            else:
+                metrics['inter_cluster_separation'] = 0.0
+                metrics['intra_cluster_cohesion'] = 0.0
+            
+            # Get HDBSCAN-specific metrics
+            stability_scores = self.get_hdbscan_cluster_stability()
+            metrics['cluster_stability'] = stability_scores
+            
+            if stability_scores:
+                metrics['avg_cluster_stability'] = np.mean(list(stability_scores.values()))
+                metrics['min_cluster_stability'] = np.min(list(stability_scores.values()))
+                metrics['max_cluster_stability'] = np.max(list(stability_scores.values()))
+            else:
+                metrics['avg_cluster_stability'] = 0.0
+                metrics['min_cluster_stability'] = 0.0
+                metrics['max_cluster_stability'] = 0.0
+            
+            # Get outlier scores
+            outlier_scores = self.get_hdbscan_outlier_scores()
+            if len(outlier_scores) > 0:
+                metrics['avg_outlier_score'] = np.mean(outlier_scores)
+                metrics['max_outlier_score'] = np.max(outlier_scores)
+                
+                # Calculate outlier threshold (points with scores above this are likely outliers)
+                outlier_threshold = np.percentile(outlier_scores, 95)  # Top 5% as potential outliers
+                metrics['outlier_threshold'] = outlier_threshold
+            else:
+                metrics['avg_outlier_score'] = 0.0
+                metrics['max_outlier_score'] = 0.0
+                metrics['outlier_threshold'] = 0.0
+            
+            # Calculate composite score adapted for HDBSCAN
+            # For HDBSCAN, we weight outlier detection capability alongside clustering quality
+            silhouette_weight = 0.3
+            separation_weight = 0.2
+            cohesion_weight = 0.3
+            stability_weight = 0.2
+            
+            composite_score = (
+                silhouette_weight * metrics['silhouette_score'] +
+                separation_weight * min(metrics['inter_cluster_separation'], 1.0) +
+                cohesion_weight * metrics['intra_cluster_cohesion'] +
+                stability_weight * min(metrics['avg_cluster_stability'], 1.0)
+            )
+            
+            metrics['composite_score'] = composite_score
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"❌ HDBSCAN quality metrics calculation failed: {e}")
+            return {
+                'n_clusters': 0,
+                'n_outliers': len(labels),
+                'outlier_percentage': 100.0,
+                'silhouette_score': 0.0,
+                'inter_cluster_separation': 0.0,
+                'intra_cluster_cohesion': 0.0,
+                'cluster_stability': {},
+                'avg_cluster_stability': 0.0,
+                'composite_score': 0.0
+            }
+    
+    def optimize_hdbscan_parameters(self, embeddings, min_cluster_size_range=None, min_samples_range=None, 
+                                  progress_callback=None):
+        """
+        Optimize HDBSCAN parameters through systematic parameter search
+        
+        Parameters:
+        - min_cluster_size_range: tuple (min, max) for min_cluster_size search
+        - min_samples_range: tuple (min, max) for min_samples search  
+        - progress_callback: function to report progress
+        """
+        n_goals = len(embeddings)
+        
+        # Set reasonable parameter ranges if not provided
+        if min_cluster_size_range is None:
+            min_size = max(2, n_goals // 200)  # At least 2, be less strict (was // 100)
+            max_size = min(30, n_goals // 20)  # At most 30 or 5% of data (was // 10)
+            min_cluster_size_range = (min_size, min(max_size, min_size + 15))
+        
+        if min_samples_range is None:
+            # min_samples typically ranges from 1 to min_cluster_size
+            min_samples_range = (1, min_cluster_size_range[1])
+        
+        print(f"🎯 Optimizing HDBSCAN parameters for {n_goals} goals")
+        print(f"   min_cluster_size range: {min_cluster_size_range}")
+        print(f"   min_samples range: {min_samples_range}")
+        
+        # Generate parameter combinations
+        min_cluster_sizes = list(range(min_cluster_size_range[0], min_cluster_size_range[1] + 1, 2))
+        min_samples_values = list(range(min_samples_range[0], min_samples_range[1] + 1, 2))
+        
+        # Limit combinations to prevent excessive computation
+        if len(min_cluster_sizes) > 6:
+            step = len(min_cluster_sizes) // 6
+            min_cluster_sizes = min_cluster_sizes[::step]
+        
+        if len(min_samples_values) > 4:
+            step = len(min_samples_values) // 4
+            min_samples_values = min_samples_values[::step]
+        
+        param_combinations = []
+        for min_cluster_size in min_cluster_sizes:
+            for min_samples in min_samples_values:
+                # Ensure both values are integers and min_samples <= min_cluster_size
+                if (isinstance(min_cluster_size, int) and isinstance(min_samples, int) and 
+                    min_samples <= min_cluster_size):
+                    param_combinations.append((min_cluster_size, min_samples))
+        
+        total_tests = len(param_combinations)
+        print(f"🔄 Testing {total_tests} parameter combinations...")
+        
+        if progress_callback:
+            progress_callback(f"Starting HDBSCAN parameter optimization with {total_tests} combinations", 0, total_tests, 0)
+        
+        results = []
+        
+        for i, (min_cluster_size, min_samples) in enumerate(param_combinations):
+            try:
+                print(f"  Testing min_cluster_size={min_cluster_size}, min_samples={min_samples}")
+                
+                # Perform clustering
+                labels = self.cluster_hdbscan(embeddings, min_cluster_size, min_samples)
+                
+                # Calculate quality metrics
+                metrics = self.calculate_hdbscan_quality_metrics(embeddings, labels)
+                
+                result = {
+                    'min_cluster_size': min_cluster_size,
+                    'min_samples': min_samples,
+                    'n_clusters': metrics['n_clusters'],
+                    'n_outliers': metrics['n_outliers'],
+                    'outlier_percentage': metrics['outlier_percentage'],
+                    'silhouette_score': metrics['silhouette_score'],
+                    'composite_score': metrics['composite_score'],
+                    'avg_cluster_stability': metrics['avg_cluster_stability']
+                }
+                
+                results.append(result)
+                
+                print(f"    Result: {result['n_clusters']} clusters, {result['n_outliers']} outliers, "
+                      f"composite={result['composite_score']:.3f}")
+                
+                if progress_callback:
+                    progress_callback(
+                        f"Tested min_cluster_size={min_cluster_size}, min_samples={min_samples}: "
+                        f"{result['n_clusters']} clusters, composite={result['composite_score']:.3f}",
+                        i + 1, total_tests, int(((i + 1) / total_tests) * 100)
+                    )
+                    
+            except Exception as e:
+                print(f"    ❌ Failed: {e}")
+                if progress_callback:
+                    progress_callback(f"Failed: min_cluster_size={min_cluster_size}, min_samples={min_samples}", 
+                                    i + 1, total_tests, int(((i + 1) / total_tests) * 100))
+        
+        if not results:
+            print("❌ No successful parameter combinations found")
+            return None, None
+        
+        # Find best parameters based on different criteria
+        best_composite = max(results, key=lambda x: x['composite_score'])
+        best_silhouette = max(results, key=lambda x: x['silhouette_score'])
+        best_stability = max(results, key=lambda x: x['avg_cluster_stability'])
+        
+        print(f"🎯 Parameter optimization complete:")
+        print(f"  🏆 Best composite: min_cluster_size={best_composite['min_cluster_size']}, "
+              f"min_samples={best_composite['min_samples']} (score: {best_composite['composite_score']:.3f})")
+        print(f"  🎯 Best silhouette: min_cluster_size={best_silhouette['min_cluster_size']}, "
+              f"min_samples={best_silhouette['min_samples']} (score: {best_silhouette['silhouette_score']:.3f})")
+        
+        if progress_callback:
+            progress_callback(f"Parameter optimization complete! Best: min_cluster_size={best_composite['min_cluster_size']}, "
+                            f"min_samples={best_composite['min_samples']}", total_tests, total_tests, 100)
+        
+        return results, best_composite
+    
+    def format_hdbscan_clusters(self, goals, sources, labels, include_outliers=True):
+        """Format HDBSCAN clustering results for display"""
+        clusters = {}
+        outliers = []
+        
+        for i, (goal, source, label) in enumerate(zip(goals, sources, labels)):
+            if label == -1:  # Outlier
+                if include_outliers:
+                    outliers.append({
+                        'goal': goal,
+                        'source': source,
+                        'index': i
+                    })
+            else:
+                if label not in clusters:
+                    clusters[label] = {
+                        'goals': [],
+                        'sources': [],
+                        'size': 0
+                    }
+                
+                clusters[label]['goals'].append(goal)
+                clusters[label]['sources'].append(source)
+                clusters[label]['size'] += 1
+        
+        # Generate representative goals for clusters
+        formatted_clusters = []
+        for cluster_id, cluster_data in clusters.items():
+            representative_goal = max(cluster_data['goals'], key=len)
+            
+            formatted_clusters.append({
+                'id': int(cluster_id),
+                'size': cluster_data['size'],
+                'goals': cluster_data['goals'],
+                'sources': cluster_data['sources'],
+                'representative_goal': representative_goal
+            })
+        
+        # Sort clusters by size (largest first)
+        formatted_clusters.sort(key=lambda x: x['size'], reverse=True)
+        
+        return formatted_clusters, outliers
+    
+    # End of HDBSCAN methods 
