@@ -386,6 +386,307 @@
     .collapsed-title .btn[aria-expanded="true"] i {
         transform: rotate(90deg);
     }
+
+    /* Move/Delete Action Buttons */
+    .action-buttons {
+        display: flex;
+        gap: 5px;
+        margin-left: 8px;
+        flex-shrink: 0;
+    }
+    
+    .move-btn, .delete-btn {
+        padding: 4px 6px;
+        border-radius: 4px;
+        border: 1px solid;
+        cursor: pointer;
+        font-size: 0.7em;
+        transition: all 0.2s ease;
+        background-color: white;
+        opacity: 0.7;
+        min-width: 24px;
+        text-align: center;
+    }
+    
+    .move-btn {
+        border-color: #17a2b8;
+        color: #17a2b8;
+    }
+    
+    .move-btn:hover {
+        background-color: #17a2b8;
+        color: white;
+        opacity: 1;
+        transform: scale(1.1);
+    }
+    
+    .delete-btn {
+        border-color: #dc3545;
+        color: #dc3545;
+    }
+    
+    .delete-btn:hover {
+        background-color: #dc3545;
+        color: white;
+        opacity: 1;
+        transform: scale(1.1);
+    }
+    
+    .delete-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        border-color: #6c757d;
+        color: #6c757d;
+    }
+    
+    .delete-btn:disabled:hover {
+        background-color: white;
+        color: #6c757d;
+        transform: none;
+    }
+
+    /* Individual Goal Move/Delete Buttons */
+    .goal-actions {
+        display: flex;
+        gap: 4px;
+        margin-top: 4px;
+        margin-left: auto;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    
+    .goal-item:hover .goal-actions {
+        opacity: 1;
+    }
+    
+    .goal-move-btn, .goal-delete-btn {
+        padding: 2px 4px;
+        border-radius: 3px;
+        border: 1px solid;
+        cursor: pointer;
+        font-size: 0.6em;
+        transition: all 0.2s ease;
+        background-color: white;
+        min-width: 20px;
+        text-align: center;
+    }
+    
+    .goal-move-btn {
+        border-color: #17a2b8;
+        color: #17a2b8;
+    }
+    
+    .goal-move-btn:hover {
+        background-color: #17a2b8;
+        color: white;
+    }
+    
+    .goal-delete-btn {
+        border-color: #dc3545;
+        color: #dc3545;
+    }
+    
+    .goal-delete-btn:hover {
+        background-color: #dc3545;
+        color: white;
+    }
+
+    /* Archive Button */
+    .archive-btn {
+        background-color: #f8f9fa;
+        border: 1px solid #6c757d;
+        color: #6c757d;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.7em;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .archive-btn:hover {
+        background-color: #6c757d;
+        color: white;
+    }
+
+    /* Move Modal Styles */
+    .move-modal .modal-dialog {
+        max-width: 700px;
+    }
+    
+    .move-destination-tree {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 10px;
+        background-color: #f8f9fa;
+    }
+    
+    .destination-node {
+        margin: 2px 0;
+        padding: 4px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .destination-node:hover {
+        background-color: #e3f2fd;
+    }
+    
+    .destination-node.current-location {
+        background-color: #fff3e0;
+        border: 1px solid #ff9800;
+    }
+    
+    .destination-node.invalid-destination {
+        background-color: #ffebee;
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    .destination-node-content {
+        flex: 1;
+        display: flex;
+        align-items: center;
+    }
+    
+    .destination-node-text {
+        font-weight: 500;
+        flex-grow: 1;
+    }
+    
+    .destination-path-info {
+        flex-shrink: 0;
+        opacity: 0.7;
+        transition: opacity 0.2s ease;
+    }
+    
+    .destination-path-info:hover {
+        opacity: 1;
+        color: #007bff !important;
+    }
+    
+    .move-here-btn {
+        padding: 2px 8px;
+        font-size: 0.7em;
+        border-radius: 3px;
+        background-color: #28a745;
+        border: 1px solid #28a745;
+        color: white;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .move-here-btn:hover {
+        background-color: #218838;
+        transform: scale(1.05);
+    }
+    
+    .move-search-input {
+        margin-bottom: 15px;
+        padding: 8px 12px;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        font-size: 0.9em;
+        width: 100%;
+    }
+    
+    .move-search-input:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+    
+    .destination-node.search-match {
+        background-color: #fff9c4;
+        border: 1px solid #fbc02d;
+    }
+    
+    .destination-node.search-match .destination-node-text {
+        font-weight: bold;
+    }
+
+    /* Archive Modal Styles */
+    .archived-goals-container {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 15px;
+        background-color: #f8f9fa;
+    }
+    
+    .archived-goal-item {
+        padding: 10px;
+        margin: 8px 0;
+        background-color: white;
+        border-left: 3px solid #6c757d;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .archived-goal-text {
+        font-size: 0.9em;
+        color: #495057;
+        margin-bottom: 5px;
+    }
+    
+    .archived-goal-meta {
+        font-size: 0.7em;
+        color: #6c757d;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .restore-btn {
+        padding: 2px 6px;
+        font-size: 0.6em;
+        background-color: #28a745;
+        border: 1px solid #28a745;
+        color: white;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .restore-btn:hover {
+        background-color: #218838;
+    }
+
+    /* Progress Animation Styles */
+    .operation-progress {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: white;
+        border: 2px solid #007bff;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 9999;
+        min-width: 300px;
+        text-align: center;
+    }
+    
+    .operation-progress .spinner-border {
+        margin-bottom: 10px;
+    }
+    
+    .operation-progress-text {
+        margin-bottom: 10px;
+        font-weight: 500;
+    }
+    
+    .operation-progress-details {
+        font-size: 0.8em;
+        color: #6c757d;
+    }
 </style>
 {% endblock %}
 
@@ -475,6 +776,9 @@
                                 </button>
                                 <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm me-2">
                                     <i class="bi bi-arrows-collapse"></i> Collapse All
+                                </button>
+                                <button id="view-archived-btn" class="archive-btn me-2" title="View archived learning goals">
+                                    <i class="bi bi-archive"></i> Archived
                                 </button>
                                 <button id="save-changes-btn" class="btn btn-success btn-sm">
                                     <i class="bi bi-save"></i> Save Changes
@@ -599,6 +903,84 @@
         </div>
     </div>
 </div>
+
+<!-- Move Modal -->
+<div class="modal fade move-modal" id="moveModal" tabindex="-1" aria-labelledby="moveModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="moveModalLabel">
+                    <i class="bi bi-arrow-left-right text-info"></i> Move Learning Goal
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Move Description -->
+                <div class="mb-3" id="move-description">
+                    <!-- Description will be populated here -->
+                </div>
+                
+                <!-- Search Box -->
+                <div class="mb-3">
+                    <input type="text" class="move-search-input" id="move-search" placeholder="Search destination groups by name..." autocomplete="off">
+                    <div class="form-text">
+                        Type to search group names. Click the <i class="bi bi-info-circle" style="font-size: 0.8em;"></i> icon next to any group to see its full path.
+                    </div>
+                </div>
+                
+                <!-- Destination Tree -->
+                <div class="move-destination-tree" id="move-destination-tree">
+                    <!-- Tree will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Archive Modal -->
+<div class="modal fade" id="archiveModal" tabindex="-1" aria-labelledby="archiveModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="archiveModalLabel">
+                    <i class="bi bi-archive text-secondary"></i> Archived Learning Goals
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <small class="text-muted">
+                        These learning goals have been deleted but are preserved for reference. You can restore them if needed.
+                    </small>
+                </div>
+                
+                <div class="archived-goals-container" id="archived-goals-container">
+                    <!-- Archived goals will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress Overlay -->
+<div id="operation-progress" class="operation-progress" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <div class="operation-progress-text" id="progress-text">
+        Processing...
+    </div>
+    <div class="operation-progress-details" id="progress-details">
+        Please wait while we update the tree structure.
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -609,6 +991,12 @@ let currentArtifactId = null;
 let availableArtifacts = [];
 let flattenedAtLevel = null;
 let currentAINodeId = null;
+
+// Move/Delete variables
+let currentMoveNodeId = null;
+let currentMoveType = null; // 'node' or 'goal'
+let currentMoveGoalIndex = null;
+let searchTimeout = null;
 
 // Fix for total goals display issue - detects and corrects extra trailing zeros
 function fixTotalGoals(totalGoalsValue, treeStructure = null) {
@@ -667,7 +1055,7 @@ function countTotalGoalsInTree(nodes) {
         if (node.goals && Array.isArray(node.goals)) {
             count += node.goals.length;
         }
-        if (node.children && Array.isArray(node.children)) {
+        if (node.children && node.children.length > 0) {
             node.children.forEach(child => countInNode(child));
         }
     }
@@ -740,6 +1128,27 @@ $(document).ready(function() {
     
     $('#generate-ai-text').click(function() {
         generateAIText();
+    });
+    
+    // Move/Delete/Archive handlers
+    $('#view-archived-btn').click(function() {
+        loadArchivedGoals();
+    });
+    
+    // Move modal search functionality with debouncing
+    $('#move-search').on('input', function() {
+        const searchTerm = $(this).val();
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            filterMoveDestinations(searchTerm);
+        }, 300); // 300ms debounce
+    });
+    
+    // Hide tooltips when clicking elsewhere
+    $(document).on('click', function() {
+        $('.path-tooltip').fadeOut(200, function() {
+            $(this).remove();
+        });
     });
 });
 
@@ -998,12 +1407,24 @@ function buildTreeNode(node, level = 0) {
             node.goals.forEach(function(goal, index) {
                 const source = node.sources ? node.sources[index] : {};
                 nodeHtml += `
-                    <div class="goal-item">
-                        <div class="goal-text">"${goal}"</div>
-                        <div class="goal-source">
-                            📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
-                            👤 ${truncateText(source.creator || 'Unknown', 15)}
-                            ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                    <div class="goal-item" data-goal-index="${index}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <div class="goal-text">"${goal}"</div>
+                                <div class="goal-source">
+                                    📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                                    👤 ${truncateText(source.creator || 'Unknown', 15)}
+                                    ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                                </div>
+                            </div>
+                            <div class="goal-actions">
+                                <button class="goal-move-btn" onclick="openMoveModal('${node.id}', 'goal', ${index})" title="Move this learning goal">
+                                    ↔
+                                </button>
+                                <button class="goal-delete-btn" onclick="deleteGoal('${node.id}', ${index})" title="Delete this learning goal">
+                                    🗑
+                                </button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1513,14 +1934,14 @@ function flattenTreeAtLevel(nodes, targetLevel, currentLevel = 0) {
     
     nodes.forEach(node => {
         if (currentLevel === targetLevel) {
-            // Collect all goals from this node and its children
-            const allGoals = collectAllGoalsFromNode(node);
-            if (allGoals.length > 0) {
+            // Collect all goals from this node and its children, preserving source node info
+            const allGoalsWithSource = collectAllGoalsWithSourceFromNode(node);
+            if (allGoalsWithSource.length > 0) {
                 flattened.push({
                     label: node.label,
                     representative: node.representative_goal || '',
-                    goals: allGoals.map(g => g.goal),
-                    size: allGoals.length,
+                    goalsWithSource: allGoalsWithSource,
+                    size: allGoalsWithSource.length,
                     originalNode: node
                 });
             }
@@ -1530,6 +1951,33 @@ function flattenTreeAtLevel(nodes, targetLevel, currentLevel = 0) {
     });
     
     return flattened;
+}
+
+function collectAllGoalsWithSourceFromNode(node) {
+    // Collect all goals from this node and its children, preserving which node each goal came from
+    let allGoals = [];
+    
+    // Add goals from this node
+    if (node.goals) {
+        node.goals.forEach((goal, index) => {
+            const source = node.sources ? node.sources[index] : {};
+            allGoals.push({
+                goal: goal,
+                source: source,
+                sourceNodeId: node.id,
+                originalIndex: index
+            });
+        });
+    }
+    
+    // Add goals from children recursively
+    if (node.children) {
+        node.children.forEach(child => {
+            allGoals = allGoals.concat(collectAllGoalsWithSourceFromNode(child));
+        });
+    }
+    
+    return allGoals;
 }
 
 function displayFlattenedView(flattened, level) {
@@ -1582,10 +2030,28 @@ function displayFlattenedView(flattened, level) {
                 <div class="cluster-content" id="flattened-content-${index}" style="display: none;">
         `;
         
-        cluster.goals.forEach(goal => {
+        cluster.goalsWithSource.forEach((goalData, displayIndex) => {
+            const { goal, source, sourceNodeId, originalIndex } = goalData;
             flattenedHtml += `
-                <div class="goal-item">
-                    <div class="goal-text">"${goal}"</div>
+                <div class="goal-item" data-goal-index="${displayIndex}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="goal-text">"${goal}"</div>
+                            <div class="goal-source">
+                                📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                                👤 ${truncateText(source.creator || 'Unknown', 15)}
+                                ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                            </div>
+                        </div>
+                        <div class="goal-actions">
+                            <button class="goal-move-btn" onclick="openMoveModal('${sourceNodeId}', 'goal', ${originalIndex})" title="Move this learning goal">
+                                ↔
+                            </button>
+                            <button class="goal-delete-btn" onclick="deleteGoal('${sourceNodeId}', ${originalIndex})" title="Delete this learning goal">
+                                🗑
+                            </button>
+                        </div>
+                    </div>
                 </div>
             `;
         });
@@ -1769,6 +2235,414 @@ function deleteArtifact(artifactId) {
         .fail(function() {
             alert('Failed to delete artifact: Network error');
         });
+}
+
+// =====================================
+// MOVE AND DELETE FUNCTIONALITY
+// =====================================
+
+function openMoveModal(nodeId, moveType, goalIndex = null) {
+    // Validate inputs first
+    if (!currentArtifact || !currentArtifact.tree_structure) {
+        alert('Error: No artifact loaded. Please load an artifact first.');
+        return;
+    }
+    
+    currentMoveNodeId = nodeId;
+    currentMoveType = moveType;
+    currentMoveGoalIndex = goalIndex;
+    
+    // Find the source node
+    const sourceNode = findNodeById(currentArtifact.tree_structure, nodeId);
+    
+    if (!sourceNode) {
+        console.error('Source node not found:', { nodeId, moveType, goalIndex });
+        alert(`Error: Source node not found (ID: ${nodeId}). The tree structure may have changed.`);
+        return;
+    }
+    
+    // Update modal title and description (only for goal moves now)
+    let description = '';
+    if (moveType === 'goal' && goalIndex !== null) {
+        if (!sourceNode.goals || goalIndex >= sourceNode.goals.length) {
+            console.error('Goal not found:', { nodeId, goalIndex, availableGoals: sourceNode.goals ? sourceNode.goals.length : 0 });
+            alert(`Error: Learning goal not found (index: ${goalIndex}). The goal may have been moved or deleted.`);
+            return;
+        }
+        
+        const goalText = sourceNode.goals[goalIndex];
+        description = `<strong>Moving Learning Goal:</strong><br/><em>"${truncateText(goalText, 100)}"</em><br/><br/>Select where you want to move this learning goal:`;
+        $('#moveModalLabel').html('<i class="bi bi-arrow-left-right text-info"></i> Move Learning Goal');
+    } else {
+        // This should not happen anymore since we only allow goal moves
+        alert('Invalid move operation. Only individual learning goals can be moved.');
+        return;
+    }
+    
+    $('#move-description').html(description);
+    
+    // Build destination tree
+    buildMoveDestinationTree();
+    
+    // Clear search
+    $('#move-search').val('');
+    
+    // Show modal
+    $('#moveModal').modal('show');
+}
+
+function buildMoveDestinationTree() {
+    // Only show leaf nodes (deepest level groups that can contain goals)
+    const leafNodes = collectLeafNodes(currentArtifact.tree_structure);
+    const treeHtml = buildMoveDestinationLeafNodes(leafNodes);
+    $('#move-destination-tree').html(treeHtml);
+}
+
+function collectLeafNodes(nodes, path = []) {
+    // Collect all leaf nodes (deepest level groups that can contain goals)
+    let leafNodes = [];
+    
+    if (!nodes || !Array.isArray(nodes)) return leafNodes;
+    
+    nodes.forEach((node, index) => {
+        if (!node || typeof node !== 'object') return;
+        
+        // Use representative text instead of labels (A2B3C1...) for meaningful paths
+        const nodeName = node.representative_goal || `Group ${index + 1}`;
+        const nodePath = [...path, nodeName];
+        const hasChildren = node.children && node.children.length > 0;
+        
+        if (!hasChildren) {
+            // This is a leaf node - can accept learning goals
+            leafNodes.push({
+                ...node,
+                fullPath: nodePath.join(' > ')
+            });
+        } else {
+            // Recursively collect leaf nodes from children
+            leafNodes = leafNodes.concat(collectLeafNodes(node.children, nodePath));
+        }
+    });
+    
+    return leafNodes;
+}
+
+function buildMoveDestinationLeafNodes(leafNodes) {
+    // Build a simple list of leaf nodes as move destinations
+    let html = '';
+    
+    if (!leafNodes || leafNodes.length === 0) {
+        return '<div class="text-center p-3 text-muted">No valid destinations found</div>';
+    }
+    
+    leafNodes.forEach((node, index) => {
+        const isCurrentLocation = node.id === currentMoveNodeId;
+        const nodeTitle = node.representative_goal || `Group ${node.label}`;
+        
+        const nodeClasses = [
+            'destination-node',
+            isCurrentLocation ? 'current-location' : ''
+        ].filter(Boolean).join(' ');
+        
+        html += `
+            <div class="${nodeClasses}" data-node-id="${node.id}" data-node-name="${nodeTitle.toLowerCase()}">
+                <div class="destination-node-content">
+                    <div class="destination-node-text" title="${nodeTitle}">
+                        ${truncateText(nodeTitle, 70)}
+                    </div>
+                    <i class="bi bi-info-circle destination-path-info" 
+                       title="${node.fullPath}" 
+                       onclick="event.stopPropagation(); showPathTooltip(this, '${node.fullPath.replace(/'/g, "&apos;")}')"
+                       style="color: #6c757d; cursor: help; margin-left: 8px; font-size: 0.8em;">
+                    </i>
+                </div>
+                ${!isCurrentLocation ? `
+                    <button class="move-here-btn" onclick="performMove('${node.id}')">
+                        Move Here
+                    </button>
+                ` : '<small class="text-warning">(Current Location)</small>'}
+            </div>
+        `;
+    });
+    
+    return html;
+}
+
+function filterMoveDestinations(searchTerm) {
+    const destinations = $('.destination-node');
+    
+    if (!searchTerm.trim()) {
+        // Clear search - show all destinations
+        destinations.removeClass('search-match').show();
+        $('#no-matches').remove();
+        return;
+    }
+    
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    let hasMatches = false;
+    
+    destinations.each(function() {
+        // Only search on the node name (not the full path)
+        const nodeName = $(this).data('node-name') || $(this).find('.destination-node-text').text().toLowerCase();
+        const isMatch = nodeName.includes(lowerSearchTerm);
+        
+        if (isMatch) {
+            $(this).addClass('search-match').show();
+            hasMatches = true;
+        } else {
+            $(this).removeClass('search-match').hide();
+        }
+    });
+    
+    if (!hasMatches) {
+        $('#move-destination-tree').prepend('<div class="text-muted text-center p-3" id="no-matches">No matching destinations found</div>');
+    } else {
+        $('#no-matches').remove();
+    }
+}
+
+function showPathTooltip(element, fullPath) {
+    // Remove any existing tooltips
+    $('.path-tooltip').remove();
+    
+    // Create and show a temporary tooltip
+    const tooltip = $(`
+        <div class="path-tooltip" style="
+            position: absolute;
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            z-index: 10000;
+            max-width: 300px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            pointer-events: none;
+        ">
+            <strong>Full Path:</strong><br/>${fullPath}
+        </div>
+    `);
+    
+    $('body').append(tooltip);
+    
+    // Position the tooltip near the icon
+    const iconOffset = $(element).offset();
+    tooltip.css({
+        top: iconOffset.top - tooltip.outerHeight() - 5,
+        left: Math.max(10, iconOffset.left - tooltip.outerWidth() / 2)
+    });
+    
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+        tooltip.fadeOut(200, () => tooltip.remove());
+    }, 3000);
+}
+
+// Node-level validation functions removed - no longer needed for goal-only operations
+
+function performMove(destinationNodeId) {
+    if (!currentMoveNodeId || !currentMoveType) {
+        alert('Invalid move operation');
+        return;
+    }
+    
+    // Show progress
+    showProgress('Moving...', 'Updating tree structure...');
+    
+    const moveData = {
+        artifact_id: currentArtifactId,
+        source_node_id: currentMoveNodeId,
+        destination_node_id: destinationNodeId,
+        move_type: currentMoveType,
+        goal_index: currentMoveGoalIndex
+    };
+    
+    $.ajax({
+        url: '/api/move-learning-goal',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(moveData)
+    })
+    .done(function(response) {
+        hideProgress();
+        
+        if (response.success) {
+            // Update the current artifact with the new structure
+            currentArtifact.tree_structure = response.updated_tree_structure;
+            
+            // Refresh the display
+            if (flattenedAtLevel !== null) {
+                flattenAtLevel(flattenedAtLevel);
+            } else {
+                displayTree(currentArtifact.tree_structure);
+            }
+            
+            // Close modal
+            $('#moveModal').modal('hide');
+            
+            // Show success message
+            const moveTypeText = currentMoveType === 'goal' ? 'learning goal' : 'group';
+            alert(`✅ Successfully moved ${moveTypeText}!`);
+        } else {
+            alert('Failed to move: ' + response.message);
+        }
+    })
+    .fail(function() {
+        hideProgress();
+        alert('Failed to move: Network error');
+    });
+}
+
+// deleteNode function removed - we only delete individual learning goals now
+
+function deleteGoal(nodeId, goalIndex) {
+    // Validate inputs first
+    if (!currentArtifact || !currentArtifact.tree_structure) {
+        alert('Error: No artifact loaded. Please load an artifact first.');
+        return;
+    }
+    
+    const node = findNodeById(currentArtifact.tree_structure, nodeId);
+    
+    if (!node || !node.goals || goalIndex >= node.goals.length) {
+        console.error('Goal not found for deletion:', { nodeId, goalIndex, availableGoals: node ? (node.goals ? node.goals.length : 0) : 'node not found' });
+        alert(`Error: Learning goal not found (index: ${goalIndex}). The goal may have been moved or deleted.`);
+        return;
+    }
+    
+    const goalText = node.goals[goalIndex];
+    const confirmMessage = `Are you sure you want to delete this learning goal?\n\n"${truncateText(goalText, 100)}"\n\nIt will be moved to the archive.`;
+    
+    if (!confirm(confirmMessage)) return;
+    
+    // Show progress
+    showProgress('Deleting...', 'Moving to archive...');
+    
+    $.ajax({
+        url: '/api/delete-goal',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            artifact_id: currentArtifactId,
+            node_id: nodeId,
+            goal_index: goalIndex
+        })
+    })
+    .done(function(response) {
+        hideProgress();
+        
+        if (response.success) {
+            // Update the current artifact with the new structure
+            currentArtifact.tree_structure = response.updated_tree_structure;
+            
+            // Refresh the display
+            if (flattenedAtLevel !== null) {
+                flattenAtLevel(flattenedAtLevel);
+            } else {
+                displayTree(currentArtifact.tree_structure);
+            }
+            
+            alert('✅ Learning goal deleted successfully and moved to archive.');
+        } else {
+            alert('Failed to delete: ' + response.message);
+        }
+    })
+    .fail(function() {
+        hideProgress();
+        alert('Failed to delete: Network error');
+    });
+}
+
+function loadArchivedGoals() {
+    $('#archived-goals-container').html('<div class="text-center p-3"><div class="spinner-border spinner-border-sm"></div> Loading archived goals...</div>');
+    $('#archiveModal').modal('show');
+    
+    $.get(`/api/get-archived-goals/${currentArtifactId}`)
+        .done(function(response) {
+            if (response.success) {
+                displayArchivedGoals(response.archived_goals);
+            } else {
+                $('#archived-goals-container').html('<div class="text-center p-3 text-muted">Failed to load archived goals</div>');
+            }
+        })
+        .fail(function() {
+            $('#archived-goals-container').html('<div class="text-center p-3 text-muted">Network error loading archived goals</div>');
+        });
+}
+
+function displayArchivedGoals(archivedGoals) {
+    if (!archivedGoals || archivedGoals.length === 0) {
+        $('#archived-goals-container').html('<div class="text-center p-3 text-muted">No archived learning goals found</div>');
+        return;
+    }
+    
+    let html = '';
+    archivedGoals.forEach((archivedGoal, index) => {
+        const archivedDate = new Date(archivedGoal.archived_at).toLocaleDateString();
+        html += `
+            <div class="archived-goal-item">
+                <div class="archived-goal-text">"${archivedGoal.goal_text}"</div>
+                <div class="archived-goal-meta">
+                    <div>
+                        <small>📄 ${archivedGoal.document_name || 'Unknown'} | 👤 ${archivedGoal.creator || 'Unknown'}</small><br/>
+                        <small>🗓️ Archived: ${archivedDate} | Original path: ${archivedGoal.original_path || 'Unknown'}</small>
+                    </div>
+                    <button class="restore-btn" onclick="restoreGoal('${archivedGoal.id}', ${index})" title="Restore this learning goal">
+                        ↩️ Restore
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    $('#archived-goals-container').html(html);
+}
+
+function restoreGoal(archivedGoalId, index) {
+    if (!confirm('Restore this learning goal to its original location?')) return;
+    
+    $.ajax({
+        url: '/api/restore-goal',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            artifact_id: currentArtifactId,
+            archived_goal_id: archivedGoalId
+        })
+    })
+    .done(function(response) {
+        if (response.success) {
+            // Update the current artifact with the new structure
+            currentArtifact.tree_structure = response.updated_tree_structure;
+            
+            // Refresh the display
+            if (flattenedAtLevel !== null) {
+                flattenAtLevel(flattenedAtLevel);
+            } else {
+                displayTree(currentArtifact.tree_structure);
+            }
+            
+            // Remove the restored item from the archive display
+            $(`.archived-goal-item:eq(${index})`).fadeOut();
+            
+            alert('✅ Learning goal restored successfully!');
+        } else {
+            alert('Failed to restore: ' + response.message);
+        }
+    })
+    .fail(function() {
+        alert('Failed to restore: Network error');
+    });
+}
+
+function showProgress(title, details) {
+    $('#progress-text').text(title);
+    $('#progress-details').text(details);
+    $('#operation-progress').show();
+}
+
+function hideProgress() {
+    $('#operation-progress').hide();
 }
 </script>
 {% endblock %}

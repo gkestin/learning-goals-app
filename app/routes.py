@@ -2463,7 +2463,7 @@ def api_update_artifact_label():
 
 @main.route('/api/delete-artifact/<artifact_id>', methods=['POST'])
 def api_delete_artifact(artifact_id):
-    """API endpoint for deleting an artifact"""
+    """API endpoint for deleting artifacts"""
     from app.firebase_service import delete_artifact
     
     try:
@@ -2478,7 +2478,7 @@ def api_delete_artifact(artifact_id):
             return jsonify({
                 'success': False,
                 'message': 'Failed to delete artifact'
-            }), 500
+            })
         
     except Exception as e:
         print(f"Delete artifact error: {e}")
@@ -2695,4 +2695,224 @@ def api_batch_update_artifact_representative_texts():
         return jsonify({
             'success': False,
             'message': f'Batch update failed: {str(e)}'
+        })
+
+# =============================================
+# MOVE/DELETE/ARCHIVE API ENDPOINTS
+# =============================================
+
+@main.route('/api/move-learning-goal', methods=['POST'])
+def api_move_learning_goal():
+    """API endpoint for moving learning goals or nodes within the tree"""
+    from app.firebase_service import get_artifact, update_artifact_tree_structure, perform_tree_move
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        source_node_id = data.get('source_node_id')
+        destination_node_id = data.get('destination_node_id')
+        move_type = data.get('move_type')  # 'goal' or 'node'
+        goal_index = data.get('goal_index')  # Only for goal moves
+        
+        if not all([artifact_id, source_node_id, destination_node_id, move_type]):
+            return jsonify({
+                'success': False,
+                'message': 'Missing required parameters'
+            })
+        
+        # Load the artifact
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            return jsonify({
+                'success': False,
+                'message': 'Artifact not found'
+            })
+        
+        # Perform the move operation
+        updated_tree, success, message = perform_tree_move(
+            artifact.tree_structure, 
+            source_node_id, 
+            destination_node_id, 
+            move_type, 
+            goal_index
+        )
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': message
+            })
+        
+        # Update the artifact in the database
+        update_success = update_artifact_tree_structure(artifact_id, updated_tree)
+        
+        if not update_success:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to save changes to database'
+            })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Move completed successfully',
+            'updated_tree_structure': updated_tree
+        })
+        
+    except Exception as e:
+        print(f"Move learning goal error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Move failed: {str(e)}'
+        })
+
+# api_delete_node endpoint removed - we only delete individual learning goals now
+
+@main.route('/api/delete-goal', methods=['POST'])
+def api_delete_goal():
+    """API endpoint for deleting individual learning goals"""
+    from app.firebase_service import get_artifact, update_artifact_tree_structure, archive_learning_goals, find_node_by_id, get_node_path, remove_goal_from_tree
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        node_id = data.get('node_id')
+        goal_index = data.get('goal_index')
+        
+        if not artifact_id or not node_id or goal_index is None:
+            return jsonify({
+                'success': False,
+                'message': 'Missing required parameters'
+            })
+        
+        # Load the artifact
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            return jsonify({
+                'success': False,
+                'message': 'Artifact not found'
+            })
+        
+        # Find the node containing the goal
+        node = find_node_by_id(artifact.tree_structure, node_id)
+        if not node or not node.get('goals') or goal_index >= len(node['goals']):
+            return jsonify({
+                'success': False,
+                'message': 'Learning goal not found'
+            })
+        
+        # Prepare goal for archiving
+        goal_text = node['goals'][goal_index]
+        source = node.get('sources', [{}])[goal_index] if node.get('sources') else {}
+        node_path = get_node_path(artifact.tree_structure, node_id)
+        
+        goal_to_archive = {
+            'goal_text': goal_text,
+            'original_path': node_path,
+            'document_name': source.get('document_name', ''),
+            'creator': source.get('creator', ''),
+            'course_name': source.get('course_name', ''),
+            'artifact_id': artifact_id
+        }
+        
+        # Archive the goal
+        archived_count = archive_learning_goals([goal_to_archive])
+        
+        # Remove the goal from the tree and clean up if needed
+        updated_tree = remove_goal_from_tree(artifact.tree_structure, node_id, goal_index)
+        
+        # Update the artifact in the database
+        update_success = update_artifact_tree_structure(artifact_id, updated_tree)
+        
+        if not update_success:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to save changes to database'
+            })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Learning goal deleted successfully',
+            'updated_tree_structure': updated_tree
+        })
+        
+    except Exception as e:
+        print(f"Delete goal error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Delete failed: {str(e)}'
+        })
+
+@main.route('/api/get-archived-goals/<artifact_id>')
+def api_get_archived_goals(artifact_id):
+    """API endpoint for retrieving archived goals for an artifact"""
+    from app.firebase_service import get_archived_goals
+    
+    try:
+        archived_goals = get_archived_goals(artifact_id)
+        
+        return jsonify({
+            'success': True,
+            'archived_goals': archived_goals
+        })
+        
+    except Exception as e:
+        print(f"Get archived goals error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to load archived goals: {str(e)}'
+        })
+
+@main.route('/api/restore-goal', methods=['POST'])
+def api_restore_goal():
+    """API endpoint for restoring archived learning goals"""
+    from app.firebase_service import get_artifact, restore_archived_goal, update_artifact_tree_structure
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        archived_goal_id = data.get('archived_goal_id')
+        
+        if not artifact_id or not archived_goal_id:
+            return jsonify({
+                'success': False,
+                'message': 'Missing required parameters'
+            })
+        
+        # Load the artifact
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            return jsonify({
+                'success': False,
+                'message': 'Artifact not found'
+            })
+        
+        # Restore the goal and get the updated tree
+        updated_tree, success, message = restore_archived_goal(archived_goal_id, artifact.tree_structure)
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': message
+            })
+        
+        # Update the artifact in the database
+        update_success = update_artifact_tree_structure(artifact_id, updated_tree)
+        
+        if not update_success:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to save changes to database'
+            })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Learning goal restored successfully',
+            'updated_tree_structure': updated_tree
+        })
+        
+    except Exception as e:
+        print(f"Restore goal error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Restore failed: {str(e)}'
         })

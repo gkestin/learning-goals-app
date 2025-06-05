@@ -6,6 +6,7 @@ from app.models import Document
 import datetime as datetime_module  # For timedelta
 import uuid
 import re
+import copy
 
 # Global variables
 db = None
@@ -1494,11 +1495,12 @@ def save_complete_artifact_data_chunked(artifact_id, nodes):
     global db, using_mock
     
     if using_mock:
-        return
+        print("⚠️ MOCK DATABASE: Would save chunked artifact data")
+        return len(nodes) if nodes else 0
     
     if not nodes:
         print("⚠️ No nodes to save in chunks")
-        return
+        return 0
     
     print(f"💾 Saving complete artifact data in chunks...")
     
@@ -1568,6 +1570,7 @@ def save_complete_artifact_data_chunked(artifact_id, nodes):
             total_saved += len(chunk)
     
     print(f"✅ Complete artifact data saved with {total_saved} total nodes")
+    return total_saved
 
 def get_artifact(artifact_id):
     """Retrieve a specific artifact by its ID and reconstruct tree structure"""
@@ -2299,3 +2302,559 @@ def batch_update_regular_artifact(artifact, artifact_id, updates):
     
     print(f"✅ Batch update completed: {len(nodes_found)}/{len(updates)} nodes updated")
     return len(nodes_found) > 0
+
+# =============================================
+# TREE MANIPULATION AND ARCHIVE FUNCTIONS
+# =============================================
+
+def find_node_by_id(tree_structure, target_id):
+    """Find a node by its ID in the tree structure"""
+    def search_node(nodes):
+        if not nodes:
+            return None
+        
+        for node in nodes:
+            if isinstance(node, dict):
+                if node.get('id') == target_id:
+                    return node
+                if node.get('children'):
+                    result = search_node(node['children'])
+                    if result:
+                        return result
+        return None
+    
+    return search_node(tree_structure)
+
+def get_node_path(tree_structure, target_id):
+    """Get the hierarchical path to a node"""
+    def find_path(nodes, current_path=[]):
+        if not nodes:
+            return None
+        
+        for i, node in enumerate(nodes):
+            if isinstance(node, dict):
+                node_path = current_path + [node.get('label', f'Node{i}')]
+                
+                if node.get('id') == target_id:
+                    return ' > '.join(node_path)
+                
+                if node.get('children'):
+                    result = find_path(node['children'], node_path)
+                    if result:
+                        return result
+        return None
+    
+    return find_path(tree_structure) or 'Unknown Path'
+
+def perform_tree_move(tree_structure, source_node_id, destination_node_id, move_type, goal_index=None):
+    """Perform a goal move operation on the tree structure (node moves no longer supported)"""
+    try:
+        # Only support goal moves now
+        if move_type != 'goal':
+            return None, False, "Only individual learning goal moves are supported"
+        
+        # Find source and destination nodes
+        source_node = find_node_by_id(tree_structure, source_node_id)
+        destination_node = find_node_by_id(tree_structure, destination_node_id)
+        
+        if not source_node:
+            return None, False, "Source node not found"
+        
+        if not destination_node:
+            return None, False, "Destination node not found"
+        
+        # Validate move
+        if source_node_id == destination_node_id:
+            return None, False, "Cannot move goal to the same location"
+        
+        # Create a deep copy to work with
+        updated_tree = copy.deepcopy(tree_structure)
+        
+        return move_individual_goal(updated_tree, source_node_id, destination_node_id, goal_index)
+    
+    except Exception as e:
+        print(f"Goal move error: {e}")
+        return None, False, f"Move operation failed: {str(e)}"
+
+def move_individual_goal(tree_structure, source_node_id, destination_node_id, goal_index):
+    """Move a single learning goal between nodes"""
+    try:
+        # Find nodes in the updated tree
+        source_node = find_node_by_id(tree_structure, source_node_id)
+        destination_node = find_node_by_id(tree_structure, destination_node_id)
+        
+        if not source_node or not destination_node:
+            return None, False, "Nodes not found in updated tree"
+        
+        # Validate goal index
+        if not source_node.get('goals') or goal_index >= len(source_node['goals']):
+            return None, False, "Invalid goal index"
+        
+        # Extract the goal and its source information
+        goal_text = source_node['goals'][goal_index]
+        goal_source = {}
+        if source_node.get('sources') and goal_index < len(source_node['sources']):
+            goal_source = source_node['sources'][goal_index]
+        
+        # Remove from source
+        source_node['goals'].pop(goal_index)
+        if source_node.get('sources') and goal_index < len(source_node['sources']):
+            source_node['sources'].pop(goal_index)
+        
+        # Update source node size
+        source_node['size'] = len(source_node['goals'])
+        
+        # Add to destination
+        if 'goals' not in destination_node:
+            destination_node['goals'] = []
+        if 'sources' not in destination_node:
+            destination_node['sources'] = []
+        
+        destination_node['goals'].append(goal_text)
+        destination_node['sources'].append(goal_source)
+        
+        # Update destination node size
+        destination_node['size'] = len(destination_node['goals'])
+        
+        # Clean up empty source node if needed
+        if len(source_node['goals']) == 0 and not source_node.get('children'):
+            tree_structure = remove_empty_node(tree_structure, source_node_id)
+        
+        # Update parent node sizes recursively
+        update_parent_sizes(tree_structure)
+        
+        return tree_structure, True, "Goal moved successfully"
+        
+    except Exception as e:
+        print(f"Individual goal move error: {e}")
+        return None, False, f"Failed to move goal: {str(e)}"
+
+# move_entire_node function removed - we only support individual goal moves now
+
+def remove_node_from_tree(tree_structure, target_node_id):
+    """Remove a node from the tree structure (used for cleaning up empty nodes)"""
+    import copy
+    
+    # Always work with a copy to avoid modifying the original
+    updated_tree = copy.deepcopy(tree_structure)
+    
+    def remove_from_nodes(nodes):
+        if not nodes:
+            return False
+        
+        # Check if target is in current level
+        for i, node in enumerate(nodes):
+            if isinstance(node, dict) and node.get('id') == target_node_id:
+                nodes.pop(i)
+                return True
+        
+        # Recursively check children
+        for node in nodes:
+            if isinstance(node, dict) and node.get('children'):
+                if remove_from_nodes(node['children']):
+                    return True
+        
+        return False
+    
+    # Try to remove the node
+    found = remove_from_nodes(updated_tree)
+    
+    if found:
+        return updated_tree
+    else:
+        # Node not found, return original structure
+        print(f"⚠️ Node {target_node_id} not found for removal")
+        return tree_structure
+
+def remove_goal_from_tree(tree_structure, node_id, goal_index):
+    """Remove a specific goal from a node and clean up if needed"""
+    import copy
+    updated_tree = copy.deepcopy(tree_structure)
+    
+    # Find the node
+    node = find_node_by_id(updated_tree, node_id)
+    if not node or not node.get('goals') or goal_index >= len(node['goals']):
+        return updated_tree
+    
+    # Remove the goal and corresponding source
+    node['goals'].pop(goal_index)
+    if node.get('sources') and goal_index < len(node['sources']):
+        node['sources'].pop(goal_index)
+    
+    # Update node size
+    node['size'] = len(node['goals'])
+    
+    # If node is now empty and has no children, remove it
+    if len(node['goals']) == 0 and not node.get('children'):
+        updated_tree = remove_empty_node(updated_tree, node_id)
+    
+    # Update parent sizes
+    update_parent_sizes(updated_tree)
+    
+    return updated_tree
+
+def remove_empty_node(tree_structure, node_id):
+    """Remove an empty node from the tree"""
+    def remove_empty_from_nodes(nodes):
+        if not nodes:
+            return nodes
+        
+        # Check current level
+        for i, node in enumerate(nodes):
+            if isinstance(node, dict) and node.get('id') == node_id:
+                # Only remove if truly empty
+                if (not node.get('goals') or len(node['goals']) == 0) and \
+                   (not node.get('children') or len(node['children']) == 0):
+                    nodes.pop(i)
+                    return nodes
+        
+        # Check children recursively
+        for node in nodes:
+            if isinstance(node, dict) and node.get('children'):
+                node['children'] = remove_empty_from_nodes(node['children'])
+        
+        return nodes
+    
+    return remove_empty_from_nodes(tree_structure)
+
+def update_parent_sizes(tree_structure):
+    """Update the size field for all parent nodes based on their descendants"""
+    if not tree_structure or not isinstance(tree_structure, list):
+        print(f"⚠️ Invalid tree structure for size update: {type(tree_structure)}")
+        return
+    
+    def calculate_node_size(node):
+        if not isinstance(node, dict):
+            return 0
+        
+        # Start with direct goals
+        goals = node.get('goals', [])
+        direct_goals = len(goals) if goals is not None else 0
+        
+        # Add goals from children
+        child_goals = 0
+        children = node.get('children', [])
+        if children:
+            for child in children:
+                child_goals += calculate_node_size(child)
+        
+        # Update this node's size
+        total_size = direct_goals + child_goals
+        node['size'] = total_size
+        
+        return total_size
+    
+    # Calculate sizes for all nodes
+    for node in tree_structure:
+        if isinstance(node, dict):
+            calculate_node_size(node)
+
+def archive_learning_goals(goals_to_archive):
+    """Archive learning goals to the database"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        archived_count = 0
+        
+        for goal_data in goals_to_archive:
+            # Add timestamp
+            goal_data['archived_at'] = datetime.datetime.now()
+            
+            if using_mock:
+                # Mock archiving
+                if 'archived_goals' not in db.collections:
+                    db.collections['archived_goals'] = type(db.collections['documents'])('archived_goals')
+                
+                doc_id = f"archived_{len(db.collections['archived_goals'].documents)}"
+                db.collections['archived_goals'].documents[doc_id] = type('doc', (), {
+                    'id': doc_id,
+                    'data': goal_data,
+                    'to_dict': lambda: goal_data
+                })()
+                archived_count += 1
+            else:
+                # Real database archiving
+                doc_ref = db.collection('archived_goals').document()
+                doc_ref.set(goal_data)
+                archived_count += 1
+        
+        print(f"✅ Archived {archived_count} learning goals")
+        return archived_count
+        
+    except Exception as e:
+        print(f"❌ Error archiving goals: {e}")
+        return 0
+
+def get_archived_goals(artifact_id):
+    """Retrieve archived goals for a specific artifact"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        archived_goals = []
+        
+        if using_mock:
+            # Mock retrieval
+            if 'archived_goals' in db.collections:
+                for doc_id, doc in db.collections['archived_goals'].documents.items():
+                    goal_data = doc.to_dict()
+                    if goal_data.get('artifact_id') == artifact_id:
+                        goal_data['id'] = doc_id
+                        archived_goals.append(goal_data)
+        else:
+            # Real database retrieval
+            query = db.collection('archived_goals').where('artifact_id', '==', artifact_id)
+            docs = query.stream()
+            
+            for doc in docs:
+                goal_data = doc.to_dict()
+                goal_data['id'] = doc.id
+                archived_goals.append(goal_data)
+        
+        # Sort by archived date (newest first)
+        archived_goals.sort(key=lambda x: x.get('archived_at', datetime.datetime.min), reverse=True)
+        
+        print(f"✅ Retrieved {len(archived_goals)} archived goals for artifact {artifact_id}")
+        return archived_goals
+        
+    except Exception as e:
+        print(f"❌ Error retrieving archived goals: {e}")
+        return []
+
+def restore_archived_goal(archived_goal_id, tree_structure):
+    """Restore an archived goal back to the tree structure"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        # Get the archived goal
+        archived_goal = None
+        
+        if using_mock:
+            if 'archived_goals' in db.collections and archived_goal_id in db.collections['archived_goals'].documents:
+                archived_goal = db.collections['archived_goals'].documents[archived_goal_id].to_dict()
+        else:
+            doc_ref = db.collection('archived_goals').document(archived_goal_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                archived_goal = doc.to_dict()
+        
+        if not archived_goal:
+            return None, False, "Archived goal not found"
+        
+        # Try to restore to original path or create a basic restoration
+        import copy
+        updated_tree = copy.deepcopy(tree_structure)
+        
+        # For now, add to the first available node or create a restoration node
+        if updated_tree:
+            # Add to the first node that can accept goals
+            target_node = find_restorable_node(updated_tree)
+            if target_node:
+                if 'goals' not in target_node:
+                    target_node['goals'] = []
+                if 'sources' not in target_node:
+                    target_node['sources'] = []
+                
+                target_node['goals'].append(archived_goal['goal_text'])
+                target_node['sources'].append({
+                    'document_name': archived_goal.get('document_name', ''),
+                    'creator': archived_goal.get('creator', ''),
+                    'course_name': archived_goal.get('course_name', '')
+                })
+                
+                # Update sizes
+                update_parent_sizes(updated_tree)
+                
+                # Delete the archived goal
+                if using_mock:
+                    if archived_goal_id in db.collections['archived_goals'].documents:
+                        del db.collections['archived_goals'].documents[archived_goal_id]
+                else:
+                    db.collection('archived_goals').document(archived_goal_id).delete()
+                
+                return updated_tree, True, "Goal restored successfully"
+        
+        return None, False, "No suitable location found for restoration"
+        
+    except Exception as e:
+        print(f"❌ Error restoring goal: {e}")
+        return None, False, f"Restoration failed: {str(e)}"
+
+def find_restorable_node(tree_structure):
+    """Find a node suitable for restoring a goal"""
+    def search_for_restorable(nodes):
+        if not nodes:
+            return None
+        
+        for node in nodes:
+            if isinstance(node, dict):
+                # Prefer leaf nodes (no children) that already have goals
+                if not node.get('children') and node.get('goals'):
+                    return node
+        
+        # If no leaf nodes with goals, try any node with goals
+        for node in nodes:
+            if isinstance(node, dict) and node.get('goals'):
+                return node
+        
+        # Recursively search children
+        for node in nodes:
+            if isinstance(node, dict) and node.get('children'):
+                result = search_for_restorable(node['children'])
+                if result:
+                    return result
+        
+        # Last resort: return first node
+        if nodes and isinstance(nodes[0], dict):
+            return nodes[0]
+        
+        return None
+    
+    return search_for_restorable(tree_structure)
+
+def update_artifact_tree_structure(artifact_id, new_tree_structure):
+    """Update an artifact's tree structure in the database with chunking support"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        from app.models import Artifact
+        
+        if using_mock:
+            # Mock update
+            if 'tree_artifacts' in db.collections and artifact_id in db.collections['tree_artifacts'].documents:
+                current_data = db.collections['tree_artifacts'].documents[artifact_id].data
+                current_data['tree_structure'] = new_tree_structure
+                current_data['modified_at'] = datetime.datetime.now()
+                return True
+            return False
+        else:
+            # Real database update
+            doc_ref = db.collection('tree_artifacts').document(artifact_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                doc_data = doc.to_dict()
+                
+                # Create updated artifact
+                updated_artifact = Artifact.from_dict(doc_data, artifact_id=artifact_id)
+                updated_artifact.tree_structure = new_tree_structure
+                updated_artifact.modified_at = datetime.datetime.now()
+                
+                # Try to save normally first
+                try:
+                    # Re-serialize and save
+                    serialized_artifact = serialize_artifact_for_firestore(updated_artifact)
+                    doc_data = serialized_artifact.to_dict()
+                    
+                    # Convert datetime to Firebase timestamp
+                    if isinstance(doc_data['modified_at'], datetime.datetime):
+                        if hasattr(firestore, 'SERVER_TIMESTAMP'):
+                            doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+                    
+                    doc_ref.set(doc_data)
+                    print(f"✅ Artifact tree structure updated successfully (standard)")
+                    return True
+                    
+                except Exception as size_error:
+                    if "exceeds the maximum allowed size" in str(size_error):
+                        print(f"📦 Artifact too large for single document, using chunking strategy...")
+                        return update_large_artifact_with_chunking(artifact_id, updated_artifact, doc_ref)
+                    else:
+                        raise size_error
+            
+        return False
+        
+    except Exception as e:
+        print(f"❌ Error updating artifact tree structure: {e}")
+        return False
+
+def update_large_artifact_with_chunking(artifact_id, updated_artifact, doc_ref):
+    """Update a large artifact using the chunking strategy"""
+    try:
+        from app.models import Artifact
+        
+        # Calculate summary statistics safely
+        tree_structure = updated_artifact.tree_structure or []
+        total_goals = calculate_total_goals_in_tree(tree_structure)
+        
+        # Create minimal metadata for main document
+        minimal_metadata = {
+            'total_goals': total_goals,
+            'optimization_level': 'maximum_flattening',
+            'last_update_time': datetime.datetime.now().isoformat(),
+            'update_type': 'move_delete_operation'
+        }
+        
+        # Create structure summary with minimal data for main document
+        structure_summary = create_minimal_tree_summary(tree_structure)
+        
+        # Create minimal artifact for main document
+        minimal_artifact = Artifact(
+            name=updated_artifact.name,
+            tree_structure=structure_summary,
+            parameters=updated_artifact.parameters or {},
+            metadata=minimal_metadata,
+            created_at=updated_artifact.created_at,
+            modified_at=updated_artifact.modified_at,
+            is_active=updated_artifact.is_active
+        )
+        
+        # Save minimal version to main document
+        doc_data = minimal_artifact.to_dict()
+        
+        if isinstance(doc_data['modified_at'], datetime.datetime):
+            if hasattr(firestore, 'SERVER_TIMESTAMP'):
+                doc_data['modified_at'] = firestore.SERVER_TIMESTAMP
+        
+        doc_ref.set(doc_data)
+        print(f"✅ Updated main artifact document with summary")
+        
+        # Clear existing chunks and save new complete data in subcollection
+        clear_existing_chunks(artifact_id)
+        chunks_saved = save_complete_artifact_data_chunked(artifact_id, tree_structure)
+        
+        if chunks_saved is not None and chunks_saved > 0:
+            print(f"✅ Artifact updated with chunking: {chunks_saved} nodes saved")
+            return True
+        else:
+            print(f"⚠️ Failed to save chunked data (saved: {chunks_saved})")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error updating large artifact with chunking: {e}")
+        return False
+
+def clear_existing_chunks(artifact_id):
+    """Clear existing chunk data for an artifact"""
+    global db, using_mock
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Would clear chunks for artifact {artifact_id}")
+        return
+    
+    try:
+        # Delete all existing chunks
+        chunks_ref = db.collection('tree_artifacts').document(artifact_id).collection('node_chunks')
+        chunks = chunks_ref.stream()
+        
+        deleted_count = 0
+        for chunk in chunks:
+            chunk.reference.delete()
+            deleted_count += 1
+        
+        if deleted_count > 0:
+            print(f"🗑️ Cleared {deleted_count} existing chunks for artifact {artifact_id}")
+        
+    except Exception as e:
+        print(f"⚠️ Error clearing existing chunks: {e}")
