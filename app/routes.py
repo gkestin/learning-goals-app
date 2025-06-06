@@ -2767,6 +2767,70 @@ def api_move_learning_goal():
 
 # api_delete_node endpoint removed - we only delete individual learning goals now
 
+@main.route('/api/create-group-and-move-goal', methods=['POST'])
+def api_create_group_and_move_goal():
+    """API endpoint for creating a new group and moving a goal to it"""
+    from app.firebase_service import get_artifact, update_artifact_tree_structure, create_new_group_and_move_goal
+    
+    try:
+        data = request.get_json()
+        artifact_id = data.get('artifact_id')
+        source_node_id = data.get('source_node_id')
+        goal_index = data.get('goal_index')
+        new_group_name = data.get('new_group_name')
+        location = data.get('location')
+        
+        if not all([artifact_id, source_node_id, new_group_name, location]) or goal_index is None:
+            return jsonify({
+                'success': False,
+                'message': 'Missing required parameters'
+            })
+        
+        # Load the artifact
+        artifact = get_artifact(artifact_id)
+        if not artifact:
+            return jsonify({
+                'success': False,
+                'message': 'Artifact not found'
+            })
+        
+        # Create new group and move the goal
+        updated_tree, success, message = create_new_group_and_move_goal(
+            artifact.tree_structure,
+            source_node_id,
+            goal_index,
+            new_group_name,
+            location
+        )
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'message': message
+            })
+        
+        # Update the artifact in the database
+        update_success = update_artifact_tree_structure(artifact_id, updated_tree)
+        
+        if not update_success:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to save changes to database'
+            })
+        
+        return jsonify({
+            'success': True,
+            'message': 'New group created and goal moved successfully',
+            'updated_tree_structure': updated_tree
+        })
+        
+    except Exception as e:
+        print(f"Create group and move goal error: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Operation failed: {str(e)}'
+        })
+
 @main.route('/api/delete-goal', methods=['POST'])
 def api_delete_goal():
     """API endpoint for deleting individual learning goals"""

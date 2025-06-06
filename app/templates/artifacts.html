@@ -610,6 +610,82 @@
         font-weight: bold;
     }
 
+    /* New Group Creation Styles */
+    .new-group-tree-selector {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 10px;
+        background-color: #f8f9fa;
+    }
+    
+    .tree-level-item {
+        margin: 3px 0;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid transparent;
+    }
+    
+    .tree-level-item:hover {
+        background-color: #e3f2fd;
+        border-color: #2196f3;
+    }
+    
+    .tree-level-item.selected {
+        background-color: #c8e6c9;
+        border-color: #4caf50;
+        font-weight: 500;
+    }
+    
+    .tree-level-item .expand-icon {
+        transition: transform 0.2s ease;
+        color: #6c757d;
+        font-size: 0.8em;
+        width: 12px;
+        text-align: center;
+    }
+    
+    .tree-level-item.expanded .expand-icon {
+        transform: rotate(90deg);
+    }
+    
+    .tree-level-item.leaf .expand-icon {
+        opacity: 0.3;
+    }
+    
+    .tree-level-text {
+        flex-grow: 1;
+    }
+    
+    .select-location-btn {
+        padding: 2px 8px;
+        font-size: 0.7em;
+        border-radius: 3px;
+        background-color: #28a745;
+        border: 1px solid #28a745;
+        color: white;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .select-location-btn:hover {
+        background-color: #218838;
+        transform: scale(1.05);
+    }
+    
+    .tree-children {
+        margin-left: 20px;
+        margin-top: 5px;
+        border-left: 1px dashed #dee2e6;
+        padding-left: 10px;
+    }
+
     /* Archive Modal Styles */
     .archived-goals-container {
         max-height: 400px;
@@ -921,7 +997,10 @@
                 </div>
                 
                 <!-- Search Box -->
-                <div class="mb-3">
+                <div class="mb-3" id="existing-destinations-section">
+                    <div class="d-flex align-items-center mb-2">
+                        <strong>Move to existing group:</strong>
+                    </div>
                     <input type="text" class="move-search-input" id="move-search" placeholder="Search destination groups by name..." autocomplete="off">
                     <div class="form-text">
                         Type to search group names. Click the <i class="bi bi-info-circle" style="font-size: 0.8em;"></i> icon next to any group to see its full path.
@@ -931,6 +1010,41 @@
                 <!-- Destination Tree -->
                 <div class="move-destination-tree" id="move-destination-tree">
                     <!-- Tree will be populated here -->
+                </div>
+                
+                <!-- Create New Group Option (at bottom) -->
+                <div class="mt-4 pt-3 border-top">
+                    <div class="d-flex align-items-center justify-content-center gap-2">
+                        <button type="button" class="btn btn-link btn-sm text-muted" id="create-new-group-btn" onclick="toggleCreateNewGroup()" style="text-decoration: none; font-size: 0.85em;">
+                            <i class="bi bi-plus-circle-dotted"></i> Create new group instead
+                        </button>
+                        <button type="button" class="btn btn-link btn-sm text-muted p-0" onclick="showCreateGroupInfo()" title="Learn more about creating new groups">
+                            <i class="bi bi-info-circle" style="font-size: 0.8em;"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- New Group Creation Panel (hidden by default) -->
+                <div id="create-new-group-panel" style="display: none;">
+                    <hr class="my-3">
+                    <div class="alert alert-info">
+                        <strong>Creating new group:</strong> "<em id="new-group-name-preview"></em>"<br>
+                        <small>Navigate to the group that contains existing groups, then select where to add the new group:</small>
+                    </div>
+                    
+                    <!-- Hierarchical Tree Selector -->
+                    <div class="new-group-tree-selector mb-3" id="new-group-tree-selector">
+                        <!-- Hierarchical tree will be populated here -->
+                    </div>
+                    
+                    <div class="text-center mb-3">
+                        <button type="button" class="btn btn-success btn-sm" id="create-and-move-btn" onclick="createNewGroupAndMove()" disabled>
+                            <i class="bi bi-plus-circle"></i> Create Group & Move Goal
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm ms-2" onclick="toggleCreateNewGroup()">
+                            Cancel
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -997,6 +1111,10 @@ let currentMoveNodeId = null;
 let currentMoveType = null; // 'node' or 'goal'
 let currentMoveGoalIndex = null;
 let searchTimeout = null;
+
+// New group creation variables
+let selectedNewGroupLocation = null;
+let currentNewGroupName = null;
 
 // Fix for total goals display issue - detects and corrects extra trailing zeros
 function fixTotalGoals(totalGoalsValue, treeStructure = null) {
@@ -2281,6 +2399,9 @@ function openMoveModal(nodeId, moveType, goalIndex = null) {
     
     $('#move-description').html(description);
     
+    // Reset new group panel
+    resetNewGroupPanel();
+    
     // Build destination tree
     buildMoveDestinationTree();
     
@@ -2643,6 +2764,203 @@ function showProgress(title, details) {
 
 function hideProgress() {
     $('#operation-progress').hide();
+}
+
+// =====================================
+// NEW GROUP CREATION FUNCTIONALITY
+// =====================================
+
+function resetNewGroupPanel() {
+    const panel = $('#create-new-group-panel');
+    const btn = $('#create-new-group-btn');
+    
+    // Reset to initial state
+    panel.hide();
+    btn.html('<i class="bi bi-plus-circle-dotted"></i> Create new group instead');
+    selectedNewGroupLocation = null;
+    currentNewGroupName = null;
+    $('#create-and-move-btn').prop('disabled', true);
+    $('#new-group-tree-selector').empty();
+    $('.tree-level-item').removeClass('selected');
+}
+
+function showCreateGroupInfo() {
+    alert(`About Creating New Groups:\n\n• Use this option if none of the existing groups above are suitable for your learning goal\n• A new group will be created with your learning goal as its name\n• You'll choose where in the hierarchy to place this new group\n• You can only create new groups at the level that contains other groups (not deeper levels)`);
+}
+
+function toggleCreateNewGroup() {
+    const panel = $('#create-new-group-panel');
+    const btn = $('#create-new-group-btn');
+    
+    if (panel.is(':visible')) {
+        // Hide the panel
+        panel.slideUp();
+        btn.html('<i class="bi bi-plus-circle-dotted"></i> Create new group instead');
+        selectedNewGroupLocation = null;
+        $('#create-and-move-btn').prop('disabled', true);
+    } else {
+        // Show the panel and set up the goal name
+        if (currentMoveType === 'goal' && currentMoveGoalIndex !== null) {
+            const sourceNode = findNodeById(currentArtifact.tree_structure, currentMoveNodeId);
+            if (sourceNode && sourceNode.goals && sourceNode.goals[currentMoveGoalIndex]) {
+                currentNewGroupName = sourceNode.goals[currentMoveGoalIndex];
+                $('#new-group-name-preview').text(truncateText(currentNewGroupName, 100));
+                
+                // Build the hierarchical tree selector
+                buildNewGroupTreeSelector();
+                
+                panel.slideDown();
+                btn.html('<i class="bi bi-x-circle text-muted"></i> Cancel');
+            }
+        }
+    }
+}
+
+function buildNewGroupTreeSelector() {
+    // Start with top-level nodes - no "Select Here" buttons at top level
+    const topLevelHtml = buildTreeLevel(currentArtifact.tree_structure, [], 'top');
+    
+    $('#new-group-tree-selector').html(topLevelHtml);
+}
+
+function isSecondToLastLevel(node) {
+    // A node is at second-to-last level if:
+    // 1. It has children (not a leaf group itself)
+    // 2. All its children are leaf groups (have no children of their own)
+    if (!node.children || node.children.length === 0) {
+        return false; // This is a leaf group
+    }
+    
+    // Check if all children are leaf groups
+    return node.children.every(child => !child.children || child.children.length === 0);
+}
+
+function buildTreeLevel(nodes, path = [], containerId = null) {
+    let html = '';
+    
+    nodes.forEach((node, index) => {
+        const hasChildren = node.children && node.children.length > 0;
+        const nodeTitle = node.representative_goal || `Group ${node.label}`;
+        const currentPath = [...path, { id: node.id, title: nodeTitle }];
+        const pathStr = JSON.stringify(currentPath).replace(/"/g, '&quot;');
+        
+        const itemId = containerId ? `${containerId}-${index}` : `item-${index}`;
+        const canSelectHere = isSecondToLastLevel(node);
+        
+        html += `
+            <div class="tree-level-item ${hasChildren ? '' : 'leaf'}" data-node-id="${node.id}" data-item-id="${itemId}">
+                ${hasChildren ? 
+                    `<i class="bi bi-chevron-right expand-icon" onclick="event.stopPropagation(); toggleTreeLevel('${itemId}', '${node.id}', '${pathStr}')"></i>` :
+                    `<i class="bi bi-circle-fill expand-icon"></i>`
+                }
+                <div class="tree-level-text" title="${nodeTitle}">
+                    ${truncateText(nodeTitle, 60)}
+                    ${canSelectHere ? ' <small class="text-success">(can add groups here)</small>' : ''}
+                </div>
+                ${canSelectHere ? `
+                    <button class="select-location-btn" onclick="event.stopPropagation(); selectNewGroupLocation('${node.id}', '${pathStr}')">
+                        Select Here
+                    </button>
+                ` : hasChildren ? '<small class="text-muted">Navigate deeper ↓</small>' : '<small class="text-muted">Group</small>'}
+            </div>
+            ${hasChildren ? `<div class="tree-children" id="children-${itemId}" style="display: none;"></div>` : ''}
+        `;
+    });
+    
+    return html;
+}
+
+function toggleTreeLevel(itemId, nodeId, pathStr) {
+    const item = $(`[data-item-id="${itemId}"]`);
+    const childrenContainer = $(`#children-${itemId}`);
+    const icon = item.find('.expand-icon');
+    
+    if (childrenContainer.is(':visible')) {
+        // Collapse
+        childrenContainer.slideUp();
+        icon.removeClass('bi-chevron-down').addClass('bi-chevron-right');
+        item.removeClass('expanded');
+    } else {
+        // Expand - load children if not already loaded
+        if (childrenContainer.is(':empty')) {
+            const node = findNodeById(currentArtifact.tree_structure, nodeId);
+            if (node && node.children) {
+                const path = JSON.parse(pathStr.replace(/&quot;/g, '"'));
+                const childrenHtml = buildTreeLevel(node.children, path, itemId);
+                childrenContainer.html(childrenHtml);
+            }
+        }
+        
+        childrenContainer.slideDown();
+        icon.removeClass('bi-chevron-right').addClass('bi-chevron-down');
+        item.addClass('expanded');
+    }
+}
+
+function selectNewGroupLocation(locationId, pathStr) {
+    // Clear previous selection
+    $('.tree-level-item').removeClass('selected');
+    
+    // Set new selection - only "under" type since we removed top-level creation
+    const path = JSON.parse(pathStr.replace(/&quot;/g, '"'));
+    selectedNewGroupLocation = { type: 'under', parentId: locationId, path: path };
+    $(`[data-node-id="${locationId}"]`).addClass('selected');
+    
+    // Enable the create button
+    $('#create-and-move-btn').prop('disabled', false);
+}
+
+function createNewGroupAndMove() {
+    if (!selectedNewGroupLocation || !currentNewGroupName) {
+        alert('Please select a location for the new group');
+        return;
+    }
+    
+    // Show progress
+    showProgress('Creating new group...', 'Creating group and moving goal...');
+    
+    // Prepare the data for the backend
+    const createData = {
+        artifact_id: currentArtifactId,
+        source_node_id: currentMoveNodeId,
+        goal_index: currentMoveGoalIndex,
+        new_group_name: currentNewGroupName,
+        location: selectedNewGroupLocation
+    };
+    
+    $.ajax({
+        url: '/api/create-group-and-move-goal',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(createData)
+    })
+    .done(function(response) {
+        hideProgress();
+        
+        if (response.success) {
+            // Update the current artifact with the new structure
+            currentArtifact.tree_structure = response.updated_tree_structure;
+            
+            // Refresh the display
+            if (flattenedAtLevel !== null) {
+                flattenAtLevel(flattenedAtLevel);
+            } else {
+                displayTree(currentArtifact.tree_structure);
+            }
+            
+            // Close modal
+            $('#moveModal').modal('hide');
+            
+            // Show success message
+            alert(`✅ Successfully created new group "${truncateText(currentNewGroupName, 50)}" and moved the learning goal!`);
+        } else {
+            alert('Failed to create group and move goal: ' + response.message);
+        }
+    })
+    .fail(function() {
+        hideProgress();
+        alert('Failed to create group and move goal: Network error');
+    });
 }
 </script>
 {% endblock %}

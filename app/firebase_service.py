@@ -2431,6 +2431,126 @@ def move_individual_goal(tree_structure, source_node_id, destination_node_id, go
 
 # move_entire_node function removed - we only support individual goal moves now
 
+def create_new_group_and_move_goal(tree_structure, source_node_id, goal_index, new_group_name, location):
+    """Create a new group and move a learning goal to it"""
+    try:
+        import copy
+        import uuid
+        
+        # Create a deep copy to work with
+        updated_tree = copy.deepcopy(tree_structure)
+        
+        # Find the source node
+        source_node = find_node_by_id(updated_tree, source_node_id)
+        if not source_node:
+            return None, False, "Source node not found"
+        
+        # Validate goal index
+        if not source_node.get('goals') or goal_index >= len(source_node['goals']):
+            return None, False, "Invalid goal index"
+        
+        # Extract the goal and its source information
+        goal_text = source_node['goals'][goal_index]
+        goal_source = {}
+        if source_node.get('sources') and goal_index < len(source_node['sources']):
+            goal_source = source_node['sources'][goal_index]
+        
+        # Create new group
+        new_group_node = {
+            'id': str(uuid.uuid4()),
+            'label': generate_next_label(updated_tree, location),
+            'representative_goal': new_group_name,
+            'goals': [goal_text],
+            'sources': [goal_source],
+            'size': 1,
+            'text_state': 'default'
+        }
+        
+        # Add new group as child of selected parent (second-to-last level)
+        if location['type'] != 'under':
+            return None, False, "Invalid location type - only second-to-last level selection allowed"
+        
+        # Find the parent node and add as child
+        parent_node = find_node_by_id(updated_tree, location['parentId'])
+        if not parent_node:
+            return None, False, "Parent node not found"
+        
+        # Verify this is actually a second-to-last level node
+        if not parent_node.get('children'):
+            return None, False, "Selected node has no children - cannot create sibling groups"
+        
+        # Check that all children are groups with no sub-groups (no grandchildren)
+        for child in parent_node['children']:
+            if child.get('children') and len(child['children']) > 0:
+                return None, False, "Selected node contains groups with sub-groups - please navigate deeper to the second-to-last level"
+        
+        parent_node['children'].append(new_group_node)
+        
+        # Remove goal from source node
+        source_node['goals'].pop(goal_index)
+        if source_node.get('sources') and goal_index < len(source_node['sources']):
+            source_node['sources'].pop(goal_index)
+        
+        # Update source node size
+        source_node['size'] = len(source_node['goals'])
+        
+        # Clean up empty source node if needed
+        if len(source_node['goals']) == 0 and not source_node.get('children'):
+            updated_tree = remove_empty_node(updated_tree, source_node_id)
+        
+        # Update parent node sizes recursively
+        update_parent_sizes(updated_tree)
+        
+        return updated_tree, True, "New group created and goal moved successfully"
+        
+    except Exception as e:
+        print(f"Create new group and move goal error: {e}")
+        return None, False, f"Failed to create group and move goal: {str(e)}"
+
+def generate_next_label(tree_structure, location):
+    """Generate the next available label for a new group"""
+    
+    # Only handle "under" type since we removed top-level creation
+    if location['type'] != 'under':
+        return 'A1'  # Fallback
+    
+    # Find the parent and generate next child label
+    parent_node = find_node_by_id(tree_structure, location['parentId'])
+    if not parent_node:
+        return 'A1'
+    
+    parent_label = parent_node.get('label', 'A')
+    
+    # Get existing child labels to find the next available number
+    existing_child_numbers = []
+    if parent_node.get('children'):
+        for child in parent_node['children']:
+            child_label = child.get('label', '')
+            if child_label.startswith(parent_label):
+                # Extract the number part after the parent label and next letter
+                # e.g., for parent "A1" and child "A1B2", extract "2"
+                number_part = child_label[len(parent_label):]
+                if number_part and number_part[0].isalpha():
+                    # Skip the letter, get the number
+                    for i, char in enumerate(number_part):
+                        if char.isdigit():
+                            try:
+                                existing_child_numbers.append(int(number_part[i:]))
+                                break
+                            except ValueError:
+                                pass
+    
+    # Find next available number
+    next_number = 1
+    while next_number in existing_child_numbers:
+        next_number += 1
+    
+    # Determine the next letter based on depth
+    depth = len(location.get('path', [])) + 1  # +1 because we're adding a new level
+    next_letter = chr(ord('A') + depth) if depth < 26 else 'Z'
+    
+    return parent_label + next_letter + str(next_number)
+
 def remove_node_from_tree(tree_structure, target_node_id):
     """Remove a node from the tree structure (used for cleaning up empty nodes)"""
     import copy
