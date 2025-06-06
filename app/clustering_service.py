@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 from scipy.spatial.distance import pdist
-import hdbscan
 
 # STEM context prefix for better embeddings
 STEM_CONTEXT = "In STEM education, students should be able to: "
@@ -1498,6 +1497,12 @@ class LearningGoalsClusteringService:
         - epsilon: clustering hierarchy cutoff (0.0 = use full hierarchy)
         - max_cluster_size: maximum cluster size (None = no limit)
         """
+        # Import hdbscan only when needed
+        try:
+            import hdbscan
+        except ImportError:
+            raise ImportError("hdbscan package is required for HDBSCAN clustering. Install it with: pip install hdbscan")
+        
         start_time = time.time()
         
         # Set default min_samples if not provided
