@@ -2816,6 +2816,7 @@ def api_batch_update_artifact_representative_texts():
                     'success': False,
                     'message': 'Each update must have node_id, representative_text, and text_state'
                 })
+            # ai_prompt is optional
         
         success = batch_update_artifact_node_representative_texts(artifact_id, updates)
         

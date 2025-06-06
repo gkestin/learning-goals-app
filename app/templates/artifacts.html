@@ -1784,6 +1784,14 @@ function generateSingleAIText(node, model, prompt) {
     })
     .done(function(response) {
         if (response.success) {
+            // Update the in-memory artifact data with the saved prompt and generated text
+            const node = findNodeById(currentArtifact.tree_structure, currentAINodeId);
+            if (node) {
+                node.ai_prompt = prompt;
+                node.representative_goal = response.generated_text;
+                node.text_state = 'ai';
+            }
+            
             updateNodeUI(currentAINodeId, response.generated_text, 'ai');
             $('#aiGenerationModal').modal('hide');
         } else {
@@ -1846,7 +1854,8 @@ function generateRecursiveAIText(recursiveNodes, model, prompt) {
                     generatedResults.push({
                         node_id: nodeData.id,
                         representative_text: response.generated_text,
-                        text_state: 'ai'
+                        text_state: 'ai',
+                        ai_prompt: prompt  // Store the prompt for batch saving
                     });
                     
                     // Update UI immediately for visual feedback
@@ -1896,46 +1905,99 @@ function generateRecursiveAIText(recursiveNodes, model, prompt) {
 }
 
 function batchSaveAIResults(generatedResults, originalTitle, modalTitle, generateBtn, successful, errors, total) {
-    // Since individual saves already happened in the backend, we just need to:
-    // 1. Clean up UI change indicators 
-    // 2. Show final success message
-    // 3. Avoid redundant database saves
+    // For recursive generation, individual saves were skipped, so we need to save everything now
+    // including the prompts that were used for generation
     
     // Show finalizing progress
-    const finalizingText = `Finalizing ${generatedResults.length} changes...`;
+    const finalizingText = `Saving ${generatedResults.length} changes...`;
     generateBtn.html(`<i class="fa fa-spinner fa-spin"></i> ${finalizingText}`);
     modalTitle.html(`<i class="fa fa-check-circle text-purple"></i> AI Generate - ${finalizingText}`);
     
-    // Simulate brief processing time for UX (no actual backend call needed)
-    setTimeout(() => {
-        // Clear all change indicators since saves already happened during generation
-        generatedResults.forEach(result => {
-            const nodeElements = $(`[data-changed="true"]`).filter(function() {
-                const nodeId = $(this).closest('[data-node-id]').data('node-id');
-                return nodeId === result.node_id;
+    // Prepare updates for batch save (including prompts)
+    const updates = generatedResults.map(result => ({
+        node_id: result.node_id,
+        representative_text: result.representative_text,
+        text_state: result.text_state,
+        ai_prompt: result.ai_prompt  // Include the prompt that was used
+    }));
+    
+    // Send batch update to save everything including prompts
+    $.ajax({
+        url: '/api/batch-update-artifact-representative-texts',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            artifact_id: currentArtifactId,
+            updates: updates
+        })
+    })
+    .done(function(response) {
+        if (response.success) {
+            // Update the in-memory artifact data with the saved prompts
+            generatedResults.forEach(result => {
+                const node = findNodeById(currentArtifact.tree_structure, result.node_id);
+                if (node) {
+                    node.ai_prompt = result.ai_prompt;
+                    node.representative_goal = result.representative_text;
+                    node.text_state = result.text_state;
+                }
             });
-            nodeElements.each(function() {
-                $(this).removeAttr('data-changed');
-                $(this).css('backgroundColor', '');
+            
+            // Clear all change indicators after successful save
+            generatedResults.forEach(result => {
+                const nodeElements = $(`[data-changed="true"]`).filter(function() {
+                    // Check if this element itself has data-node-id (flattened view)
+                    // or find it in the closest parent (tree view)
+                    let nodeId = $(this).data('node-id');
+                    if (!nodeId) {
+                        nodeId = $(this).closest('[data-node-id]').data('node-id');
+                    }
+                    return nodeId === result.node_id;
+                });
+                nodeElements.each(function() {
+                    $(this).removeAttr('data-changed');
+                    $(this).css('backgroundColor', '');
+                });
             });
-        });
-        
-        // Show final success
-        generateBtn.html(`<i class="fa fa-check text-success"></i> All completed successfully!`);
-        modalTitle.html(`<i class="fa fa-check text-success"></i> Generation Complete!`);
+            
+            // Show final success
+            generateBtn.html(`<i class="fa fa-check text-success"></i> All saved successfully!`);
+            modalTitle.html(`<i class="fa fa-check text-success"></i> Generation Complete!`);
+            
+            setTimeout(() => {
+                modalTitle.html(originalTitle);
+                generateBtn.prop('disabled', false).html('<i class="fa fa-wand-magic-sparkles"></i> Generate');
+                $('#aiGenerationModal').modal('hide');
+                
+                if (errors === 0) {
+                    alert(`🎉 Successfully generated and saved text for all ${total} groups!\n\n💾 All results including prompts were saved.`);
+                } else {
+                    alert(`📊 Generation completed!\n✅ Generated & Saved: ${successful}\n❌ Failed: ${errors}\n📝 Total: ${total}\n\n💾 All successful results including prompts were saved.`);
+                }
+            }, 1500);
+        } else {
+            // Save failed
+            generateBtn.html(`<i class="fa fa-exclamation-triangle text-warning"></i> Save Failed`);
+            modalTitle.html(`<i class="fa fa-exclamation-triangle text-warning"></i> Save Failed`);
+            alert('Generated text successfully but failed to save to database: ' + response.message);
+            
+            setTimeout(() => {
+                modalTitle.html(originalTitle);
+                generateBtn.prop('disabled', false).html('<i class="fa fa-wand-magic-sparkles"></i> Generate');
+            }, 3000);
+        }
+    })
+    .fail(function() {
+        // Network error
+        generateBtn.html(`<i class="fa fa-times text-danger"></i> Network Error`);
+        modalTitle.html(`<i class="fa fa-times text-danger"></i> Network Error`);
+        alert('Generated text successfully but failed to save: Network error');
         
         setTimeout(() => {
             modalTitle.html(originalTitle);
             generateBtn.prop('disabled', false).html('<i class="fa fa-wand-magic-sparkles"></i> Generate');
-            $('#aiGenerationModal').modal('hide');
-            
-            if (errors === 0) {
-                alert(`🎉 Successfully generated and saved text for all ${total} groups!\n\n⚡ Each result was saved individually as generated.`);
-            } else {
-                alert(`📊 Generation completed!\n✅ Generated & Saved: ${successful}\n❌ Failed: ${errors}\n📝 Total: ${total}\n\n⚡ All successful results were saved as they were generated.`);
-            }
-        }, 1500);
-    }, 800); // Brief delay for finalizing UX
+        }, 3000);
+    });
 }
 
 function updateNodeUI(nodeId, generatedText, state) {
@@ -2131,6 +2193,7 @@ function displayFlattenedView(flattened, level) {
                     <div class="cluster-representative" 
                          contenteditable="true"
                          data-state="${textState}"
+                         data-node-id="${originalNode.id}"
                          onclick="event.stopPropagation(); startEditing(this)"
                          onblur="saveRepresentativeText(this, '${originalNode.id}')"
                          onkeydown="handleRepresentativeKeydown(event, this, '${originalNode.id}')">
@@ -2264,15 +2327,31 @@ function saveChanges() {
     // Find all changed representative texts
     const changedTexts = [];
     $('[data-changed="true"]').each(function() {
-        const nodeId = $(this).closest('[data-node-id]').data('node-id');
+        // Check if this element itself has data-node-id (flattened view)
+        // or find it in the closest parent (tree view)
+        let nodeId = $(this).data('node-id');
+        if (!nodeId) {
+            nodeId = $(this).closest('[data-node-id]').data('node-id');
+        }
+        
         const newText = $(this).find('.representative-text').text().trim();
         const state = $(this).attr('data-state') || 'manual';
         
-        changedTexts.push({
-            node_id: nodeId,
-            representative_text: newText,
-            text_state: state
-        });
+        // Only add if we have all required fields
+        if (nodeId && newText && state) {
+            changedTexts.push({
+                node_id: nodeId,
+                representative_text: newText,
+                text_state: state
+            });
+        } else {
+            console.warn('Skipping element with missing data:', {
+                nodeId: nodeId,
+                newText: newText,
+                state: state,
+                element: this
+            });
+        }
     });
     
     if (changedTexts.length === 0) {
