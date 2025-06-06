@@ -1497,11 +1497,11 @@ class LearningGoalsClusteringService:
         - epsilon: clustering hierarchy cutoff (0.0 = use full hierarchy)
         - max_cluster_size: maximum cluster size (None = no limit)
         """
-        # Import hdbscan only when needed
         try:
             import hdbscan
         except ImportError:
-            raise ImportError("hdbscan package is required for HDBSCAN clustering. Install it with: pip install hdbscan")
+            print("❌ HDBSCAN not installed. Please install it with: pip install hdbscan")
+            return np.full(len(embeddings), -1)  # Return all outliers
         
         start_time = time.time()
         

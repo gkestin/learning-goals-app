@@ -687,12 +687,10 @@ function buildHierarchicalTree() {
     // Reset progress indicators
     resetProgressIndicators();
     
-    // Update progress: Loading data
-    updateProgressStep('step-loading', 'active', 'Loading learning goals...');
-    $('#current-step').text('Loading learning goals from database...');
-    updateProgressBar(10, 'Loading data...');
+    // Disable build button
+    $('#build-tree-btn').prop('disabled', true);
     
-    // Build the tree
+    // Build the tree using streaming endpoint
     const requestData = {
         n_levels: nLevels,
         linkage_method: linkageMethod,
@@ -703,34 +701,59 @@ function buildHierarchicalTree() {
         requestData.course = selectedCourse;
     }
     
-    $.ajax({
-        url: '/api/cluster-tree',
+    // Use fetch with streaming
+    fetch('/api/cluster-tree-stream', {
         method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(requestData),
-        timeout: 300000 // 5 minutes timeout
-    })
-    .done(function(data) {
-        if (data.success) {
-            currentTreeData = data;
-            displayTreeResults(data);
-        } else {
-            $('#loading-spinner').hide();
-            $('#progress-tracker').hide();
-            alert(`Tree building failed: ${data.message}`);
-        }
-    })
-    .fail(function(xhr, status, error) {
-        $('#loading-spinner').hide();
-        $('#progress-tracker').hide();
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+    }).then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
         
-        let errorMsg = 'Tree building failed';
-        if (xhr.responseJSON && xhr.responseJSON.message) {
-            errorMsg += `: ${xhr.responseJSON.message}`;
-        } else if (status === 'timeout') {
-            errorMsg += ': Request timed out. Try with fewer levels or a smaller dataset.';
+        function processStream() {
+            reader.read().then(({ done, value }) => {
+                if (done) {
+                    console.log('Tree building stream complete');
+                    $('#build-tree-btn').prop('disabled', false);
+                    return;
+                }
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop(); // Keep incomplete line in buffer
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            handleTreeProgress(data);
+                        } catch (e) {
+                            console.error('Error parsing SSE data:', e);
+                        }
+                    }
+                }
+                
+                processStream(); // Continue reading
+            }).catch(error => {
+                console.error('Stream error:', error);
+                $('#progress-tracker').hide();
+                $('#loading-spinner').hide();
+                $('#build-tree-btn').prop('disabled', false);
+                alert('Tree building failed: ' + error.message);
+            });
         }
-        alert(errorMsg);
+        
+        processStream();
+        
+    }).catch(error => {
+        console.error('Fetch error:', error);
+        $('#progress-tracker').hide();
+        $('#loading-spinner').hide();
+        $('#build-tree-btn').prop('disabled', false);
+        alert('Failed to start tree building: ' + error.message);
     });
 }
 
@@ -753,20 +776,98 @@ function updateProgressBar(percentage, text) {
     $('#progress-text').text(text);
 }
 
-function displayTreeResults(data) {
-    // Update progress: Complete
-    updateProgressStep('step-loading', 'completed', 'Complete');
-    updateProgressStep('step-embeddings', 'completed', 'Complete');
-    updateProgressStep('step-tree-building', 'completed', 'Complete');
-    updateProgressStep('step-metrics', 'completed', 'Complete');
-    updateProgressBar(100, 'Complete!');
-    $('#current-step').text('Hierarchical tree built successfully!');
+function handleTreeProgress(data) {
+    const status = data.status;
+    const message = data.message;
+    const step = data.step;
+    const progress = data.progress;
     
-    // Hide loading
-    setTimeout(() => {
-        $('#loading-spinner').hide();
-        $('#progress-tracker').hide();
-    }, 1000);
+    // Update current step
+    $('#current-step').text(message);
+    
+    // Update step indicators based on status
+    switch(status) {
+        case 'starting':
+            updateProgressBar(5, 'Starting...');
+            break;
+            
+        case 'loading':
+            $('.step-indicator').removeClass('active completed error');
+            $('#step-loading').addClass('active');
+            updateProgressBar(10, 'Loading...');
+            break;
+            
+        case 'loaded':
+            $('#step-loading').removeClass('active').addClass('completed');
+            $('#step-loading small').text(`✓ ${data.totalGoals} goals`);
+            updateProgressBar(20, 'Data Loaded');
+            break;
+            
+        case 'embeddings':
+            $('#step-embeddings').addClass('active');
+            updateProgressBar(30, 'Generating...');
+            break;
+            
+        case 'embeddings_complete':
+            $('#step-embeddings').removeClass('active').addClass('completed');
+            $('#step-embeddings small').text('✓ Complete');
+            updateProgressBar(50, 'Embeddings Done');
+            break;
+            
+        case 'tree_building':
+            $('#step-tree-building').addClass('active');
+            if (progress) {
+                const overallProgress = 50 + (progress * 0.2); // 50% to 70%
+                updateProgressBar(overallProgress, 'Building...');
+            }
+            break;
+            
+        case 'tree_building_complete':
+            $('#step-tree-building').removeClass('active').addClass('completed');
+            $('#step-tree-building small').text('✓ Complete');
+            updateProgressBar(70, 'Tree Built');
+            break;
+            
+        case 'metrics':
+            $('#step-metrics').addClass('active');
+            if (progress) {
+                const overallProgress = 70 + (progress * 0.2); // 70% to 90%
+                updateProgressBar(overallProgress, 'Calculating...');
+            }
+            break;
+            
+        case 'metrics_complete':
+            $('#step-metrics').removeClass('active').addClass('completed');
+            $('#step-metrics small').text('✓ Complete');
+            updateProgressBar(90, 'Metrics Done');
+            break;
+            
+        case 'complete':
+            updateProgressBar(100, 'Complete!');
+            $('#current-step').text('Hierarchical tree built successfully!');
+            
+            // Hide progress tracker and show results
+            setTimeout(() => {
+                $('#progress-tracker').hide();
+                $('#loading-spinner').hide();
+                displayTreeResults(data.results);
+            }, 1000);
+            break;
+            
+        case 'error':
+            $('.step-indicator.active').removeClass('active').addClass('error');
+            $('#current-step').text('Error: ' + message);
+            $('#progress-tracker').hide();
+            $('#loading-spinner').hide();
+            $('#build-tree-btn').prop('disabled', false);
+            alert('Error: ' + message);
+            break;
+    }
+}
+
+function displayTreeResults(data) {
+    // Store tree data
+    currentTreeData = data;
     
     // Display stats
     displayStats(data);

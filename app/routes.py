@@ -1535,6 +1535,146 @@ def api_cluster_tree():
             'message': f'Tree building failed: {str(e)}'
         })
 
+@main.route('/api/cluster-tree-stream', methods=['POST'])
+def api_cluster_tree_stream():
+    """API endpoint for building hierarchical clustering trees with progress streaming"""
+    from flask import Response, stream_with_context
+    from app.clustering_service import LearningGoalsClusteringService
+    import json
+    import time
+    
+    def generate_tree_progress():
+        try:
+            # Get request data
+            request_data = request.get_json() or {}
+            n_levels = request_data.get('n_levels', 8)
+            linkage_method = request_data.get('linkage_method', 'ward')
+            sampling_method = request_data.get('sampling_method', 'intelligent')
+            course_filter = request_data.get('course')
+            
+            # Send initial status
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Initializing hierarchical tree builder...'})}\n\n"
+            
+            # Validate parameters
+            if n_levels < 3 or n_levels > 15:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Number of levels must be between 3 and 15'})}\n\n"
+                return
+            
+            if linkage_method not in ['ward', 'complete', 'average', 'single']:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Invalid linkage method'})}\n\n"
+                return
+            
+            if sampling_method not in ['natural', 'intelligent']:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Invalid sampling method'})}\n\n"
+                return
+            
+            # Step 1: Loading data
+            if course_filter:
+                loading_message = f"Loading learning goals from course: {course_filter}..."
+                yield f"data: {json.dumps({'status': 'loading', 'message': loading_message, 'step': 'loading', 'progress': 0})}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'loading', 'message': 'Loading learning goals from database...', 'step': 'loading', 'progress': 0})}\n\n"
+            
+            all_documents = search_documents(limit=1000)
+            all_goals = []
+            all_sources = []
+            
+            for doc in all_documents:
+                # Apply course filter if specified
+                if course_filter and doc.course_name != course_filter:
+                    continue
+                    
+                for goal in doc.learning_goals:
+                    all_goals.append(goal)
+                    all_sources.append({
+                        'document_name': doc.name,
+                        'creator': doc.creator,
+                        'course_name': doc.course_name
+                    })
+            
+            if len(all_goals) < 2:
+                error_message = f'Need at least 2 learning goals to build a tree. Found {len(all_goals)} goals.'
+                if course_filter:
+                    error_message += f' Course "{course_filter}" has too few goals.'
+                yield f"data: {json.dumps({'status': 'error', 'message': error_message})}\n\n"
+                return
+            
+            loaded_message = f"Loaded {len(all_goals)} learning goals"
+            if course_filter:
+                loaded_message += f" from course: {course_filter}"
+            yield f"data: {json.dumps({'status': 'loaded', 'message': loaded_message, 'step': 'loading', 'progress': 100, 'totalGoals': len(all_goals)})}\n\n"
+            
+            # Step 2: Generate embeddings
+            yield f"data: {json.dumps({'status': 'embeddings', 'message': 'Generating STEM-optimized embeddings...', 'step': 'embeddings', 'progress': 0})}\n\n"
+            
+            clustering_service = LearningGoalsClusteringService()
+            embeddings = clustering_service.generate_embeddings(all_goals)
+            
+            yield f"data: {json.dumps({'status': 'embeddings_complete', 'message': 'Embeddings generated successfully', 'step': 'embeddings', 'progress': 100})}\n\n"
+            
+            # Step 3: Build hierarchical tree
+            yield f"data: {json.dumps({'status': 'tree_building', 'message': f'Building {n_levels}-level hierarchical tree...', 'step': 'tree-building', 'progress': 0})}\n\n"
+            
+            # Add some progress updates during tree building
+            yield f"data: {json.dumps({'status': 'tree_building', 'message': 'Computing distance matrix...', 'step': 'tree-building', 'progress': 25})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'tree_building', 'message': f'Applying {linkage_method} linkage clustering...', 'step': 'tree-building', 'progress': 50})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'tree_building', 'message': f'Using {sampling_method} sampling strategy...', 'step': 'tree-building', 'progress': 75})}\n\n"
+            
+            tree_result = clustering_service.build_hierarchical_tree(
+                embeddings, all_goals, all_sources, n_levels, linkage_method, sampling_method
+            )
+            
+            yield f"data: {json.dumps({'status': 'tree_building_complete', 'message': 'Hierarchical tree structure built', 'step': 'tree-building', 'progress': 100})}\n\n"
+            
+            # Step 4: Calculate quality metrics
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Calculating quality metrics...', 'step': 'metrics', 'progress': 0})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Computing silhouette scores...', 'step': 'metrics', 'progress': 33})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'metrics', 'message': 'Analyzing cluster separation...', 'step': 'metrics', 'progress': 66})}\n\n"
+            
+            yield f"data: {json.dumps({'status': 'metrics_complete', 'message': 'Quality metrics calculated', 'step': 'metrics', 'progress': 100})}\n\n"
+            
+            # Convert numpy types to native Python types for JSON serialization
+            def convert_numpy_types(obj):
+                """Recursively convert numpy types to native Python types"""
+                import numpy as np
+                
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, dict):
+                    return {k: convert_numpy_types(v) for k, v in obj.items()}
+                elif isinstance(obj, (list, tuple)):
+                    return [convert_numpy_types(item) for item in obj]
+                else:
+                    return obj
+            
+            tree_result = convert_numpy_types(tree_result)
+            
+            # Send final results
+            final_result = {
+                'success': True,
+                **tree_result
+            }
+            
+            yield f"data: {json.dumps({'status': 'complete', 'message': 'Hierarchical tree built successfully!', 'results': final_result})}\n\n"
+            
+        except Exception as e:
+            print(f"Hierarchical tree building error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Tree building failed: {str(e)}'})}\n\n"
+    
+    return Response(stream_with_context(generate_tree_progress()), 
+                   mimetype='text/plain',
+                   headers={'Cache-Control': 'no-cache'})
+
 @main.route('/api/export-tree-level')
 def api_export_tree_level():
     """Export a specific tree level as CSV or JSON"""
