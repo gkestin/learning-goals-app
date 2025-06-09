@@ -116,15 +116,17 @@
                 <h3 class="h5 mb-3">Document Preview:</h3>
                 <div class="pdf-container">
                     {% if document.storage_path %}
-                        {# First try using the stored public URL if available #}
-                        {% if document.public_url %}
-                            <iframe class="pdf-embed" src="{{ document.public_url }}"></iframe>
-                        {% else %}
-                            {# Fall back to constructing the URL #}
-                            {% set bucket_name = config.FIREBASE_STORAGE_BUCKET %}
-                            {% set encoded_path = document.storage_path|replace('/', '%2F') %}
-                            <iframe class="pdf-embed" src="https://firebasestorage.googleapis.com/v0/b/{{ bucket_name }}/o/{{ encoded_path }}?alt=media"></iframe>
-                        {% endif %}
+                        <div id="pdf-loading" style="text-align: center; padding: 50px;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading document...</span>
+                            </div>
+                            <p class="mt-2">Loading document preview...</p>
+                        </div>
+                        <iframe class="pdf-embed" id="pdf-iframe" style="display: none;"></iframe>
+                        <div id="pdf-error" class="alert alert-danger" style="display: none;">
+                            <i class="bi bi-exclamation-triangle"></i> 
+                            <span id="error-message">Unable to load document preview.</span>
+                        </div>
                     {% else %}
                         <div class="alert alert-warning">
                             <i class="bi bi-exclamation-triangle"></i> Document file not available.
@@ -135,4 +137,52 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // Load document URL dynamically if storage path exists
+    {% if document.storage_path %}
+    loadDocumentPreview('{{ document.id }}');
+    {% endif %}
+});
+
+function loadDocumentPreview(documentId) {
+    $.ajax({
+        url: "{{ url_for('main.get_document_url', document_id='PLACEHOLDER') }}".replace('PLACEHOLDER', documentId),
+        method: 'GET',
+        success: function(response) {
+            if (response.url) {
+                // Hide loading spinner
+                $('#pdf-loading').hide();
+                
+                // Set iframe source and show it
+                $('#pdf-iframe').attr('src', response.url).show();
+                
+                // Show correction message if path was corrected
+                if (response.corrected) {
+                    console.log('Document storage path was automatically corrected');
+                }
+            } else {
+                showPdfError('Invalid response from server');
+            }
+        },
+        error: function(xhr) {
+            let errorMessage = 'Unable to load document preview';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            }
+            showPdfError(errorMessage);
+        }
+    });
+}
+
+function showPdfError(message) {
+    $('#pdf-loading').hide();
+    $('#pdf-iframe').hide();
+    $('#error-message').text(message);
+    $('#pdf-error').show();
+}
+</script>
+{% endblock %}

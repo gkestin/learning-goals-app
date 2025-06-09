@@ -10,6 +10,7 @@ from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
 from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
 from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document, move_storage_file, smart_resolve_storage_path
 from datetime import datetime
+import datetime as dt
 
 main = Blueprint('main', __name__)
 
@@ -3121,3 +3122,100 @@ def api_restore_goal():
             'success': False,
             'message': f'Restore failed: {str(e)}'
         })
+
+@main.route('/document-url/<document_id>')
+def get_document_url(document_id):
+    """Generate a fresh Firebase Storage URL for a document"""
+    from app.firebase_service import smart_resolve_storage_path, bucket, using_mock
+    import datetime as dt
+    
+    doc = get_document(document_id)
+    if not doc or not doc.storage_path:
+        return jsonify({'error': 'Document not found or no storage path'}), 404
+    
+    try:
+        # Use smart resolution to find the correct storage path
+        path_result = smart_resolve_storage_path(doc, fix_in_db=True)
+        
+        if not path_result['resolved_path']:
+            return jsonify({'error': 'Document file not found in storage'}), 404
+        
+        if using_mock:
+            # For mock storage, return a mock URL
+            url = f"https://mock-storage.example.com/{path_result['resolved_path']}"
+        else:
+            # For real Firebase Storage, generate a signed URL that includes authentication
+            try:
+                blob = bucket.blob(path_result['resolved_path'])
+                # Generate signed URL valid for 24 hours
+                url = blob.generate_signed_url(
+                    version="v4",
+                    expiration=dt.timedelta(hours=24),
+                    method="GET"
+                )
+                print(f"Successfully generated signed URL")
+            except Exception as e:
+                print(f"Error generating signed URL: {e}")
+                # If signed URL fails, the files require authentication and can't use direct URLs
+                return jsonify({'error': 'Unable to generate access URL for document'}), 500
+        
+        return jsonify({
+            'url': url,
+            'corrected': path_result['corrected']
+        })
+        
+    except Exception as e:
+        print(f"Error generating document URL: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/fix-storage-paths')
+def fix_storage_paths():
+    """Debug and fix storage path issues for all documents"""
+    from app.firebase_service import search_documents, smart_resolve_storage_path
+    
+    # Get all documents
+    all_documents = search_documents(limit=1000)
+    
+    results = {
+        'total_documents': len(all_documents),
+        'fixed_count': 0,
+        'broken_count': 0,
+        'already_working': 0,
+        'details': []
+    }
+    
+    for doc in all_documents:
+        if not doc.storage_path:
+            continue
+            
+        doc_info = {
+            'id': doc.id,
+            'name': doc.name,
+            'original_path': doc.storage_path,
+            'status': 'unknown'
+        }
+        
+        try:
+            # Try smart resolution with fixing enabled
+            path_result = smart_resolve_storage_path(doc, fix_in_db=True)
+            
+            if path_result['resolved_path']:
+                if path_result['corrected']:
+                    doc_info['status'] = 'fixed'
+                    doc_info['new_path'] = path_result['resolved_path']
+                    results['fixed_count'] += 1
+                else:
+                    doc_info['status'] = 'working'
+                    results['already_working'] += 1
+            else:
+                doc_info['status'] = 'broken'
+                results['broken_count'] += 1
+                
+        except Exception as e:
+            doc_info['status'] = 'error'
+            doc_info['error'] = str(e)
+            results['broken_count'] += 1
+        
+        results['details'].append(doc_info)
+    
+    return jsonify(results)
