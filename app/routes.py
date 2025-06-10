@@ -1479,7 +1479,8 @@ def api_cluster_tree():
                 all_sources.append({
                     'document_name': doc.name,
                     'creator': doc.creator,
-                    'course_name': doc.course_name
+                    'course_name': doc.course_name,
+                    'institution': doc.institution
                 })
         
         if len(all_goals) < 2:
@@ -1590,7 +1591,8 @@ def api_cluster_tree_stream():
                     all_sources.append({
                         'document_name': doc.name,
                         'creator': doc.creator,
-                        'course_name': doc.course_name
+                        'course_name': doc.course_name,
+                        'institution': doc.institution
                     })
             
             if len(all_goals) < 2:

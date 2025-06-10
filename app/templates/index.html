@@ -149,8 +149,9 @@
                         <label for="system_message" class="form-label">Custom AI Instructions (Optional):</label>
                         <textarea class="form-control" id="system_message" name="system_message" rows="5" placeholder="Enter custom instructions for extracting learning goals..."></textarea>
                         <div class="form-text">
-                            Provide custom instructions to the AI for how to extract learning goals. Leave empty to use default instructions.
-                            <a href="#" data-bs-toggle="collapse" data-bs-target="#defaultInstructions">Show default instructions</a>
+                            Custom instructions will replace the default system prompt. Leave empty to use defaults.
+                            <a href="#" data-bs-toggle="collapse" data-bs-target="#defaultInstructions">Show defaults</a>
+                            <br><small class="text-muted">User message: "Extract learning goals from the following text:" + your content</small>
                             <span class="float-end">
                                 <small>Model:</small>
                                 <select class="form-select form-select-sm d-inline-block" id="model" name="model" style="width: auto; min-width: 120px;">
@@ -162,6 +163,7 @@
                         <div class="collapse mt-2" id="defaultInstructions">
                             <div class="card card-body bg-light">
                                 <small class="text-muted">
+                                    <strong>Default System Prompt:</strong>
                                     <pre>{{ default_instructions }}</pre>
                                 </small>
                             </div>

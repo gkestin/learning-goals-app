@@ -1529,11 +1529,12 @@ function buildTreeNode(node, level = 0) {
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
                                 <div class="goal-text">"${goal}"</div>
-                                <div class="goal-source">
-                                    📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
-                                    👤 ${truncateText(source.creator || 'Unknown', 15)}
-                                    ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
-                                </div>
+                                                        <div class="goal-source">
+                            📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                            👤 ${truncateText(source.creator || 'Unknown', 15)}
+                            ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                            ${source.institution ? ` | 🏛️ ${truncateText(source.institution, 20)}` : ''}
+                        </div>
                             </div>
                             <div class="goal-actions">
                                 <button class="goal-move-btn" onclick="openMoveModal('${node.id}', 'goal', ${index})" title="Move this learning goal">
@@ -2165,9 +2166,21 @@ function displayFlattenedView(flattened, level) {
     const totalGoals = flattened.reduce((sum, cluster) => sum + cluster.size, 0);
     
     let flattenedHtml = `
-        <div class="mb-3">
-            <h5><i class="bi bi-list-ul"></i> Flattened View - Level ${levelLabel}</h5>
-            <small class="text-muted">${flattened.length} clusters, ${totalGoals} total goals</small>
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+            <div>
+                <h5><i class="bi bi-list-ul"></i> Flattened View - Level ${levelLabel}</h5>
+                <small class="text-muted">${flattened.length} clusters, ${totalGoals} total goals</small>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <select id="download-column-type" class="form-select form-select-sm" style="width: auto;">
+                    <option value="institution">by Institution</option>
+                    <option value="creator">by Creator</option>
+                    <option value="course_name">by Course</option>
+                </select>
+                <button id="download-csv-btn" class="btn btn-primary btn-sm" onclick="downloadFlattenedCSV('${levelLabel}')">
+                    <i class="bi bi-download"></i> Download CSV
+                </button>
+            </div>
         </div>
     `;
     
@@ -2222,6 +2235,7 @@ function displayFlattenedView(flattened, level) {
                                 📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
                                 👤 ${truncateText(source.creator || 'Unknown', 15)}
                                 ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                                ${source.institution ? ` | 🏛️ ${truncateText(source.institution, 20)}` : ''}
                             </div>
                         </div>
                         <div class="goal-actions">
@@ -2244,6 +2258,9 @@ function displayFlattenedView(flattened, level) {
     });
     
     $('#flattened-content').html(flattenedHtml);
+    
+    // Update download dropdown options based on available data
+    updateDownloadOptions(flattened);
 }
 
 function showTreeView() {
@@ -3040,6 +3057,152 @@ function createNewGroupAndMove() {
         hideProgress();
         alert('Failed to create group and move goal: Network error');
     });
+}
+
+// =====================================
+// CSV DOWNLOAD FUNCTIONALITY
+// =====================================
+
+function updateDownloadOptions(flattened) {
+    // Check what data is available in the flattened clusters
+    const availableFields = {
+        institution: false,
+        creator: false,
+        course_name: false
+    };
+    
+    // Check all sources for available fields
+    flattened.forEach(cluster => {
+        cluster.goalsWithSource.forEach(goalData => {
+            const { source } = goalData;
+            if (source.institution && source.institution.trim() !== '') {
+                availableFields.institution = true;
+            }
+            if (source.creator && source.creator.trim() !== '') {
+                availableFields.creator = true;
+            }
+            if (source.course_name && source.course_name.trim() !== '') {
+                availableFields.course_name = true;
+            }
+        });
+    });
+    
+    // Update dropdown options
+    const dropdown = $('#download-column-type');
+    const currentValue = dropdown.val();
+    dropdown.empty();
+    
+    if (availableFields.institution) {
+        dropdown.append('<option value="institution">by Institution</option>');
+    }
+    if (availableFields.creator) {
+        dropdown.append('<option value="creator">by Creator</option>');
+    }
+    if (availableFields.course_name) {
+        dropdown.append('<option value="course_name">by Course</option>');
+    }
+    
+    // If no fields are available, show a default option
+    if (!availableFields.institution && !availableFields.creator && !availableFields.course_name) {
+        dropdown.append('<option value="creator">by Creator (Limited Data)</option>');
+    }
+    
+    // Try to restore previous selection if still available
+    if (dropdown.find(`option[value="${currentValue}"]`).length > 0) {
+        dropdown.val(currentValue);
+    }
+}
+
+function downloadFlattenedCSV(levelLabel) {
+    if (!currentArtifact || flattenedAtLevel === null) {
+        alert('No flattened view available to download');
+        return;
+    }
+    
+    const columnType = $('#download-column-type').val();
+    
+    // Get flattened data for the current level
+    const flattened = flattenTreeAtLevel(currentArtifact.tree_structure, flattenedAtLevel);
+    
+    if (!flattened || flattened.length === 0) {
+        alert('No data available to download');
+        return;
+    }
+    
+    // Helper function to properly escape CSV values
+    function escapeCSVField(field) {
+        // Convert to string and handle null/undefined
+        const str = String(field || '');
+        
+        // If the field contains commas, quotes, or newlines, wrap in quotes and escape internal quotes
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    }
+    
+    // Collect all unique values for the selected column type
+    const allUniqueValues = new Set();
+    const clusterData = {};
+    
+    // Process each cluster
+    flattened.forEach(cluster => {
+        const clusterName = cluster.representative || cluster.originalNode.representative_goal || cluster.label;
+        clusterData[clusterName] = {};
+        
+        cluster.goalsWithSource.forEach(goalData => {
+            const { source } = goalData;
+            let columnValue = source[columnType];
+            
+            // Handle missing data
+            if (!columnValue || columnValue.trim() === '') {
+                columnValue = `Unknown ${columnType.replace('_', ' ')}`;
+            }
+            
+            allUniqueValues.add(columnValue);
+            
+            // Count goals for this column value in this cluster
+            if (!clusterData[clusterName][columnValue]) {
+                clusterData[clusterName][columnValue] = 0;
+            }
+            clusterData[clusterName][columnValue]++;
+        });
+    });
+    
+    // Convert to sorted array and escape column headers
+    const sortedColumnValues = Array.from(allUniqueValues).sort();
+    const escapedColumnHeaders = sortedColumnValues.map(escapeCSVField);
+    
+    // Generate CSV content with proper escaping
+    let csvContent = escapeCSVField("Cluster Name") + "," + escapedColumnHeaders.join(',') + "\n";
+    
+    // Add data rows
+    Object.keys(clusterData).forEach(clusterName => {
+        const row = [escapeCSVField(clusterName)];
+        sortedColumnValues.forEach(columnValue => {
+            const count = clusterData[clusterName][columnValue] || 0;
+            row.push(count); // Numbers don't need escaping
+        });
+        csvContent += row.join(',') + "\n";
+    });
+    
+    // Create and download the file
+    const columnTypeLabel = columnType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const filename = `LG_Hierarchy_Level_${levelLabel}_by_${columnTypeLabel.replace(' ', '_')}.csv`;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } else {
+        alert('Browser does not support file download');
+    }
 }
 </script>
 {% endblock %}
