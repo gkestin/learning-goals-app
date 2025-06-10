@@ -1106,6 +1106,12 @@ let availableArtifacts = [];
 let flattenedAtLevel = null;
 let currentAINodeId = null;
 
+// Performance optimization - cache flattened views
+let flattenedCache = {};
+
+// NEW: store flattened cluster data for current view
+let currentFlattenedData = [];
+
 // Move/Delete variables
 let currentMoveNodeId = null;
 let currentMoveType = null; // 'node' or 'goal'
@@ -1271,10 +1277,11 @@ $(document).ready(function() {
 });
 
 function loadAvailableArtifacts() {
-    // Show loading spinner
+    // Show loading spinner with better messaging
     $('#loading-section').show();
     $('#artifact-section').hide();
     $('#no-artifacts').hide();
+    $('#loading-section h5').text('Loading artifacts list...');
     
     $.get('/api/get-artifacts')
         .done(function(response) {
@@ -1316,12 +1323,33 @@ function loadAvailableArtifacts() {
 function loadArtifact(artifactId) {
     currentArtifactId = artifactId;
     
+    // Clear cache when loading a new artifact
+    flattenedCache = {};
+    
+    // Update loading message
+    $('#loading-section h5').text('Loading artifact data...');
+    $('#loading-section p').text('Downloading tree structure and goals...');
+    
     $.get(`/api/get-artifact/${artifactId}`)
         .done(function(response) {
             if (response.success) {
                 currentArtifact = response.artifact;
-                $('#loading-section').hide();
-                displayArtifact(currentArtifact);
+                
+                // Update loading message for tree building
+                $('#loading-section h5').text('Building tree display...');
+                $('#loading-section p').text('Preparing interactive tree view...');
+                
+                // Use setTimeout to let the loading message update before heavy work
+                setTimeout(() => {
+                    try {
+                        displayArtifact(currentArtifact);
+                        $('#loading-section').hide();
+                    } catch (error) {
+                        console.error('Error displaying artifact:', error);
+                        $('#loading-section').hide();
+                        alert('Error loading artifact display. Please try again.');
+                    }
+                }, 10);
             } else {
                 $('#loading-section').hide();
                 alert('Failed to load artifact: ' + response.message);
@@ -1374,17 +1402,64 @@ function displayStats(artifact) {
 }
 
 function displayTree(treeStructure) {
+    // Clear any flattened level selection when showing tree view
+    flattenedAtLevel = null;
+    
+    // For large trees, show progress during tree building
+    const totalNodes = countTotalNodes(treeStructure);
+    const isLargeTree = totalNodes > 100; // Threshold for showing progress
+    
+    if (isLargeTree) {
+        showProgress('Building Tree...', `Processing ${totalNodes} groups and goals...`);
+        
+        // Use setTimeout to let progress show before heavy work
+        setTimeout(() => {
+            try {
+                buildAndDisplayTree(treeStructure);
+            } catch (error) {
+                console.error('Error building tree:', error);
+                alert('Error building tree display. Please try again.');
+            } finally {
+                hideProgress();
+            }
+        }, 10);
+    } else {
+        // Small trees can be built immediately
+        buildAndDisplayTree(treeStructure);
+    }
+}
+
+function buildAndDisplayTree(treeStructure) {
     // Generate level buttons
     generateLevelButtons(treeStructure);
-    
-    // Build tree HTML with new layout
-    const treeHtml = treeStructure.map(node => buildTreeNode(node, 0)).join('');
-    $('#tree-content').html(treeHtml);
-    
+
+    // Build skeleton for root nodes only
+    const skeletonHtml = treeStructure.map(node => buildTreeNodeSkeleton(node, 0)).join('');
+    $('#tree-content').html(skeletonHtml);
+
     // Show tree view
     $('#tree-content').show();
     $('#flattened-content').hide();
     $('#show-tree-btn').hide();
+}
+
+
+
+function countTotalNodes(nodes) {
+    let count = 0;
+    
+    function countInNode(node) {
+        count += 1;
+        if (node.children && node.children.length > 0) {
+            node.children.forEach(child => countInNode(child));
+        }
+    }
+    
+    if (Array.isArray(nodes)) {
+        nodes.forEach(node => countInNode(node));
+    }
+    
+    return count;
 }
 
 function generateLevelButtons(nodes) {
@@ -2094,20 +2169,48 @@ function updateRecursivePreview() {
 }
 
 function flattenAtLevel(level) {
-    flattenedAtLevel = level;
+    // Show progress immediately for user feedback
+    showProgress('Processing...', `Flattening tree at level ${String.fromCharCode(65 + level)}...`);
     
-    // Update button states
+    // Update button states immediately
     $('.level-button').removeClass('active');
     $(`.level-button[data-level="${level}"]`).addClass('active');
     
-    // Generate flattened view
-    const flattened = flattenTreeAtLevel(currentArtifact.tree_structure, level);
-    displayFlattenedView(flattened, level);
-    
-    // Show flattened content, hide tree
-    $('#tree-content').hide();
-    $('#flattened-content').show();
-    $('#show-tree-btn').show();
+    // Use setTimeout to let progress overlay render first
+    setTimeout(() => {
+        try {
+            flattenedAtLevel = level;
+            
+            // Check cache first
+            const cacheKey = `${currentArtifactId}_${level}`;
+            if (flattenedCache[cacheKey]) {
+                // Use cached version
+                $('#flattened-content').html(flattenedCache[cacheKey].html);
+                updateDownloadOptions(flattenedCache[cacheKey].flattened);
+            } else {
+                // Generate flattened view and cache it
+                const flattened = flattenTreeAtLevel(currentArtifact.tree_structure, level);
+                const html = generateFlattenedHTML(flattened, level);
+                
+                // Cache the results
+                flattenedCache[cacheKey] = { html: html, flattened: flattened };
+                
+                $('#flattened-content').html(html);
+                updateDownloadOptions(flattened);
+            }
+            
+            // Show flattened content, hide tree
+            $('#tree-content').hide();
+            $('#flattened-content').show();
+            $('#show-tree-btn').show();
+            
+        } catch (error) {
+            console.error('Error flattening tree:', error);
+            alert('Error processing tree data. Please try again.');
+        } finally {
+            hideProgress();
+        }
+    }, 10); // Small delay to let UI update
 }
 
 function flattenTreeAtLevel(nodes, targetLevel, currentLevel = 0) {
@@ -2161,7 +2264,9 @@ function collectAllGoalsWithSourceFromNode(node) {
     return allGoals;
 }
 
-function displayFlattenedView(flattened, level) {
+function generateFlattenedHTML(flattened, level) {
+    // store globally for lazy loading
+    currentFlattenedData = flattened;
     const levelLabel = String.fromCharCode(65 + level);
     const totalGoals = flattened.reduce((sum, cluster) => sum + cluster.size, 0);
     
@@ -2185,102 +2290,72 @@ function displayFlattenedView(flattened, level) {
     `;
     
     flattened.forEach((cluster, index) => {
-        // Get the original node's state information
         const originalNode = cluster.originalNode;
         const representativeText = originalNode.representative_goal || '';
         const textState = originalNode.text_state || 'default';
-        
-        // Get appropriate icon based on state
-        let stateIcon = 'fa-quote-left'; // default
-        if (textState === 'manual') {
-            stateIcon = 'fa-pencil';
-        } else if (textState === 'ai') {
-            stateIcon = 'fa-wand-magic-sparkles';
-        }
-        
+        let stateIcon = 'fa-quote-left';
+        if (textState === 'manual') stateIcon = 'fa-pencil';
+        else if (textState === 'ai') stateIcon = 'fa-wand-magic-sparkles';
+
         flattenedHtml += `
             <div class="flattened-cluster">
                 <div class="cluster-header" onclick="toggleFlattenedCluster('flattened-${index}')">
                     <i class="bi bi-chevron-right collapse-icon"></i>
-                    
-                    <div class="cluster-representative" 
-                         contenteditable="true"
-                         data-state="${textState}"
-                         data-node-id="${originalNode.id}"
-                         onclick="event.stopPropagation(); startEditing(this)"
-                         onblur="saveRepresentativeText(this, '${originalNode.id}')"
-                         onkeydown="handleRepresentativeKeydown(event, this, '${originalNode.id}')">
+                    <div class="cluster-representative" contenteditable="true" data-state="${textState}" data-node-id="${originalNode.id}" onclick="event.stopPropagation(); startEditing(this)" onblur="saveRepresentativeText(this, '${originalNode.id}')" onkeydown="handleRepresentativeKeydown(event, this, '${originalNode.id}')">
                         <i class="fa ${stateIcon} text-state-icon"></i>
                         <span class="representative-text">${representativeText}</span>
                     </div>
-                    
-                    <button class="auto-generate-btn" onclick="event.stopPropagation(); openAIGenerationModal('${originalNode.id}')" title="Generate with AI">
-                        <i class="fa fa-wand-magic-sparkles"></i>
-                    </button>
-                    
+                    <button class="auto-generate-btn" onclick="event.stopPropagation(); openAIGenerationModal('${originalNode.id}')" title="Generate with AI"><i class="fa fa-wand-magic-sparkles"></i></button>
                     <span class="cluster-label">${cluster.label}</span>
                     <span class="cluster-size">${cluster.size}</span>
                 </div>
-                <div class="cluster-content" id="flattened-content-${index}" style="display: none;">
-        `;
-        
-        cluster.goalsWithSource.forEach((goalData, displayIndex) => {
-            const { goal, source, sourceNodeId, originalIndex } = goalData;
-            flattenedHtml += `
-                <div class="goal-item" data-goal-index="${displayIndex}">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <div class="flex-grow-1">
-                            <div class="goal-text">"${goal}"</div>
-                            <div class="goal-source">
-                                📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
-                                👤 ${truncateText(source.creator || 'Unknown', 15)}
-                                ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
-                                ${source.institution ? ` | 🏛️ ${truncateText(source.institution, 20)}` : ''}
-                            </div>
-                        </div>
-                        <div class="goal-actions">
-                            <button class="goal-move-btn" onclick="openMoveModal('${sourceNodeId}', 'goal', ${originalIndex})" title="Move this learning goal">
-                                ↔
-                            </button>
-                            <button class="goal-delete-btn" onclick="deleteGoal('${sourceNodeId}', ${originalIndex})" title="Delete this learning goal">
-                                🗑
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        flattenedHtml += `
-                </div>
-            </div>
-        `;
+                <!-- Empty content for lazy load -->
+                <div class="cluster-content" id="flattened-content-${index}" data-loaded="false" style="display:none;"></div>
+            </div>`;
     });
-    
-    $('#flattened-content').html(flattenedHtml);
-    
-    // Update download dropdown options based on available data
+
+    return flattenedHtml;
+}
+
+// Keep the original function as a simple wrapper for backward compatibility
+function displayFlattenedView(flattened, level) {
+    const html = generateFlattenedHTML(flattened, level);
+    $('#flattened-content').html(html);
     updateDownloadOptions(flattened);
 }
 
 function showTreeView() {
-    flattenedAtLevel = null;
-    $('.level-button').removeClass('active');
-    $('#tree-content').show();
-    $('#flattened-content').hide();
-    $('#show-tree-btn').hide();
+    if (currentArtifact && currentArtifact.tree_structure) {
+        displayTree(currentArtifact.tree_structure);
+    } else {
+        // Fallback to simple view switching if no tree data
+        flattenedAtLevel = null;
+        $('.level-button').removeClass('active');
+        $('#tree-content').show();
+        $('#flattened-content').hide();
+        $('#show-tree-btn').hide();
+    }
 }
 
 function toggleCluster(nodeId) {
     const content = $(`#content-${nodeId}`);
     const icon = $(`.tree-node[data-node-id="${nodeId}"] > .cluster-header > .collapse-icon`);
     const header = $(`.tree-node[data-node-id="${nodeId}"] > .cluster-header`);
-    
+
     if (content.is(':visible')) {
         content.slideUp(200);
         icon.removeClass('expanded');
         header.removeClass('expanded');
     } else {
+        // Lazy-load content if empty
+        if (content.is(':empty')) {
+            const node = findNodeById(currentArtifact.tree_structure, nodeId);
+            if (node) {
+                const parentLevel = parseInt($(header).closest('.tree-node').attr('data-level')) || 0;
+                const innerHtml = buildClusterContent(node, parentLevel + 1);
+                content.html(innerHtml);
+            }
+        }
         content.slideDown(200);
         icon.addClass('expanded');
         header.addClass('expanded');
@@ -2288,32 +2363,77 @@ function toggleCluster(nodeId) {
 }
 
 function toggleFlattenedCluster(clusterId) {
-    const index = clusterId.replace('flattened-', '');
+    const index = parseInt(clusterId.replace('flattened-', ''));
     const content = $(`#flattened-content-${index}`);
     const clusterElement = content.closest('.flattened-cluster');
     const icon = clusterElement.find('.cluster-header .collapse-icon');
     const header = clusterElement.find('.cluster-header');
-    
+
     if (content.is(':visible')) {
         content.slideUp(200);
         icon.removeClass('expanded');
         header.removeClass('expanded');
     } else {
+        // First time expansion – build content lazily
+        if (content.attr('data-loaded') === 'false') {
+            // Show spinner
+            const spinnerHtml = '<div class="text-center p-3"><div class="spinner-border spinner-border-sm"></div> Loading goals...</div>';
+            content.html(spinnerHtml);
+            content.attr('data-loaded', 'loading');
+
+            // Build goals in chunks to avoid blocking
+            const clusterData = currentFlattenedData[index];
+            if (!clusterData) {
+                content.html('<div class="text-muted p-2">No data available</div>');
+                content.attr('data-loaded', 'true');
+            } else {
+                buildFlattenedGoalsAsync(clusterData, content, () => {
+                    content.attr('data-loaded', 'true');
+                });
+            }
+        }
         content.slideDown(200);
         icon.addClass('expanded');
         header.addClass('expanded');
     }
 }
 
+// Build goals HTML for a flattened cluster asynchronously
+function buildFlattenedGoalsAsync(clusterData, contentElem, doneCallback) {
+    const goals = clusterData.goalsWithSource;
+    let html = '';
+    let i = 0;
+    const chunkSize = 100;
+
+    function processChunk() {
+        const end = Math.min(i + chunkSize, goals.length);
+        for (; i < end; i++) {
+            const goalData = goals[i];
+            const { goal, source, sourceNodeId, originalIndex } = goalData;
+            html += `<div class=\"goal-item\" data-goal-index=\"${i}\"><div class=\"d-flex justify-content-between align-items-start\"><div class=\"flex-grow-1\"><div class=\"goal-text\">\"${goal}\"</div><div class=\"goal-source\">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div></div><div class=\"goal-actions\"><button class=\"goal-move-btn\" onclick=\"openMoveModal('${sourceNodeId}','goal',${originalIndex})\" title=\"Move this learning goal\">↔</button><button class=\"goal-delete-btn\" onclick=\"deleteGoal('${sourceNodeId}',${originalIndex})\" title=\"Delete this learning goal\">🗑</button></div></div></div>`;
+        }
+        if (i < goals.length) {
+            requestAnimationFrame(processChunk);
+        } else {
+            // Replace spinner with built html
+            contentElem.html(html);
+            if (doneCallback) doneCallback();
+        }
+    }
+
+    // Start processing
+    requestAnimationFrame(processChunk);
+}
+
 function expandAll() {
     if ($('#flattened-content').is(':visible')) {
-        // Flattened view is active
-        $('#flattened-content .cluster-content').slideDown(200);
+        // Flattened view is active - use fast show() instead of slideDown for performance
+        $('#flattened-content .cluster-content').show();
         $('#flattened-content .collapse-icon').addClass('expanded');
         $('#flattened-content .cluster-header').addClass('expanded');
     } else {
-        // Tree view is active
-        $('.cluster-content').slideDown(200);
+        // Tree view is active - use fast show() instead of slideDown for performance
+        $('.cluster-content').show();
         $('.collapse-icon').addClass('expanded');
         $('.cluster-header').addClass('expanded');
     }
@@ -2321,13 +2441,13 @@ function expandAll() {
 
 function collapseAll() {
     if ($('#flattened-content').is(':visible')) {
-        // Flattened view is active
-        $('#flattened-content .cluster-content').slideUp(200);
+        // Flattened view is active - use fast hide() instead of slideUp for performance
+        $('#flattened-content .cluster-content').hide();
         $('#flattened-content .collapse-icon').removeClass('expanded');
         $('#flattened-content .cluster-header').removeClass('expanded');
     } else {
-        // Tree view is active
-        $('.cluster-content').slideUp(200);
+        // Tree view is active - use fast hide() instead of slideUp for performance
+        $('.cluster-content').hide();
         $('.collapse-icon').removeClass('expanded');
         $('.cluster-header').removeClass('expanded');
     }
@@ -2376,6 +2496,11 @@ function saveChanges() {
         return;
     }
     
+    // Show progress overlay for large saves (more than 10 changes)
+    if (changedTexts.length > 10) {
+        showProgress('Saving Changes...', `Updating ${changedTexts.length} representative texts...`);
+    }
+    
     // Show progress - start with spinner and count
     saveBtn.prop('disabled', true).html(`<i class="fa fa-spinner fa-spin"></i> Saving ${changedTexts.length} changes...`);
     
@@ -2400,6 +2525,9 @@ function saveChanges() {
                 $(this).css('backgroundColor', '');
             });
             
+            // Clear cache since data changed
+            flattenedCache = {};
+            
             // Brief success message then return to normal
             setTimeout(() => {
                 saveBtn.html('<i class="bi bi-save"></i> Save Changes');
@@ -2422,6 +2550,11 @@ function saveChanges() {
         }, 3000);
     })
     .always(function() {
+        // Hide progress overlay if it was shown
+        if (changedTexts.length > 10) {
+            hideProgress();
+        }
+        
         // Always re-enable the button after the operation completes
         setTimeout(() => {
             saveBtn.prop('disabled', false);
@@ -2687,6 +2820,9 @@ function performMove(destinationNodeId) {
             // Update the current artifact with the new structure
             currentArtifact.tree_structure = response.updated_tree_structure;
             
+            // Clear cache since tree structure changed
+            flattenedCache = {};
+            
             // Refresh the display
             if (flattenedAtLevel !== null) {
                 flattenAtLevel(flattenedAtLevel);
@@ -2751,6 +2887,9 @@ function deleteGoal(nodeId, goalIndex) {
         if (response.success) {
             // Update the current artifact with the new structure
             currentArtifact.tree_structure = response.updated_tree_structure;
+            
+            // Clear cache since tree structure changed
+            flattenedCache = {};
             
             // Refresh the display
             if (flattenedAtLevel !== null) {
@@ -2831,6 +2970,9 @@ function restoreGoal(archivedGoalId, index) {
         if (response.success) {
             // Update the current artifact with the new structure
             currentArtifact.tree_structure = response.updated_tree_structure;
+            
+            // Clear cache since tree structure changed
+            flattenedCache = {};
             
             // Refresh the display
             if (flattenedAtLevel !== null) {
@@ -3037,6 +3179,9 @@ function createNewGroupAndMove() {
             // Update the current artifact with the new structure
             currentArtifact.tree_structure = response.updated_tree_structure;
             
+            // Clear cache since tree structure changed
+            flattenedCache = {};
+            
             // Refresh the display
             if (flattenedAtLevel !== null) {
                 flattenAtLevel(flattenedAtLevel);
@@ -3204,5 +3349,86 @@ function downloadFlattenedCSV(levelLabel) {
         alert('Browser does not support file download');
     }
 }
+
+// ===== NEW: Lazy-load skeleton builder =====
+function buildTreeNodeSkeleton(node, level = 0) {
+    const levelClass = level <= 10 ? `tree-level-${level}` : 'tree-level-deep';
+    const hasChildren = node.children && node.children.length > 0;
+    const hasGoals = node.goals && node.goals.length > 0;
+
+    // Representative text & state/icon (same as full builder)
+    let representativeText = node.representative_goal || '';
+    let textState = node.text_state || 'default';
+    let stateIcon = 'fa-quote-left';
+    if (textState === 'manual') stateIcon = 'fa-pencil';
+    else if (textState === 'ai') stateIcon = 'fa-wand-magic-sparkles';
+
+    if (!representativeText && hasGoals) {
+        representativeText = node.goals.reduce((longest, current) => current.length > longest.length ? current : longest);
+    } else if (!representativeText && hasChildren) {
+        representativeText = findRepresentativeGoal(node);
+    }
+
+    let html = `<div class="tree-node ${levelClass}" data-level="${level}" data-node-id="${node.id}">`;
+
+    // header (identical)
+    html += `
+        <div class="cluster-header" onclick="toggleCluster('${node.id}')">
+            ${hasChildren ? '<i class="bi bi-chevron-right collapse-icon"></i>' : '<i class="bi bi-circle-fill collapse-icon" style="font-size: 0.5em;"></i>'}
+            <div class="cluster-representative" contenteditable="true" data-state="${textState}" onclick="event.stopPropagation(); startEditing(this)" onblur="saveRepresentativeText(this, '${node.id}')" onkeydown="handleRepresentativeKeydown(event, this, '${node.id}')">
+                <i class="fa ${stateIcon} text-state-icon"></i>
+                <span class="representative-text">${representativeText}</span>
+            </div>
+            <button class="auto-generate-btn" onclick="event.stopPropagation(); openAIGenerationModal('${node.id}')" title="Generate with AI"><i class="fa fa-wand-magic-sparkles"></i></button>
+            <span class="cluster-label">${node.label}</span>
+            <span class="cluster-size">${node.size || 0}</span>
+        </div>`;
+
+    // Empty content container – populated lazily when expanded
+    if (hasGoals || hasChildren) {
+        html += `<div class="cluster-content" id="content-${node.id}" style="display:none;"></div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// ===== NEW: Build content for a node lazily =====
+function buildClusterContent(node, level) {
+    let innerHtml = '';
+
+    // Goals first (if any)
+    if (node.goals && node.goals.length > 0) {
+        node.goals.forEach((goal, idx) => {
+            const source = node.sources ? node.sources[idx] : {};
+            innerHtml += `
+                <div class="goal-item" data-goal-index="${idx}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="goal-text">"${goal}"</div>
+                            <div class="goal-source">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div>
+                        </div>
+                        <div class="goal-actions">
+                            <button class="goal-move-btn" onclick="openMoveModal('${node.id}','goal',${idx})" title="Move this learning goal">↔</button>
+                            <button class="goal-delete-btn" onclick="deleteGoal('${node.id}',${idx})" title="Delete this learning goal">🗑</button>
+                        </div>
+                    </div>
+                </div>`;
+        });
+    }
+
+    // Children skeletons
+    if (node.children && node.children.length > 0) {
+        node.children.forEach(child => {
+            innerHtml += buildTreeNodeSkeleton(child, level + 1);
+        });
+    }
+
+    return innerHtml;
+}
+
+// ===== MODIFY: buildAndDisplayTree uses skeleton =====
+// ... existing code ...
+
 </script>
 {% endblock %}
