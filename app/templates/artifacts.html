@@ -695,6 +695,145 @@
         padding: 15px;
         background-color: #f8f9fa;
     }
+
+    /* Search Functionality Styles */
+    .search-container {
+        margin-bottom: 15px;
+        position: relative;
+    }
+    
+    .search-input {
+        width: 100%;
+        padding: 10px 40px 10px 35px;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        font-size: 0.9em;
+        transition: all 0.2s ease;
+        line-height: 1.2;
+        height: 40px;
+        box-sizing: border-box;
+    }
+    
+    .search-input:focus {
+        outline: none;
+        border-color: #007bff;
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+    
+    .search-icon {
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #6c757d;
+        font-size: 14px;
+        pointer-events: none;
+        z-index: 2;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        height: 16px;
+        margin-top: -8px;
+    }
+    
+    .search-clear {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #6c757d;
+        cursor: pointer;
+        padding: 2px;
+        border-radius: 3px;
+        display: none;
+        z-index: 2;
+        line-height: 1;
+        font-size: 14px;
+        width: 20px;
+        height: 20px;
+        margin-top: -10px;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .search-clear:not([style*="display: none"]) {
+        display: flex;
+    }
+    
+    .search-clear:hover {
+        background-color: #f8f9fa;
+        color: #495057;
+    }
+    
+    .search-results-info {
+        font-size: 0.8em;
+        color: #6c757d;
+        margin-top: 5px;
+        min-height: 1rem;
+    }
+    
+    /* Search highlighting */
+    .search-highlight {
+        background-color: #fff3cd;
+        border: 1px solid #fbc02d;
+        border-radius: 2px;
+        padding: 1px 2px;
+        font-weight: 500;
+    }
+    
+    /* Search match indicators */
+    .search-match-cluster {
+        border-left: 3px solid #28a745 !important;
+        background-color: rgba(40, 167, 69, 0.05);
+    }
+    
+    .search-match-goal {
+        border-left: 3px solid #007bff !important;
+        background-color: rgba(0, 123, 255, 0.05);
+    }
+    
+    .search-hidden {
+        display: none !important;
+    }
+
+    /* Subtle Download Controls */
+    .download-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        opacity: 0.7;
+        transition: opacity 0.2s ease;
+    }
+    
+    .download-controls:hover {
+        opacity: 1;
+    }
+    
+    .download-controls .form-select {
+        font-size: 0.75em;
+        padding: 4px 24px 4px 8px;
+        border-color: #dee2e6;
+        color: #6c757d;
+        width: auto;
+        min-width: 120px;
+        background-position: right 6px center;
+        background-size: 12px;
+    }
+    
+    .download-controls .btn {
+        font-size: 0.75em;
+        padding: 4px 8px;
+        border-color: #dee2e6;
+        color: #6c757d;
+    }
+    
+    .download-controls .btn:hover {
+        background-color: #f8f9fa;
+        border-color: #007bff;
+        color: #007bff;
+    }
     
     .archived-goal-item {
         padding: 10px;
@@ -860,6 +999,16 @@
                                     <i class="bi bi-save"></i> Save Changes
                                 </button>
                             </div>
+                        </div>
+                        
+                        <!-- Search Container -->
+                        <div class="search-container">
+                            <i class="bi bi-search search-icon"></i>
+                            <input type="text" class="search-input" id="tree-search" placeholder="Search clusters and learning goals..." autocomplete="off">
+                            <button class="search-clear" id="search-clear" title="Clear search">
+                                <i class="bi bi-x"></i>
+                            </button>
+                            <div class="search-results-info" id="search-results-info"></div>
                         </div>
                         
                         <!-- Level Flattening Controls -->
@@ -1268,6 +1417,31 @@ $(document).ready(function() {
         }, 300); // 300ms debounce
     });
     
+    // Tree search functionality
+    let treeSearchTimeout = null;
+    $('#tree-search').on('input', function() {
+        const searchTerm = $(this).val();
+        clearTimeout(treeSearchTimeout);
+        
+        // Show/hide clear button
+        if (searchTerm.trim()) {
+            $('#search-clear').show();
+        } else {
+            $('#search-clear').hide();
+        }
+        
+        treeSearchTimeout = setTimeout(() => {
+            performTreeSearch(searchTerm);
+        }, 300); // 300ms debounce
+    });
+    
+    // Clear search button
+    $('#search-clear').click(function() {
+        $('#tree-search').val('');
+        $('#search-clear').hide();
+        clearTreeSearch();
+    });
+    
     // Hide tooltips when clicking elsewhere
     $(document).on('click', function() {
         $('.path-tooltip').fadeOut(200, function() {
@@ -1364,6 +1538,11 @@ function loadArtifact(artifactId) {
 function displayArtifact(artifact) {
     $('#no-artifacts').hide();
     $('#artifact-section').show();
+    
+    // Clear any previous search state
+    $('#tree-search').val('');
+    $('#search-clear').hide();
+    clearTreeSearch();
     
     // Display stats
     displayStats(artifact);
@@ -2204,6 +2383,14 @@ function flattenAtLevel(level) {
             $('#flattened-content').show();
             $('#show-tree-btn').show();
             
+            // Preserve search if active
+            const searchTerm = $('#tree-search').val();
+            if (searchTerm.trim()) {
+                setTimeout(() => {
+                    performTreeSearch(searchTerm);
+                }, 100); // Small delay to let flattened view render
+            }
+            
         } catch (error) {
             console.error('Error flattening tree:', error);
             alert('Error processing tree data. Please try again.');
@@ -2276,15 +2463,15 @@ function generateFlattenedHTML(flattened, level) {
                 <h5><i class="bi bi-list-ul"></i> Flattened View - Level ${levelLabel}</h5>
                 <small class="text-muted">${flattened.length} clusters, ${totalGoals} total goals</small>
             </div>
-            <div class="d-flex align-items-center gap-2">
-                <select id="download-column-type" class="form-select form-select-sm" style="width: auto;">
+            <div class="download-controls">
+                <button id="download-csv-btn" class="btn btn-outline-secondary" onclick="downloadFlattenedCSV('${levelLabel}')">
+                    <i class="bi bi-download"></i> CSV
+                </button>
+                <select id="download-column-type" class="form-select">
                     <option value="institution">by Institution</option>
                     <option value="creator">by Creator</option>
                     <option value="course_name">by Course</option>
                 </select>
-                <button id="download-csv-btn" class="btn btn-primary btn-sm" onclick="downloadFlattenedCSV('${levelLabel}')">
-                    <i class="bi bi-download"></i> Download CSV
-                </button>
             </div>
         </div>
     `;
@@ -2327,6 +2514,14 @@ function displayFlattenedView(flattened, level) {
 function showTreeView() {
     if (currentArtifact && currentArtifact.tree_structure) {
         displayTree(currentArtifact.tree_structure);
+        
+        // Preserve search if active
+        const searchTerm = $('#tree-search').val();
+        if (searchTerm.trim()) {
+            setTimeout(() => {
+                performTreeSearch(searchTerm);
+            }, 100); // Small delay to let tree render
+        }
     } else {
         // Fallback to simple view switching if no tree data
         flattenedAtLevel = null;
@@ -3429,6 +3624,416 @@ function buildClusterContent(node, level) {
 
 // ===== MODIFY: buildAndDisplayTree uses skeleton =====
 // ... existing code ...
+
+// =====================================
+// SEARCH FUNCTIONALITY
+// =====================================
+
+let searchResults = {
+    clusterMatches: 0,
+    goalMatches: 0,
+    totalVisible: 0
+};
+
+function performTreeSearch(searchTerm) {
+    const term = searchTerm.trim().toLowerCase();
+    
+    if (!term) {
+        clearTreeSearch();
+        return;
+    }
+    
+    // Reset search results
+    searchResults = { clusterMatches: 0, goalMatches: 0, totalVisible: 0 };
+    
+    if ($('#flattened-content').is(':visible')) {
+        // Search in flattened view
+        searchFlattenedView(term);
+    } else {
+        // Search in tree view
+        searchTreeView(term);
+    }
+    
+    // Update search results info
+    updateSearchResultsInfo(term);
+}
+
+function searchTreeView(term) {
+    // Remove previous search classes
+    $('.search-match-cluster, .search-match-goal, .search-hidden').removeClass('search-match-cluster search-match-goal search-hidden');
+    $('.search-highlight').contents().unwrap();
+    
+    // STEP 1: Recursively load ALL content deep for comprehensive search
+    recursivelyLoadAllTreeContent();
+    
+    // STEP 2: Identify all matches (clusters and individual goals)
+    const matchingElements = new Set();
+    const pathToMatches = new Set(); // Nodes that need to be shown because they're on path to matches
+    
+    $('.tree-node').each(function() {
+        const $node = $(this);
+        const nodeId = $node.data('node-id');
+        let nodeHasDirectMatch = false;
+        
+        // Check cluster name match
+        const $representative = $node.find('> .cluster-header .representative-text');
+        if ($representative.length) {
+            const representativeText = $representative.text().toLowerCase();
+            if (representativeText.includes(term)) {
+                nodeHasDirectMatch = true;
+                matchingElements.add(nodeId);
+                $node.find('> .cluster-header').addClass('search-match-cluster');
+                highlightText($representative, term);
+                searchResults.clusterMatches++;
+            }
+        }
+        
+        // Check individual goals
+        $node.find('> .cluster-content .goal-item').each(function() {
+            const $goalItem = $(this);
+            const $goalText = $goalItem.find('.goal-text');
+            const goalText = $goalText.text().toLowerCase();
+            
+            if (goalText.includes(term)) {
+                $goalItem.addClass('search-match-goal');
+                highlightText($goalText, term);
+                matchingElements.add(nodeId); // Mark parent node as having matches
+                searchResults.goalMatches++;
+            }
+        });
+        
+        // If this node has matches, mark all its ancestors as needed
+        if (matchingElements.has(nodeId)) {
+            $node.parents('.tree-node').each(function() {
+                const ancestorId = $(this).data('node-id');
+                pathToMatches.add(ancestorId);
+            });
+        }
+    });
+    
+    // STEP 3: Show/hide based on matches and expand all matching paths
+    $('.tree-node').each(function() {
+        const $node = $(this);
+        const nodeId = $node.data('node-id');
+        
+        if (matchingElements.has(nodeId) || pathToMatches.has(nodeId)) {
+            $node.show();
+            searchResults.totalVisible++;
+            
+            // Force expand all content for search view
+            const $content = $node.find('> .cluster-content');
+            if ($content.length) {
+                $content.show();
+                $node.find('> .cluster-header .collapse-icon').addClass('expanded');
+                $node.find('> .cluster-header').addClass('expanded');
+            }
+            
+            // ALWAYS hide non-matching goals, regardless of whether cluster name matches
+            $node.find('> .cluster-content .goal-item').each(function() {
+                if (!$(this).hasClass('search-match-goal')) {
+                    $(this).addClass('search-hidden');
+                }
+            });
+        } else {
+            $node.addClass('search-hidden');
+        }
+    });
+}
+
+function searchFlattenedView(term) {
+    // Remove previous search classes
+    $('.search-match-cluster, .search-match-goal, .search-hidden').removeClass('search-match-cluster search-match-goal search-hidden');
+    $('.search-highlight').contents().unwrap();
+    
+    // Force load and expand all clusters first for comprehensive search
+    $('.flattened-cluster').each(function() {
+        const $cluster = $(this);
+        const $content = $cluster.find('.cluster-content');
+        
+        if ($content.length && $content.attr('data-loaded') === 'false') {
+            const clusterId = $content.attr('id').replace('flattened-content-', '');
+            const index = parseInt(clusterId);
+            if (currentFlattenedData[index]) {
+                // Synchronously build content for search
+                const clusterData = currentFlattenedData[index];
+                let goalsHtml = '';
+                clusterData.goalsWithSource.forEach((goalData, goalIndex) => {
+                    const { goal, source, sourceNodeId, originalIndex } = goalData;
+                    goalsHtml += `<div class="goal-item" data-goal-index="${goalIndex}"><div class="d-flex justify-content-between align-items-start"><div class="flex-grow-1"><div class="goal-text">"${goal}"</div><div class="goal-source">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name ? ` | 📚 ${truncateText(source.course_name,20)}` : ''}${source.institution ? ` | 🏛️ ${truncateText(source.institution,20)}` : ''}</div></div><div class="goal-actions"><button class="goal-move-btn" onclick="openMoveModal('${sourceNodeId}','goal',${originalIndex})" title="Move this learning goal">↔</button><button class="goal-delete-btn" onclick="deleteGoal('${sourceNodeId}',${originalIndex})" title="Delete this learning goal">🗑</button></div></div></div>`;
+                });
+                $content.html(goalsHtml);
+                $content.attr('data-loaded', 'true');
+            }
+        }
+        
+        // Force expand all clusters
+        if ($content.length) {
+            $content.show();
+            $cluster.find('.cluster-header .collapse-icon').addClass('expanded');
+            $cluster.find('.cluster-header').addClass('expanded');
+        }
+    });
+    
+    // Now search through everything and filter
+    $('.flattened-cluster').each(function() {
+        const $cluster = $(this);
+        let clusterNameMatches = false;
+        let hasMatchingGoals = false;
+        
+        // Check cluster name match
+        const $representative = $cluster.find('.cluster-header .representative-text');
+        if ($representative.length) {
+            const representativeText = $representative.text().toLowerCase();
+            if (representativeText.includes(term)) {
+                $cluster.find('.cluster-header').addClass('search-match-cluster');
+                highlightText($representative, term);
+                clusterNameMatches = true;
+                searchResults.clusterMatches++;
+            }
+        }
+        
+        // Check individual goals and mark/hide them
+        const $content = $cluster.find('.cluster-content');
+        if ($content.length) {
+            $content.find('.goal-item').each(function() {
+                const $goalItem = $(this);
+                const $goalText = $goalItem.find('.goal-text');
+                const goalText = $goalText.text().toLowerCase();
+                
+                if (goalText.includes(term)) {
+                    $goalItem.addClass('search-match-goal');
+                    highlightText($goalText, term);
+                    hasMatchingGoals = true;
+                    searchResults.goalMatches++;
+                } else {
+                    // ALWAYS hide goals that don't match, regardless of cluster name match
+                    $goalItem.addClass('search-hidden');
+                }
+            });
+        }
+        
+        // Show/hide entire cluster based on matches
+        if (clusterNameMatches || hasMatchingGoals) {
+            $cluster.show();
+            searchResults.totalVisible++;
+        } else {
+            $cluster.addClass('search-hidden');
+        }
+    });
+}
+
+// =====================================
+// DEEP TREE LOADING FOR SEARCH
+// =====================================
+
+function recursivelyLoadAllTreeContent() {
+    // We need to keep loading until no more empty content containers exist
+    let moreToLoad = true;
+    let iterations = 0;
+    const maxIterations = 20; // Safety limit to prevent infinite loops
+    
+    while (moreToLoad && iterations < maxIterations) {
+        moreToLoad = false;
+        iterations++;
+        
+        $('.tree-node').each(function() {
+            const $node = $(this);
+            const nodeId = $node.data('node-id');
+            const $content = $node.find('> .cluster-content');
+            
+            // If content is empty, load it with FULL content (not skeletons)
+            if ($content.length && $content.is(':empty')) {
+                const node = findNodeById(currentArtifact.tree_structure, nodeId);
+                if (node) {
+                    const parentLevel = parseInt($node.attr('data-level')) || 0;
+                    const innerHtml = buildFullClusterContent(node, parentLevel + 1);
+                    $content.html(innerHtml);
+                    moreToLoad = true; // Continue iterating since we added new content
+                }
+            }
+        });
+    }
+    
+    if (iterations >= maxIterations) {
+        console.warn('Tree loading reached maximum iterations. Some deep content might not be loaded.');
+    }
+}
+
+function buildFullClusterContent(node, level) {
+    // This is like buildClusterContent but builds FULL content, not skeletons
+    let innerHtml = '';
+
+    // Goals first (if any)
+    if (node.goals && node.goals.length > 0) {
+        node.goals.forEach((goal, idx) => {
+            const source = node.sources ? node.sources[idx] : {};
+            innerHtml += `
+                <div class="goal-item" data-goal-index="${idx}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="goal-text">"${goal}"</div>
+                            <div class="goal-source">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div>
+                        </div>
+                        <div class="goal-actions">
+                            <button class="goal-move-btn" onclick="openMoveModal('${node.id}','goal',${idx})" title="Move this learning goal">↔</button>
+                            <button class="goal-delete-btn" onclick="deleteGoal('${node.id}',${idx})" title="Delete this learning goal">🗑</button>
+                        </div>
+                    </div>
+                </div>`;
+        });
+    }
+
+    // FULL children trees (not skeletons) - this is the key difference
+    if (node.children && node.children.length > 0) {
+        node.children.forEach(child => {
+            innerHtml += buildFullTreeNode(child, level + 1);
+        });
+    }
+
+    return innerHtml;
+}
+
+function buildFullTreeNode(node, level = 0) {
+    // This builds a complete tree node with all content loaded (not skeleton)
+    const levelClass = level <= 10 ? `tree-level-${level}` : 'tree-level-deep';
+    const hasChildren = node.children && node.children.length > 0;
+    const hasGoals = node.goals && node.goals.length > 0;
+    
+    // Get representative text and determine state
+    let representativeText = node.representative_goal || '';
+    let textState = node.text_state || 'default';
+    let stateIcon = 'fa-quote-left';
+    if (textState === 'manual') stateIcon = 'fa-pencil';
+    else if (textState === 'ai') stateIcon = 'fa-wand-magic-sparkles';
+    
+    if (!representativeText && hasGoals) {
+        representativeText = node.goals.reduce((longest, current) => 
+            current.length > longest.length ? current : longest
+        );
+    } else if (!representativeText && hasChildren) {
+        representativeText = findRepresentativeGoal(node);
+    }
+    
+    let nodeHtml = `<div class="tree-node ${levelClass}" data-level="${level}" data-node-id="${node.id}">`;
+    
+    // Node header
+    nodeHtml += `
+        <div class="cluster-header" onclick="toggleCluster('${node.id}')">
+            ${hasChildren ? '<i class="bi bi-chevron-right collapse-icon"></i>' : '<i class="bi bi-circle-fill collapse-icon" style="font-size: 0.5em;"></i>'}
+            <div class="cluster-representative" contenteditable="true" data-state="${textState}" onclick="event.stopPropagation(); startEditing(this)" onblur="saveRepresentativeText(this, '${node.id}')" onkeydown="handleRepresentativeKeydown(event, this, '${node.id}')">
+                <i class="fa ${stateIcon} text-state-icon"></i>
+                <span class="representative-text">${representativeText}</span>
+            </div>
+            <button class="auto-generate-btn" onclick="event.stopPropagation(); openAIGenerationModal('${node.id}')" title="Generate with AI"><i class="fa fa-wand-magic-sparkles"></i></button>
+            <span class="cluster-label">${node.label}</span>
+            <span class="cluster-size">${node.size || 0}</span>
+        </div>`;
+    
+    // FULL content (goals and children) - not empty container
+    if ((hasGoals || hasChildren) && (hasGoals || node.size > 0)) {
+        nodeHtml += `<div class="cluster-content" id="content-${node.id}" style="display: none;">`;
+        
+        // Add goals if any
+        if (hasGoals) {
+            node.goals.forEach(function(goal, index) {
+                const source = node.sources ? node.sources[index] : {};
+                nodeHtml += `
+                    <div class="goal-item" data-goal-index="${index}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <div class="goal-text">"${goal}"</div>
+                                <div class="goal-source">
+                                    📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                                    👤 ${truncateText(source.creator || 'Unknown', 15)}
+                                    ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
+                                    ${source.institution ? ` | 🏛️ ${truncateText(source.institution, 20)}` : ''}
+                                </div>
+                            </div>
+                            <div class="goal-actions">
+                                <button class="goal-move-btn" onclick="openMoveModal('${node.id}', 'goal', ${index})" title="Move this learning goal">↔</button>
+                                <button class="goal-delete-btn" onclick="deleteGoal('${node.id}', ${index})" title="Delete this learning goal">🗑</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        // Add full children (recursively)
+        if (hasChildren) {
+            node.children.forEach(child => {
+                nodeHtml += buildFullTreeNode(child, level + 1);
+            });
+        }
+        
+        nodeHtml += `</div>`;
+    }
+    
+    nodeHtml += `</div>`;
+    return nodeHtml;
+}
+
+function highlightText($element, term) {
+    const text = $element.text();
+    const regex = new RegExp(`(${escapeRegExp(term)})`, 'gi');
+    const highlightedText = text.replace(regex, '<span class="search-highlight">$1</span>');
+    $element.html(highlightedText);
+}
+
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function clearTreeSearch() {
+    // Remove all search classes and highlights
+    $('.search-match-cluster, .search-match-goal, .search-hidden').removeClass('search-match-cluster search-match-goal search-hidden');
+    $('.search-highlight').contents().unwrap();
+    
+    // Show all nodes/clusters and goals
+    $('.tree-node, .flattened-cluster, .goal-item').show();
+    
+    // Reset tree view to collapsed state
+    if ($('#tree-content').is(':visible')) {
+        $('.cluster-content').hide();
+        $('.collapse-icon').removeClass('expanded');
+        $('.cluster-header').removeClass('expanded');
+    }
+    
+    // Reset flattened view to collapsed state
+    if ($('#flattened-content').is(':visible')) {
+        $('.flattened-cluster .cluster-content').hide();
+        $('.flattened-cluster .collapse-icon').removeClass('expanded');
+        $('.flattened-cluster .cluster-header').removeClass('expanded');
+    }
+    
+    // Clear search results info
+    $('#search-results-info').text('');
+    
+    // Reset search results
+    searchResults = { clusterMatches: 0, goalMatches: 0, totalVisible: 0 };
+}
+
+function updateSearchResultsInfo(term) {
+    const info = $('#search-results-info');
+    const { clusterMatches, goalMatches, totalVisible } = searchResults;
+    const totalMatches = clusterMatches + goalMatches;
+    
+    if (totalMatches === 0) {
+        info.html(`<span class="text-muted">No matches found for "${term}"</span>`);
+    } else {
+        let infoText = `Found ${totalMatches} matches`;
+        if (clusterMatches > 0 && goalMatches > 0) {
+            infoText += ` (${clusterMatches} clusters, ${goalMatches} goals)`;
+        } else if (clusterMatches > 0) {
+            infoText += ` in cluster names`;
+        } else {
+            infoText += ` in learning goals`;
+        }
+        infoText += ` for "${term}"`;
+        
+        info.html(`<span class="text-success">${infoText}</span>`);
+    }
+}
 
 </script>
 {% endblock %}
