@@ -1247,6 +1247,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='lock-manager.js') }}"></script>
 <script>
 // Global variables
 let currentArtifact = null;
@@ -1620,6 +1621,11 @@ function buildAndDisplayTree(treeStructure) {
     $('#tree-content').show();
     $('#flattened-content').hide();
     $('#show-tree-btn').hide();
+    
+    // Reapply lock state to newly created elements
+    if (window.lockManager) {
+        window.lockManager.forceReapplyLockState();
+    }
 }
 
 
@@ -2509,6 +2515,11 @@ function displayFlattenedView(flattened, level) {
     const html = generateFlattenedHTML(flattened, level);
     $('#flattened-content').html(html);
     updateDownloadOptions(flattened);
+    
+    // Reapply lock state to newly created elements
+    if (window.lockManager) {
+        window.lockManager.forceReapplyLockState();
+    }
 }
 
 function showTreeView() {
@@ -2612,6 +2623,12 @@ function buildFlattenedGoalsAsync(clusterData, contentElem, doneCallback) {
         } else {
             // Replace spinner with built html
             contentElem.html(html);
+            
+            // Reapply lock state to newly created elements
+            if (window.lockManager) {
+                window.lockManager.forceReapplyLockState();
+            }
+            
             if (doneCallback) doneCallback();
         }
     }
@@ -2841,6 +2858,11 @@ function buildMoveDestinationTree() {
     const leafNodes = collectLeafNodes(currentArtifact.tree_structure);
     const treeHtml = buildMoveDestinationLeafNodes(leafNodes);
     $('#move-destination-tree').html(treeHtml);
+    
+    // Reapply lock state to newly created elements
+    if (window.lockManager) {
+        window.lockManager.forceReapplyLockState();
+    }
 }
 
 function collectLeafNodes(nodes, path = []) {

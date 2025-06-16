@@ -317,6 +317,7 @@
 
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+<script src="{{ url_for('static', filename='lock-manager.js') }}"></script>
 <script>
     $(document).ready(function() {
         const resultsContainer = $('#results-container');
@@ -798,6 +799,11 @@
             
             // Batch delete button handlers
             setupBatchDeleteButtons();
+            
+            // Reapply lock state to newly created elements
+            if (window.lockManager) {
+                window.lockManager.forceReapplyLockState();
+            }
         }
         
         // Function to toggle user stack
