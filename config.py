@@ -17,4 +17,16 @@ class Config:
     GOOGLE_APPLICATION_CREDENTIALS = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
     FIREBASE_STORAGE_BUCKET = os.environ.get('FIREBASE_STORAGE_BUCKET')
     UPLOAD_FOLDER = 'instance/uploads'
-    ALLOWED_EXTENSIONS = {'pdf'} 
+    ALLOWED_EXTENSIONS = {'pdf'}
+    
+    # Domain and deployment configuration
+    CUSTOM_DOMAIN = os.environ.get('CUSTOM_DOMAIN', 'mathmatic.org')
+    FORCE_HTTPS = os.environ.get('FORCE_HTTPS', 'true').lower() == 'true'
+    
+    # CORS settings for custom domain
+    CORS_ORIGINS = [
+        'https://mathmatic.org',
+        'https://www.mathmatic.org',
+        'http://localhost:3000',  # For development
+        'http://127.0.0.1:3000'   # For development
+    ] 

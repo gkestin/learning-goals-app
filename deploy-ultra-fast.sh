@@ -18,6 +18,7 @@ PROJECT_ID="learninggoals2"
 REGION="us-central1"
 SERVICE_NAME="learning-goals-app"
 OPENAI_API_KEY="${DEPLOY_OPENAI_API_KEY}"
+CUSTOM_DOMAIN="mathmatic.org"
 IMAGE_TAG="gcr.io/$PROJECT_ID/$SERVICE_NAME:latest"
 
 # Verify API key is set
@@ -71,8 +72,13 @@ gcloud run deploy $SERVICE_NAME \
   --set-env-vars "OPENAI_API_KEY=$OPENAI_API_KEY" \
   --set-env-vars "FIREBASE_STORAGE_BUCKET=learninggoals2.firebasestorage.app" \
   --set-env-vars "GOOGLE_APPLICATION_CREDENTIALS=/tmp/keys/firebase-key.json" \
+  --set-env-vars "CUSTOM_DOMAIN=$CUSTOM_DOMAIN" \
+  --set-env-vars "FORCE_HTTPS=true" \
   --service-account learning-goals-app@$PROJECT_ID.iam.gserviceaccount.com \
   --update-secrets="/tmp/keys/firebase-key.json=firebase-key:latest"
 
 echo "🎉 Ultra-fast deployment completed!"
-echo "🌐 Your app: $(gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)')" 
+echo "🌐 Your app is available at:"
+echo "   • https://$CUSTOM_DOMAIN"
+echo "   • https://www.$CUSTOM_DOMAIN"
+echo "   • $(gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format 'value(status.url)') (direct Cloud Run URL)" 
