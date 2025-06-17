@@ -27,13 +27,21 @@ class LockManager {
         this.setupMutationObserver();
     }
 
-    setupMutationObserver() {
+        setupMutationObserver() {
+        let lockApplicationPending = false;
+        
         // Create a mutation observer to watch for new elements being added
         this.observer = new MutationObserver((mutations) => {
             let shouldReapplyLock = false;
+            let hasLargeContentAddition = false;
             
             mutations.forEach((mutation) => {
                 if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    // Check for large content additions (like flattened views)
+                    if (mutation.addedNodes.length > 10) {
+                        hasLargeContentAddition = true;
+                    }
+                    
                     // Check if any of the added nodes contain elements we need to lock
                     mutation.addedNodes.forEach((node) => {
                         if (node.nodeType === Node.ELEMENT_NODE) {
@@ -45,8 +53,21 @@ class LockManager {
                                     node.querySelector('[contenteditable="true"]') ||
                                     node.querySelector('.goal-delete-btn') ||
                                     node.querySelector('.goal-move-btn') ||
+                                    node.querySelector('.delete-document') ||
+                                    node.querySelector('.batch-delete-btn') ||
+                                    node.querySelector('button[onclick*="deleteGoal"]') ||
+                                    node.querySelector('button[onclick*="openMoveModal"]') ||
                                     node.classList.contains('cluster-representative') ||
                                     node.classList.contains('auto-generate-btn') ||
+                                    node.classList.contains('goal-delete-btn') ||
+                                    node.classList.contains('goal-move-btn') ||
+                                    node.hasAttribute('contenteditable')
+                                ) || (
+                                    // Also check the node itself
+                                    node.classList.contains('cluster-representative') ||
+                                    node.classList.contains('auto-generate-btn') ||
+                                    node.classList.contains('goal-delete-btn') ||
+                                    node.classList.contains('goal-move-btn') ||
                                     node.hasAttribute('contenteditable')
                                 );
                             
@@ -59,11 +80,32 @@ class LockManager {
             });
             
             // Reapply lock state if lockable content was added
-            if (shouldReapplyLock && this.isLocked) {
-                // Use a small delay to ensure the DOM is fully updated
-                setTimeout(() => {
+            if (shouldReapplyLock && this.isLocked && !lockApplicationPending) {
+                lockApplicationPending = true;
+                
+                if (hasLargeContentAddition) {
+                    // For large content additions (like flattened views), apply immediately
                     this.applyLockState();
-                }, 50);
+                    
+                    // Also apply again after a very short delay for any async content
+                    setTimeout(() => {
+                        this.applyLockState();
+                        lockApplicationPending = false;
+                    }, 10);
+                } else {
+                    // For smaller additions, use requestAnimationFrame
+                    requestAnimationFrame(() => {
+                        this.applyLockState();
+                        
+                        // Also apply with a small delay as backup for any stragglers
+                        setTimeout(() => {
+                            this.applyLockState();
+                            lockApplicationPending = false;
+                        }, 25);
+                    });
+                }
+            } else if (!shouldReapplyLock) {
+                lockApplicationPending = false;
             }
         });
 
@@ -85,51 +127,64 @@ class LockManager {
     }
 
     createLockButton() {
-        // Create the lock button container
+        // Create the lock button container - more subtle and fixed
         const lockContainer = document.createElement('div');
         lockContainer.id = 'lock-container';
         lockContainer.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 9999;
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            z-index: 1000;
             display: flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 8px 12px;
-            border-radius: 20px;
-            border: 1px solid #dee2e6;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(5px);
-            transition: all 0.3s ease;
+            gap: 4px;
+            background: rgba(248, 249, 250, 0.8);
+            padding: 4px 8px;
+            border-radius: 12px;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+            font-size: 0.7rem;
         `;
+        
+        // Add hover effects
+        lockContainer.addEventListener('mouseenter', () => {
+            lockContainer.style.background = 'rgba(248, 249, 250, 0.95)';
+            lockContainer.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.1)';
+        });
+        
+        lockContainer.addEventListener('mouseleave', () => {
+            lockContainer.style.background = 'rgba(248, 249, 250, 0.8)';
+            lockContainer.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05)';
+        });
 
-        // Create the lock button
+        // Create the lock button - smaller and more subtle
         const lockButton = document.createElement('button');
         lockButton.id = 'lock-button';
         lockButton.className = 'btn btn-sm';
         lockButton.style.cssText = `
             border: none;
             background: none;
-            padding: 4px 8px;
-            border-radius: 15px;
+            padding: 2px 4px;
+            border-radius: 8px;
             transition: all 0.2s ease;
             display: flex;
             align-items: center;
-            gap: 4px;
-            font-size: 0.8rem;
+            font-size: 0.7rem;
+            min-width: 16px;
+            height: 18px;
         `;
         
         lockButton.addEventListener('click', () => this.toggleLock());
 
-        // Create status text
+        // Create status text - smaller
         const statusText = document.createElement('span');
         statusText.id = 'lock-status-text';
         statusText.style.cssText = `
-            font-size: 0.75rem;
-            font-weight: 500;
+            font-size: 0.65rem;
+            font-weight: 400;
             transition: color 0.2s ease;
+            opacity: 0.8;
         `;
 
         lockContainer.appendChild(lockButton);
@@ -144,13 +199,13 @@ class LockManager {
     updateButtonAppearance() {
         if (this.isLocked) {
             this.lockButton.innerHTML = '<i class="bi bi-lock-fill"></i>';
-            this.lockButton.style.cssText += 'background-color: #dc3545; color: white;';
+            this.lockButton.style.cssText += 'background-color: #dc3545; color: white; opacity: 0.9;';
             this.lockButton.title = 'Page is locked - click to unlock';
             this.statusText.textContent = 'Locked';
             this.statusText.style.color = '#dc3545';
         } else {
             this.lockButton.innerHTML = '<i class="bi bi-unlock-fill"></i>';
-            this.lockButton.style.cssText += 'background-color: #28a745; color: white;';
+            this.lockButton.style.cssText += 'background-color: #28a745; color: white; opacity: 0.9;';
             this.lockButton.title = 'Page is unlocked - click to lock';
             this.statusText.textContent = 'Unlocked';
             this.statusText.style.color = '#28a745';
@@ -226,28 +281,22 @@ class LockManager {
             el.style.cursor = 'not-allowed';
         });
 
-        // Disable delete buttons in artifacts page
+        // Hide delete buttons in artifacts page
         document.querySelectorAll('.goal-delete-btn, #delete-artifact-btn, button[onclick*="deleteGoal"]').forEach(el => {
-            el.disabled = true;
-            el.style.pointerEvents = 'none';
-            el.style.opacity = '0.4';
-            el.style.cursor = 'not-allowed';
+            el.setAttribute('data-original-display', el.style.display || '');
+            el.style.display = 'none';
         });
 
-        // Disable delete buttons in search page
+        // Hide delete buttons in search page
         document.querySelectorAll('.delete-document, .batch-delete-btn').forEach(el => {
-            el.disabled = true;
-            el.style.pointerEvents = 'none';
-            el.style.opacity = '0.4';
-            el.style.cursor = 'not-allowed';
+            el.setAttribute('data-original-display', el.style.display || '');
+            el.style.display = 'none';
         });
 
-        // Disable move buttons
+        // Hide move buttons
         document.querySelectorAll('.goal-move-btn, .move-btn, button[onclick*="openMoveModal"]').forEach(el => {
-            el.disabled = true;
-            el.style.pointerEvents = 'none';
-            el.style.opacity = '0.4';
-            el.style.cursor = 'not-allowed';
+            el.setAttribute('data-original-display', el.style.display || '');
+            el.style.display = 'none';
         });
 
         // Add visual indication to body
@@ -273,28 +322,25 @@ class LockManager {
             el.style.cursor = '';
         });
 
-        // Re-enable delete buttons in artifacts page
+        // Show delete buttons in artifacts page
         document.querySelectorAll('.goal-delete-btn, #delete-artifact-btn, button[onclick*="deleteGoal"]').forEach(el => {
-            el.disabled = false;
-            el.style.pointerEvents = '';
-            el.style.opacity = '';
-            el.style.cursor = '';
+            const originalDisplay = el.getAttribute('data-original-display') || '';
+            el.style.display = originalDisplay;
+            el.removeAttribute('data-original-display');
         });
 
-        // Re-enable delete buttons in search page
+        // Show delete buttons in search page
         document.querySelectorAll('.delete-document, .batch-delete-btn').forEach(el => {
-            el.disabled = false;
-            el.style.pointerEvents = '';
-            el.style.opacity = '';
-            el.style.cursor = '';
+            const originalDisplay = el.getAttribute('data-original-display') || '';
+            el.style.display = originalDisplay;
+            el.removeAttribute('data-original-display');
         });
 
-        // Re-enable move buttons
+        // Show move buttons
         document.querySelectorAll('.goal-move-btn, .move-btn, button[onclick*="openMoveModal"]').forEach(el => {
-            el.disabled = false;
-            el.style.pointerEvents = '';
-            el.style.opacity = '';
-            el.style.cursor = '';
+            const originalDisplay = el.getAttribute('data-original-display') || '';
+            el.style.display = originalDisplay;
+            el.removeAttribute('data-original-display');
         });
 
         // Remove visual indication from body
@@ -309,7 +355,7 @@ class LockManager {
             toastContainer.id = 'toast-container';
             toastContainer.style.cssText = `
                 position: fixed;
-                top: 80px;
+                top: 20px;
                 right: 20px;
                 z-index: 10000;
             `;
@@ -349,17 +395,34 @@ class LockManager {
         // Force a comprehensive reapplication of lock state
         console.log('🔒 Forcing reapplication of lock state, current state:', this.isLocked ? 'LOCKED' : 'UNLOCKED');
         
-        // Small delay to ensure DOM is ready
-        setTimeout(() => {
+        // For large content operations, apply immediately and then again with delays
+        if (this.isLocked) {
+            // Apply immediately
             this.applyLockState();
             
-            // Debug: count how many elements were found and locked/unlocked
-            if (this.isLocked) {
+            // Apply again very quickly for any immediate async content
+            setTimeout(() => {
+                this.applyLockState();
+            }, 5);
+            
+            // Apply with longer delay for any slower async content
+            setTimeout(() => {
+                this.applyLockState();
+                
+                // Debug: count how many elements were found and locked/unlocked
                 const editableCount = document.querySelectorAll('[data-original-contenteditable]').length;
-                const buttonCount = document.querySelectorAll('.auto-generate-btn[disabled], button[onclick*="openAIGenerationModal"][disabled]').length;
-                console.log(`🔒 Lock applied to ${editableCount} editable elements and ${buttonCount} buttons`);
-            }
-        }, 100);
+                const disabledButtonCount = document.querySelectorAll('.auto-generate-btn[disabled], button[onclick*="openAIGenerationModal"][disabled]').length;
+                const hiddenButtonCount = document.querySelectorAll('[data-original-display]').length;
+                console.log(`🔒 Lock applied to ${editableCount} editable elements, ${disabledButtonCount} disabled buttons, and ${hiddenButtonCount} hidden buttons`);
+            }, 100);
+        }
+    }
+
+    // New method for immediate lock application during large content operations
+    applyLockToNewContent() {
+        if (this.isLocked) {
+            this.applyLockState();
+        }
     }
 
     destroy() {

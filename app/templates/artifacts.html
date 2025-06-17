@@ -2516,9 +2516,18 @@ function displayFlattenedView(flattened, level) {
     $('#flattened-content').html(html);
     updateDownloadOptions(flattened);
     
-    // Reapply lock state to newly created elements
+    // Immediately apply lock state to newly created elements
     if (window.lockManager) {
-        window.lockManager.forceReapplyLockState();
+        window.lockManager.applyLockToNewContent();
+        
+        // Also apply with multiple quick intervals for large content
+        setTimeout(() => {
+            window.lockManager.applyLockToNewContent();
+        }, 1);
+        
+        setTimeout(() => {
+            window.lockManager.applyLockToNewContent();
+        }, 10);
     }
 }
 
@@ -2624,9 +2633,14 @@ function buildFlattenedGoalsAsync(clusterData, contentElem, doneCallback) {
             // Replace spinner with built html
             contentElem.html(html);
             
-            // Reapply lock state to newly created elements
+            // Immediately apply lock state to newly created elements
             if (window.lockManager) {
-                window.lockManager.forceReapplyLockState();
+                window.lockManager.applyLockToNewContent();
+                
+                // Also apply with a tiny delay for any remaining async content
+                setTimeout(() => {
+                    window.lockManager.applyLockToNewContent();
+                }, 1);
             }
             
             if (doneCallback) doneCallback();
