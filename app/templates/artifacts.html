@@ -7,9 +7,9 @@
 <style>
     .clustering-controls {
         background-color: #f8f9fa;
-        padding: 15px;
+        padding: 10px;
         border-radius: 6px;
-        margin-bottom: 20px;
+        margin-bottom: 5px;
     }
     
     /* Tree Structure Styling - updated for new layout */
@@ -17,8 +17,9 @@
         font-family: 'Monaco', 'Consolas', monospace;
         background-color: #f8f9fa;
         border-radius: 8px;
-        padding: 20px;
-        margin-bottom: 20px;
+        padding: 12px;
+        margin-top: 0px;
+        margin-bottom: 15px;
     }
     
     .tree-node {
@@ -257,6 +258,35 @@
         margin-bottom: 20px;
     }
     
+    /* Subtle artifact info styling - much cleaner than clustering-stats */
+    .artifact-info {
+        color: #6c757d;
+        font-size: 0.9em;
+        margin-bottom: 5px;
+        padding: 4px 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    .artifact-info .artifact-name {
+        font-weight: 600;
+        color: #495057;
+        margin-right: 12px;
+    }
+    
+    .artifact-info .artifact-details {
+        display: inline;
+        font-size: 0.85em;
+    }
+    
+    .artifact-info .artifact-details span {
+        margin-right: 20px;
+        white-space: nowrap;
+    }
+    
+    .artifact-info .artifact-details span:last-child {
+        margin-right: 0;
+    }
+    
     /* Level Controls - matching cluster_tree */
     .level-button {
         font-weight: bold;
@@ -349,7 +379,7 @@
     
     /* Collapsible artifact selection styling */
     .artifact-selection-container {
-        margin-bottom: 20px;
+        margin-bottom: 5px;
     }
     
     .collapsed-title {
@@ -1173,14 +1203,14 @@
                 <!-- Artifact Display -->
                 <div id="artifact-section" style="display: none;">
                     <!-- Stats Section -->
-                    <div id="artifact-stats" class="clustering-stats">
+                    <div id="artifact-stats" class="artifact-info">
                         <!-- Stats will be populated here -->
                     </div>
                     
                     <!-- Hierarchical Tree Container -->
                     <div class="tree-container">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5><i class="bi bi-diagram-2"></i> Hierarchical Tree (Editable)</h5>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <h5 class="mb-0"><i class="bi bi-diagram-2"></i> Hierarchical Tree (Editable)</h5>
                             <div>
                                 <button id="expand-all-btn" class="btn btn-outline-secondary btn-sm me-2">
                                     <i class="bi bi-arrows-expand"></i> Expand All
@@ -1851,21 +1881,13 @@ function displayStats(artifact) {
     console.log('🔍 DEBUG - Fixed totalGoals:', totalGoals);
     
     const statsHtml = `
-        <h5><i class="bi bi-archive"></i> Artifact: ${artifact.name}</h5>
-        <div class="row mb-2">
-            <div class="col-md-3">
-                <strong>Total Goals:</strong> ${totalGoals}
-            </div>
-            <div class="col-md-3">
-                <strong>Parameters:</strong> ${artifact.parameter_summary}
-            </div>
-            <div class="col-md-3">
-                <strong>Created:</strong> ${new Date(artifact.created_at).toLocaleDateString()}
-            </div>
-            <div class="col-md-3">
-                <strong>Modified:</strong> ${new Date(artifact.modified_at).toLocaleDateString()}
-            </div>
-        </div>
+        <span class="artifact-name">Artifact: ${artifact.name}</span>
+        <span class="artifact-details">
+            <span>Total Goals: ${totalGoals}</span>
+            <span>Parameters: ${artifact.parameter_summary}</span>
+            <span>Created: ${new Date(artifact.created_at).toLocaleDateString()}</span>
+            <span>Modified: ${new Date(artifact.modified_at).toLocaleDateString()}</span>
+        </span>
     `;
     $('#artifact-stats').html(statsHtml);
 }

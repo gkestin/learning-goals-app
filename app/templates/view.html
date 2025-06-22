@@ -32,6 +32,16 @@
         border-left: 4px solid #6c757d;
         margin-bottom: 20px;
     }
+    .prompt-toggle-btn {
+        transition: all 0.3s ease;
+    }
+    .prompt-toggle-btn[aria-expanded="true"] i {
+        transform: rotate(180deg);
+    }
+    .prompt-section {
+        border-top: 1px solid #e9ecef;
+        opacity: 0.7;
+    }
 </style>
 {% endblock %}
 
@@ -86,16 +96,7 @@
                     </div>
                     {% endif %}
                     
-                    {% if document.lo_extraction_prompt %}
-                    <div class="row">
-                        <div class="col-md-12">
-                            <strong>LO Extraction Prompt:</strong>
-                            <div class="notes-box">
-                                <pre class="mb-0" style="white-space: pre-wrap; font-family: inherit;">{{ document.lo_extraction_prompt }}</pre>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
+
                 </div>
                 
                 <h3 class="h5 mb-3">Learning Goals:</h3>
@@ -133,6 +134,23 @@
                         </div>
                     {% endif %}
                 </div>
+                
+                <!-- Collapsed Prompt Section -->
+                {% if document.lo_extraction_prompt %}
+                <div class="mt-4 pt-3 prompt-section">
+                    <div class="text-center">
+                        <button class="btn btn-sm btn-outline-secondary prompt-toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#promptCollapse" aria-expanded="false" aria-controls="promptCollapse">
+                            <i class="bi bi-chevron-down"></i> Show extraction prompt
+                        </button>
+                    </div>
+                    <div class="collapse mt-3" id="promptCollapse">
+                        <div class="card card-body bg-light">
+                            <small class="text-muted mb-2">LO Extraction Prompt:</small>
+                            <pre class="mb-0 small" style="white-space: pre-wrap; font-family: inherit; color: #666;">{{ document.lo_extraction_prompt }}</pre>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>

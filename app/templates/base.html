@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Learning Goals Extractor{% endblock %}</title>
+    <title>{% block title %}Math-Matic - Shared Math Goals{% endblock %}</title>
     
     <!-- Favicon -->
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
@@ -35,6 +35,42 @@
             font-weight: bold;
             color: #0d6efd !important;
         }
+        .brand-logo {
+            height: 40px;
+            width: 40px;
+            margin-right: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .brand-container {
+            display: flex;
+            align-items: center;
+            text-decoration: none !important;
+        }
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.2;
+        }
+        .brand-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #333;
+            margin: 0;
+        }
+        .brand-subtitle {
+            font-size: 0.85rem;
+            color: #666;
+            margin: 0;
+            font-weight: 400;
+        }
+        .navbar-brand:hover .brand-title {
+            color: #0d6efd;
+        }
+        .navbar {
+            border: 1px solid #dee2e6;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -43,7 +79,12 @@
         <header class="mb-4">
             <nav class="navbar navbar-expand-lg navbar-light bg-light rounded">
                 <div class="container-fluid">
-                    <a class="navbar-brand" href="{{ url_for('main.index') }}">Learning Goals Extractor</a>
+                    <a class="navbar-brand brand-container" href="{{ url_for('main.index') }}">
+                        <img src="{{ url_for('static', filename='logo-mathmatic.png') }}" alt="Math-Matic Logo" class="brand-logo">
+                        <div class="brand-text">
+                            <div class="brand-subtitle">Shared math goals</div>
+                        </div>
+                    </a>
                     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                         <span class="navbar-toggler-icon"></span>
                     </button>
@@ -101,7 +142,7 @@
         </main>
 
         <footer class="footer text-center">
-            <p>&copy; {{ now.year }} Learning Goals Extractor</p>
+            <p>&copy; {{ now.year }} Math-Matic - Shared math goals</p>
         </footer>
     </div>
 
