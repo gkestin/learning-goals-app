@@ -5,7 +5,7 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '8080')}"
 backlog = 2048
 
 # Worker processes
-workers = 1
+workers = 2
 worker_class = "gthread"
 worker_connections = 1000
 timeout = 120

@@ -47,6 +47,9 @@ gcloud run deploy $SERVICE_NAME \
   --memory=4Gi \
   --cpu=2 \
   --timeout=3600 \
+  --concurrency=20 \
+  --min-instances=0 \
+  --max-instances=10 \
   --no-use-http2 \
   --set-env-vars "SECRET_KEY=learning-goals-secret-key-production" \
   --set-env-vars "OPENAI_API_KEY=$OPENAI_API_KEY" \

@@ -902,6 +902,202 @@
         font-size: 0.8em;
         color: #6c757d;
     }
+
+    /* Dendrogram Styles */
+    .dendrogram-controls {
+        background-color: #f8f9fa !important;
+    }
+    
+    #dendrogram-container {
+        background-color: #ffffff;
+        border: 1px solid #dee2e6;
+    }
+    
+    .dendrogram-node {
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .dendrogram-node circle {
+        fill: #fff;
+        stroke: #007bff;
+        stroke-width: 2px;
+        transition: all 0.2s ease;
+    }
+    
+    .dendrogram-node.leaf circle {
+        fill: #28a745;
+        stroke: #1e7e34;
+    }
+    
+    .dendrogram-node:hover circle {
+        stroke-width: 3px;
+        r: 6;
+    }
+    
+    .dendrogram-node.leaf:hover circle {
+        fill: #34ce57;
+    }
+    
+    .dendrogram-link {
+        fill: none;
+        stroke: #6c757d;
+        stroke-width: 1.5px;
+        transition: stroke-width 0.2s ease;
+    }
+    
+    .dendrogram-link:hover {
+        stroke: #007bff;
+        stroke-width: 2.5px;
+    }
+    
+    .dendrogram-text {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 11px;
+        fill: #495057;
+        text-anchor: start;
+        dominant-baseline: middle;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+    }
+    
+    .dendrogram-text.cluster-label {
+        font-weight: 600;
+        fill: #007bff;
+    }
+    
+    .dendrogram-text.representative-text {
+        font-size: 10px;
+        fill: #6c757d;
+        font-style: italic;
+    }
+    
+    /* Representative text color coding in dendrogram */
+    .dendrogram-text.representative-text.state-default {
+        fill: #495057; /* Dark grey for default/representative */
+    }
+    
+    .dendrogram-text.representative-text.state-manual {
+        fill: #228B22; /* Green for manually edited */
+    }
+    
+    .dendrogram-text.representative-text.state-ai {
+        fill: #6f42c1; /* Purple for AI generated */
+    }
+    
+    .dendrogram-text.leaf-text {
+        fill: #28a745;
+        font-weight: 500;
+    }
+    
+    /* Radial layout specific styles */
+    .radial-layout .dendrogram-text {
+        text-anchor: middle;
+    }
+    
+    /* Zoom and pan styles */
+
+    
+    /* Selection styles */
+    .dendrogram-node.selected circle {
+        stroke: #dc3545;
+        stroke-width: 3px;
+        fill: #fff5f5;
+    }
+    
+    .dendrogram-node.highlighted circle {
+        stroke: #ffc107;
+        stroke-width: 3px;
+        fill: #fffbf0;
+    }
+    
+    /* Focus mode styles */
+    .dendrogram-node.focused circle {
+        stroke: #dc3545;
+        stroke-width: 4px;
+        fill: #fff5f5;
+        filter: drop-shadow(0 0 6px rgba(220, 53, 69, 0.5));
+    }
+    
+    .dendrogram-node.dimmed {
+        opacity: 0.3;
+        transition: opacity 0.3s ease;
+    }
+    
+    .dendrogram-node.focus-child circle {
+        stroke: #28a745;
+        stroke-width: 2px;
+    }
+    
+    /* Breadcrumb styles */
+    .breadcrumb-item {
+        background-color: #e9ecef;
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.75em;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .breadcrumb-item:hover {
+        background-color: #007bff;
+        color: white;
+    }
+    
+    .breadcrumb-separator {
+        color: #6c757d;
+        font-size: 0.7em;
+    }
+    
+    /* Collapsible node styles */
+    .dendrogram-node.collapsed .dendrogram-children {
+        display: none;
+    }
+    
+    .dendrogram-node.has-hidden-children circle {
+        stroke-dasharray: 3,3;
+    }
+    
+    /* Smart label positioning */
+    .dendrogram-text.smart-positioned {
+        opacity: 0.9;
+    }
+    
+    .dendrogram-text.priority-high {
+        font-weight: 600;
+        opacity: 1;
+    }
+    
+    .dendrogram-text.priority-medium {
+        opacity: 0.8;
+    }
+    
+    .dendrogram-text.priority-low {
+        opacity: 0.6;
+    }
+    
+    /* Hide text for very deep nodes */
+    .dendrogram-text.depth-hidden {
+        display: none;
+    }
+    
+
+    
+    /* Progressive text sizing by depth */
+    .dendrogram-text.depth-0 { font-size: 12px; }
+    .dendrogram-text.depth-1 { font-size: 11px; }
+    .dendrogram-text.depth-2 { font-size: 10px; }
+    .dendrogram-text.depth-3 { font-size: 9px; }
+    .dendrogram-text.depth-4 { font-size: 8px; }
+    .dendrogram-text.depth-5 { font-size: 7px; }
+    
+    /* High priority nodes get slightly larger text at each depth */
+    .dendrogram-text.priority-high.depth-0 { font-size: 14px; }
+    .dendrogram-text.priority-high.depth-1 { font-size: 12px; }
+    .dendrogram-text.priority-high.depth-2 { font-size: 11px; }
+    .dendrogram-text.priority-high.depth-3 { font-size: 10px; }
+    .dendrogram-text.priority-high.depth-4 { font-size: 9px; }
+    .dendrogram-text.priority-high.depth-5 { font-size: 8px; }
 </style>
 {% endblock %}
 
@@ -991,6 +1187,9 @@
                                 </button>
                                 <button id="collapse-all-btn" class="btn btn-outline-secondary btn-sm me-2">
                                     <i class="bi bi-arrows-collapse"></i> Collapse All
+                                </button>
+                                <button id="view-dendrogram-btn" class="btn btn-outline-primary btn-sm me-2">
+                                    <i class="bi bi-diagram-3"></i> View Dendrogram
                                 </button>
                                 <button id="view-archived-btn" class="archive-btn me-2" title="View archived learning goals">
                                     <i class="bi bi-archive"></i> Archived
@@ -1231,6 +1430,87 @@
     </div>
 </div>
 
+<!-- Dendrogram Modal -->
+<div class="modal fade" id="dendrogramModal" tabindex="-1" aria-labelledby="dendrogramModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-fullscreen">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dendrogramModalLabel">
+                    <i class="bi bi-diagram-3 text-primary"></i> Interactive Dendrogram View
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <!-- Dendrogram Controls -->
+                <div class="dendrogram-controls bg-light border-bottom p-3">
+                    <div class="row align-items-center">
+
+                        <div class="col-md-4">
+                            <label for="dendrogram-layout" class="form-label mb-1"><strong>Layout:</strong></label>
+                            <select class="form-select form-select-sm" id="dendrogram-layout">
+                                <option value="horizontal">Horizontal</option>
+                                <option value="vertical" selected>Vertical</option>
+                                <option value="radial">Radial</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="dendrogram-labels" class="form-label mb-1"><strong>Labels:</strong></label>
+                            <select class="form-select form-select-sm" id="dendrogram-labels">
+                                <option value="cluster">Cluster Names</option>
+                                <option value="representative" selected>Representative Text</option>
+                                <option value="both">Both</option>
+                                <option value="smart">Smart (Adaptive)</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex gap-2 align-items-end">
+                                <button id="dendrogram-focus-home" class="btn btn-outline-info btn-sm">
+                                    <i class="bi bi-house"></i> Focus Home
+                                </button>
+                                <button id="dendrogram-reset" class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-arrow-clockwise"></i> Reset View
+                                </button>
+                                <button id="dendrogram-export" class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-download"></i> Export SVG
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Focus Breadcrumb -->
+                <div id="dendrogram-breadcrumb" class="bg-white border-bottom p-2" style="display: none;">
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted">Focus:</small>
+                        <div id="breadcrumb-path" class="d-flex align-items-center gap-1">
+                            <!-- Breadcrumb items will be populated here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Dendrogram Container -->
+                <div id="dendrogram-container" class="position-relative" style="height: calc(100vh - 230px); overflow: hidden;">
+                    <div id="dendrogram-svg-container" style="width: 100%; height: 100%;"></div>
+                    
+                    <!-- Loading Overlay -->
+                    <div id="dendrogram-loading" class="position-absolute top-50 start-50 translate-middle text-center" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="mt-2">Building dendrogram...</div>
+                    </div>
+                    
+                    <!-- Node Details Tooltip -->
+                    <div id="dendrogram-tooltip" class="position-absolute bg-dark text-white p-2 rounded shadow" style="display: none; pointer-events: none; z-index: 1000; max-width: 300px; font-size: 0.8em;">
+                        <div id="tooltip-content"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Progress Overlay -->
 <div id="operation-progress" class="operation-progress" style="display: none;">
     <div class="spinner-border text-primary" role="status">
@@ -1407,6 +1687,15 @@ $(document).ready(function() {
     // Move/Delete/Archive handlers
     $('#view-archived-btn').click(function() {
         loadArchivedGoals();
+    });
+    
+    // View dendrogram handler
+    $('#view-dendrogram-btn').click(function() {
+        if (currentArtifact && currentArtifact.tree_structure) {
+            showDendrogram();
+        } else {
+            alert('No tree data available for dendrogram view.');
+        }
     });
     
     // Move modal search functionality with debouncing
@@ -4069,6 +4358,776 @@ function updateSearchResultsInfo(term) {
         
         info.html(`<span class="text-success">${infoText}</span>`);
     }
+}
+
+// =====================================
+// DENDROGRAM FUNCTIONALITY
+// =====================================
+
+// Global dendrogram variables
+let dendrogramSvg = null;
+let dendrogramData = null;
+let dendrogramZoom = null;
+let currentLayout = 'vertical';
+let focusedNode = null;
+let focusPath = [];
+let visibleNodes = new Set();
+let collapsedNodes = new Set();
+
+function showDendrogram() {
+    // Show the modal
+    $('#dendrogramModal').modal('show');
+    
+    // Initialize dendrogram when modal is shown
+    $('#dendrogramModal').on('shown.bs.modal', function() {
+        initializeDendrogram();
+    });
+}
+
+function initializeDendrogram() {
+    // Show loading
+    $('#dendrogram-loading').show();
+    
+    // Clear any existing SVG
+    $('#dendrogram-svg-container').empty();
+    
+    // Convert tree structure to D3 hierarchy format
+    dendrogramData = convertToD3Hierarchy(currentArtifact.tree_structure);
+    
+    // Create the dendrogram
+    setTimeout(() => {
+        createDendrogram();
+        $('#dendrogram-loading').hide();
+    }, 100);
+}
+
+function convertToD3Hierarchy(treeStructure) {
+    // Convert our tree structure to D3 hierarchy format
+    function convertNode(node) {
+        const d3Node = {
+            id: node.id,
+            name: node.label,
+            representativeText: node.representative_goal || '',
+            size: node.size || 0,
+            goals: node.goals || [],
+            level: node.level || 0,
+            text_state: node.text_state || 'default'
+        };
+        
+        if (node.children && node.children.length > 0) {
+            d3Node.children = node.children.map(child => convertNode(child));
+        }
+        
+        return d3Node;
+    }
+    
+    // Create a root node if we have multiple top-level nodes
+    if (treeStructure.length === 1) {
+        return convertNode(treeStructure[0]);
+    } else {
+        return {
+            id: 'root',
+            name: 'Root',
+            representativeText: 'Learning Goals Hierarchy',
+            size: treeStructure.reduce((sum, node) => sum + (node.size || 0), 0),
+            goals: [],
+            level: -1,
+            children: treeStructure.map(node => convertNode(node))
+        };
+    }
+}
+
+function createDendrogram() {
+    const container = document.getElementById('dendrogram-svg-container');
+    const containerRect = container.getBoundingClientRect();
+    const width = containerRect.width;
+    const height = containerRect.height;
+    
+    // Clear previous SVG
+    d3.select(container).selectAll('*').remove();
+    
+    // Create SVG
+    const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+    
+    // Create zoom behavior
+    dendrogramZoom = d3.zoom()
+        .scaleExtent([0.1, 5])
+        .on('zoom', (event) => {
+            g.attr('transform', event.transform);
+        });
+    
+    svg.call(dendrogramZoom);
+    
+    // Create main group for zooming and panning
+    const g = svg.append('g')
+        .attr('class', 'dendrogram-zoom-container');
+    
+    // Determine what data to show (focused subtree or full tree)
+    let dataToShow = dendrogramData;
+    if (focusedNode) {
+        dataToShow = focusedNode.data;
+    }
+    
+    // Create hierarchy
+    const root = d3.hierarchy(dataToShow);
+    
+    // Progressive loading: limit depth for performance
+    const maxVisibleDepth = calculateMaxVisibleDepth(root);
+    const filteredRoot = filterTreeByDepth(root, maxVisibleDepth);
+    
+    // Create different layouts based on selection
+    let treeLayout;
+    let nodeTransform;
+    let linkPath;
+    
+    if (currentLayout === 'radial') {
+        treeLayout = d3.tree()
+            .size([2 * Math.PI, Math.min(width, height) / 2 - 100])
+            .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
+        
+        nodeTransform = d => `rotate(${(d.x * 180 / Math.PI - 90)}) translate(${d.y},0)`;
+        
+        linkPath = d3.linkRadial()
+            .angle(d => d.x)
+            .radius(d => d.y);
+    } else if (currentLayout === 'vertical') {
+        treeLayout = d3.tree()
+            .size([width - 200, height - 200])
+            .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
+        
+        nodeTransform = d => `translate(${d.x},${d.y})`;
+        
+        linkPath = d3.linkVertical()
+            .x(d => d.x)
+            .y(d => d.y);
+    } else {
+        // Horizontal layout (default)
+        treeLayout = d3.tree()
+            .size([height - 200, width - 200])
+            .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
+        
+        nodeTransform = d => `translate(${d.y},${d.x})`;
+        
+        linkPath = d3.linkHorizontal()
+            .x(d => d.y)
+            .y(d => d.x);
+    }
+    
+    // Apply layout
+    treeLayout(filteredRoot);
+    
+    // Position the tree in the center
+    if (currentLayout === 'radial') {
+        g.attr('transform', `translate(${width / 2},${height / 2})`);
+    } else {
+        g.attr('transform', `translate(100,100)`);
+    }
+    
+    // Add links with visibility filtering
+    const visibleLinks = filteredRoot.links().filter(link => 
+        !collapsedNodes.has(link.source.data.id) && 
+        !collapsedNodes.has(link.target.data.id)
+    );
+    
+    const links = g.selectAll('.dendrogram-link')
+        .data(visibleLinks)
+        .enter()
+        .append('path')
+        .attr('class', 'dendrogram-link')
+        .attr('d', linkPath)
+        .on('mouseover', function(event, d) {
+            d3.select(this).style('stroke', '#007bff').style('stroke-width', '2.5px');
+        })
+        .on('mouseout', function(event, d) {
+            d3.select(this).style('stroke', '#6c757d').style('stroke-width', '1.5px');
+        });
+    
+    // Add nodes with click-to-focus functionality
+    const visibleNodeData = filteredRoot.descendants().filter(d => 
+        !collapsedNodes.has(d.data.id)
+    );
+    
+    const nodes = g.selectAll('.dendrogram-node')
+        .data(visibleNodeData)
+        .enter()
+        .append('g')
+        .attr('class', d => {
+            let classes = `dendrogram-node ${d.children ? '' : 'leaf'}`;
+            if (focusedNode && d.data.id === focusedNode.data.id) {
+                classes += ' focused';
+            }
+            if (collapsedNodes.has(d.data.id)) {
+                classes += ' has-hidden-children';
+            }
+            return classes;
+        })
+        .attr('transform', nodeTransform)
+        .on('click', function(event, d) {
+            event.stopPropagation();
+            handleNodeFocus(d);
+        })
+        .on('dblclick', function(event, d) {
+            event.stopPropagation();
+            toggleNodeCollapse(d);
+        })
+        .on('mouseover', function(event, d) {
+            showDendrogramTooltip(event, d);
+        })
+        .on('mouseout', function() {
+            hideDendrogramTooltip();
+        });
+    
+    // Add circles to nodes with dynamic sizing
+    nodes.append('circle')
+        .attr('r', d => {
+            const baseSize = d.children ? 5 : 4;
+            const focusBonus = (focusedNode && d.data.id === focusedNode.data.id) ? 2 : 0;
+            return baseSize + focusBonus;
+        })
+        .style('fill', d => {
+            if (focusedNode && d.data.id === focusedNode.data.id) return '#fff5f5';
+            return d.children ? '#fff' : '#28a745';
+        })
+        .style('stroke', d => {
+            if (focusedNode && d.data.id === focusedNode.data.id) return '#dc3545';
+            return d.children ? '#007bff' : '#1e7e34';
+        })
+        .style('stroke-width', d => {
+            if (focusedNode && d.data.id === focusedNode.data.id) return 4;
+            return 2;
+        });
+    
+    // Add labels with smart positioning
+    const labelType = document.getElementById('dendrogram-labels').value;
+    
+    if (labelType !== 'none') {
+        addSmartDendrogramLabels(nodes, labelType, filteredRoot);
+    }
+    
+    // Store reference for later use
+    dendrogramSvg = svg;
+    
+    // Update breadcrumb
+    updateBreadcrumb();
+}
+
+function addSmartDendrogramLabels(nodes, labelType, root) {
+    // Calculate label priorities based on node importance
+    const labelPriorities = calculateLabelPriorities(root);
+    
+    if (labelType === 'smart') {
+        // Smart adaptive labeling
+        nodes.each(function(d) {
+            const priority = labelPriorities.get(d.data.id) || 'low';
+            const nodeSelection = d3.select(this);
+            
+            // Only show labels for high and medium priority nodes to avoid clutter
+            if (priority === 'high' || priority === 'medium') {
+                const textToShow = d.data.representativeText || d.data.name;
+                const maxLength = priority === 'high' ? 40 : 25;
+                const isRepresentativeText = d.data.representativeText && textToShow === d.data.representativeText;
+                
+                const textElement = nodeSelection.append('text')
+                    .attr('class', () => {
+                        let classes = `dendrogram-text smart-positioned priority-${priority} depth-${Math.min(d.depth, 5)}`;
+                        if (isRepresentativeText) {
+                            const textState = d.data.text_state || 'default';
+                            classes += ` representative-text state-${textState}`;
+                        }
+                        return classes;
+                    })
+                    .attr('x', d => d.children ? -6 : 10)
+                    .attr('y', -5)
+                    .attr('transform', d => `rotate(-19, ${d.children ? -6 : 10}, -5)`)
+                    .style('text-anchor', 'start'); // Always start from the node
+                
+                // Add multi-line text
+                addMultiLineText(textElement, textToShow, maxLength);
+                
+                // Hide text for nodes deeper than 5 levels from current focus root
+                if (shouldHideTextForDepth(d)) {
+                    textElement.classed('depth-hidden', true);
+                }
+            }
+        });
+    } else {
+        // Traditional labeling modes
+        if (labelType === 'cluster' || labelType === 'both') {
+            const clusterTexts = nodes.append('text')
+                .attr('class', d => `dendrogram-text cluster-label depth-${Math.min(d.depth, 5)}`)
+                .attr('x', d => d.children ? -6 : 10)
+                .attr('y', d => d.children ? -13 : -5)
+                .attr('transform', d => {
+                    const x = d.children ? -6 : 10;
+                    const y = d.children ? -13 : -5;
+                    return `rotate(-19, ${x}, ${y})`;
+                })
+                .style('text-anchor', 'start'); // Always start from the node
+            
+            // Add multi-line text to cluster labels
+            clusterTexts.each(function(d) {
+                addMultiLineText(d3.select(this), d.data.name, 20);
+            });
+            
+            // Hide text for deep nodes
+            clusterTexts.classed('depth-hidden', d => shouldHideTextForDepth(d));
+        }
+        
+        if (labelType === 'representative' || labelType === 'both') {
+            const repTexts = nodes.append('text')
+                .attr('class', d => {
+                    const textState = d.data.text_state || 'default';
+                    return `dendrogram-text representative-text state-${textState} depth-${Math.min(d.depth, 5)}`;
+                })
+                .attr('x', d => d.children ? -6 : 10)
+                .attr('y', d => {
+                    if (labelType === 'both') {
+                        return d.children ? 3 : 10;
+                    } else {
+                        return d.children ? -13 : -5;
+                    }
+                })
+                .attr('transform', d => {
+                    const x = d.children ? -6 : 10;
+                    const y = labelType === 'both' 
+                        ? (d.children ? 3 : 10)
+                        : (d.children ? -13 : -5);
+                    return `rotate(-19, ${x}, ${y})`;
+                })
+                .style('text-anchor', 'start'); // Always start from the node
+            
+            // Add multi-line text to representative labels
+            repTexts.each(function(d) {
+                addMultiLineText(d3.select(this), d.data.representativeText, 25);
+            });
+            
+            // Hide text for deep nodes
+            repTexts.classed('depth-hidden', d => shouldHideTextForDepth(d));
+        }
+    }
+}
+
+function calculateLabelPriorities(root) {
+    const priorities = new Map();
+    const totalNodes = root.descendants().length;
+    
+    root.descendants().forEach(d => {
+        let priority = 'low';
+        
+        // High priority: root, focused node, nodes with many children, leaf nodes with interesting content
+        if (d === root || 
+            (focusedNode && d.data.id === focusedNode.data.id) ||
+            (d.children && d.children.length > 5) ||
+            (d.depth <= 2 && totalNodes > 50)) {
+            priority = 'high';
+        }
+        // Medium priority: intermediate nodes with some children
+        else if (d.children && d.children.length > 2) {
+            priority = 'medium';
+        }
+        // Low priority: small leaf clusters, deep nodes
+        else if (d.depth > 4 || (!d.children && d.data.size < 3)) {
+            priority = 'low';
+        }
+        
+        priorities.set(d.data.id, priority);
+    });
+    
+    return priorities;
+}
+
+function shouldHideTextForDepth(d) {
+    // Hide text for nodes deeper than 5 levels from the current view root
+    // d.depth is relative to the current focused subtree root
+    return d.depth > 5;
+}
+
+function addMultiLineText(textElement, fullText, maxCharsPerLine) {
+    if (!fullText) return;
+    
+    // Split text into words
+    const words = fullText.split(' ');
+    let line1 = '';
+    let line2 = '';
+    let currentLine = 1;
+    
+    // Build lines word by word
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        const testLine = currentLine === 1 
+            ? (line1 ? line1 + ' ' + word : word)
+            : (line2 ? line2 + ' ' + word : word);
+        
+        if (testLine.length <= maxCharsPerLine) {
+            // Word fits on current line
+            if (currentLine === 1) {
+                line1 = testLine;
+            } else {
+                line2 = testLine;
+            }
+        } else {
+            // Word doesn't fit
+            if (currentLine === 1 && line1) {
+                // Move to second line
+                currentLine = 2;
+                line2 = word;
+            } else {
+                // Second line is full, truncate with ellipsis
+                if (currentLine === 1) {
+                    line1 = truncateText(line1, maxCharsPerLine - 3) + '...';
+                } else {
+                    line2 = truncateText(line2, maxCharsPerLine - 3) + '...';
+                }
+                break;
+            }
+        }
+    }
+    
+    // Determine if we have two lines
+    const hasTwoLines = line1 && line2;
+    
+    // Add the text lines as tspan elements
+    if (line1) {
+        textElement.append('tspan')
+            .attr('x', textElement.attr('x'))
+            .attr('dy', hasTwoLines ? '-0.55em' : 0) // Shift up by half line height if two lines
+            .text(line1);
+    }
+    
+    if (line2) {
+        textElement.append('tspan')
+            .attr('x', textElement.attr('x'))
+            .attr('dy', '1.1em') // Move to next line
+            .text(line2);
+    }
+}
+
+function calculateMaxVisibleDepth(root) {
+    const totalNodes = root.descendants().length;
+    
+    // Progressive loading based on tree size
+    if (totalNodes > 1000) return 4;
+    if (totalNodes > 500) return 5;
+    if (totalNodes > 100) return 6;
+    return 8; // Show full depth for smaller trees
+}
+
+function filterTreeByDepth(root, maxDepth) {
+    // Clone the tree structure but limit depth
+    function cloneWithDepthLimit(node, currentDepth) {
+        const cloned = {
+            data: node.data,
+            depth: currentDepth,
+            children: []
+        };
+        
+        if (currentDepth < maxDepth && node.children) {
+            cloned.children = node.children.map(child => 
+                cloneWithDepthLimit(child, currentDepth + 1)
+            );
+        }
+        
+        return cloned;
+    }
+    
+    return d3.hierarchy(cloneWithDepthLimit(root, 0).data);
+}
+
+function handleNodeFocus(d) {
+    // Set focus to this node
+    focusedNode = d;
+    
+    // Update focus path for breadcrumb
+    updateFocusPath(d);
+    
+    // Recreate the dendrogram focused on this subtree
+    createDendrogram();
+    
+    // Reset zoom to fit the new focused tree
+    setTimeout(() => {
+        if (dendrogramSvg && dendrogramZoom) {
+            dendrogramSvg.transition().duration(500).call(
+                dendrogramZoom.transform,
+                d3.zoomIdentity.scale(1)
+            );
+        }
+    }, 100);
+}
+
+function updateFocusPath(focusNode) {
+    // Build the COMPLETE path from original root to focused node
+    focusPath = [];
+    
+    // We need to find the complete path in the original tree structure
+    const completePath = findCompletePathToNode(dendrogramData, focusNode.data.id);
+    
+    if (completePath) {
+        focusPath = completePath.map((nodeData, index) => ({
+            id: nodeData.id,
+            name: nodeData.name || nodeData.label || `Node ${nodeData.id}`,
+            nodeData: nodeData,
+            isRoot: index === 0
+        }));
+    } else {
+        // Fallback: just add the current focused node
+        focusPath = [{
+            id: focusNode.data.id,
+            name: focusNode.data.name,
+            nodeData: focusNode.data,
+            isRoot: false
+        }];
+    }
+    
+    // Always ensure we start with root
+    if (focusPath.length === 0 || focusPath[0].id !== dendrogramData.id) {
+        focusPath.unshift({
+            id: dendrogramData.id,
+            name: 'Root',
+            nodeData: dendrogramData,
+            isRoot: true
+        });
+    }
+}
+
+function findCompletePathToNode(rootData, targetNodeId, currentPath = []) {
+    // Add current node to path
+    const newPath = [...currentPath, rootData];
+    
+    // If this is our target, return the complete path
+    if (rootData.id === targetNodeId) {
+        return newPath;
+    }
+    
+    // Search in children
+    if (rootData.children) {
+        for (const child of rootData.children) {
+            const result = findCompletePathToNode(child, targetNodeId, newPath);
+            if (result) {
+                return result;
+            }
+        }
+    }
+    
+    // Not found in this branch
+    return null;
+}
+
+function updateBreadcrumb() {
+    const breadcrumbContainer = document.getElementById('breadcrumb-path');
+    const breadcrumbSection = document.getElementById('dendrogram-breadcrumb');
+    
+    if (focusPath.length <= 1) {
+        breadcrumbSection.style.display = 'none';
+        return;
+    }
+    
+    breadcrumbSection.style.display = 'block';
+    breadcrumbContainer.innerHTML = '';
+    
+    focusPath.forEach((item, index) => {
+        if (index > 0) {
+            const separator = document.createElement('span');
+            separator.className = 'breadcrumb-separator';
+            separator.textContent = '>';
+            breadcrumbContainer.appendChild(separator);
+        }
+        
+        const breadcrumbItem = document.createElement('span');
+        breadcrumbItem.className = 'breadcrumb-item';
+        breadcrumbItem.textContent = truncateText(item.name, 15);
+        breadcrumbItem.title = item.name;
+        
+        if (index < focusPath.length - 1) {
+            breadcrumbItem.addEventListener('click', () => {
+                if (item.isRoot) {
+                    // Return to root
+                    focusedNode = null;
+                    focusPath = [];
+                    createDendrogram();
+                } else {
+                    // Focus on this specific node by recreating its hierarchy node
+                    focusToNodeById(item.id);
+                }
+            });
+        } else {
+            // Current focused item - highlight it
+            breadcrumbItem.style.backgroundColor = '#007bff';
+            breadcrumbItem.style.color = 'white';
+        }
+        
+        breadcrumbContainer.appendChild(breadcrumbItem);
+    });
+}
+
+function focusToNodeById(nodeId) {
+    // Find the node in the original tree and focus on it
+    const nodeData = findNodeInTree(dendrogramData, nodeId);
+    if (nodeData) {
+        // Create a D3 hierarchy node for this data
+        const hierarchyNode = d3.hierarchy(nodeData);
+        handleNodeFocus(hierarchyNode);
+    }
+}
+
+function findNodeInTree(rootData, targetId) {
+    if (rootData.id === targetId) {
+        return rootData;
+    }
+    
+    if (rootData.children) {
+        for (const child of rootData.children) {
+            const result = findNodeInTree(child, targetId);
+            if (result) {
+                return result;
+            }
+        }
+    }
+    
+    return null;
+}
+
+function toggleNodeCollapse(d) {
+    const nodeId = d.data.id;
+    
+    if (collapsedNodes.has(nodeId)) {
+        collapsedNodes.delete(nodeId);
+    } else {
+        collapsedNodes.add(nodeId);
+    }
+    
+    // Recreate dendrogram with updated collapsed state
+    createDendrogram();
+}
+
+function returnToRoot() {
+    focusedNode = null;
+    focusPath = [];
+    collapsedNodes.clear();
+    createDendrogram();
+}
+
+function showDendrogramTooltip(event, d) {
+    const tooltip = document.getElementById('dendrogram-tooltip');
+    const content = document.getElementById('tooltip-content');
+    
+    let tooltipHtml = `
+        <div><strong>${d.data.name}</strong></div>
+        <div>Size: ${d.data.size} goals</div>
+    `;
+    
+    if (d.data.representativeText) {
+        tooltipHtml += `<div>Representative: ${d.data.representativeText}</div>`;
+    }
+    
+    if (d.data.goals && d.data.goals.length > 0) {
+        tooltipHtml += `<div>Direct goals: ${d.data.goals.length}</div>`;
+        if (d.data.goals.length <= 3) {
+            tooltipHtml += '<div><strong>Goals:</strong></div>';
+            d.data.goals.forEach(goal => {
+                tooltipHtml += `<div>• ${truncateText(goal, 60)}</div>`;
+            });
+        }
+    }
+    
+    // Add interaction hints
+    if (d.children) {
+        tooltipHtml += '<hr><div><small><strong>Click:</strong> Focus on this subtree</small></div>';
+        tooltipHtml += '<div><small><strong>Double-click:</strong> Collapse/expand</small></div>';
+    } else {
+        tooltipHtml += '<hr><div><small><strong>Click:</strong> Focus on this leaf</small></div>';
+    }
+    
+    content.innerHTML = tooltipHtml;
+    
+    // Position tooltip
+    const rect = document.getElementById('dendrogram-container').getBoundingClientRect();
+    tooltip.style.left = (event.clientX - rect.left + 10) + 'px';
+    tooltip.style.top = (event.clientY - rect.top - 10) + 'px';
+    tooltip.style.display = 'block';
+}
+
+function hideDendrogramTooltip() {
+    document.getElementById('dendrogram-tooltip').style.display = 'none';
+}
+
+// Event handlers for dendrogram controls
+$(document).ready(function() {
+
+    
+    // Layout change
+    $('#dendrogram-layout').on('change', function() {
+        currentLayout = $(this).val();
+        if (dendrogramData) {
+            createDendrogram();
+        }
+    });
+    
+    // Labels change
+    $('#dendrogram-labels').on('change', function() {
+        if (dendrogramData) {
+            createDendrogram();
+        }
+    });
+    
+    // Focus home
+    $('#dendrogram-focus-home').on('click', function() {
+        returnToRoot();
+    });
+    
+    // Reset view
+    $('#dendrogram-reset').on('click', function() {
+        if (dendrogramSvg && dendrogramZoom) {
+            dendrogramSvg.transition().duration(500).call(
+                dendrogramZoom.transform,
+                d3.zoomIdentity
+            );
+        }
+    });
+    
+    // Export SVG
+    $('#dendrogram-export').on('click', function() {
+        exportDendrogramSVG();
+    });
+});
+
+function exportDendrogramSVG() {
+    if (!dendrogramSvg) {
+        alert('No dendrogram to export');
+        return;
+    }
+    
+    // Clone the SVG
+    const svgElement = dendrogramSvg.node();
+    const svgClone = svgElement.cloneNode(true);
+    
+    // Add some basic styling to the exported SVG
+    const style = document.createElement('style');
+    style.textContent = `
+        .dendrogram-link { fill: none; stroke: #6c757d; stroke-width: 1.5px; }
+        .dendrogram-node circle { fill: #fff; stroke: #007bff; stroke-width: 2px; }
+        .dendrogram-node.leaf circle { fill: #28a745; stroke: #1e7e34; }
+        .dendrogram-text { font-family: Arial, sans-serif; font-size: 11px; fill: #495057; }
+        .dendrogram-text.cluster-label { font-weight: 600; fill: #007bff; }
+        .dendrogram-text.representative-text { font-size: 10px; fill: #6c757d; font-style: italic; }
+    `;
+    svgClone.insertBefore(style, svgClone.firstChild);
+    
+    // Convert to blob and download
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+    const blob = new Blob([svgData], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `dendrogram-${currentArtifact.name || 'tree'}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    URL.revokeObjectURL(url);
 }
 
 </script>
