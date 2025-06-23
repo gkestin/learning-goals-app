@@ -3170,6 +3170,57 @@ def get_document_url(document_id):
         print(f"Error generating document URL: {e}")
         return jsonify({'error': str(e)}), 500
 
+@main.route('/api/find-document-by-name')
+def api_find_document_by_name():
+    """Find a document by name for modal display"""
+    document_name = request.args.get('name', '')
+    creator = request.args.get('creator', '')  # Optional for better matching
+    
+    if not document_name:
+        return jsonify({'error': 'Document name is required'}), 400
+    
+    print(f"Looking for document: {document_name}")
+    if creator:
+        print(f"With creator: {creator}")
+    
+    # Search all documents to find one with matching name
+    all_documents = search_documents()
+    
+    matching_doc = None
+    for doc in all_documents:
+        # Try exact match first
+        if doc.name == document_name:
+            # If creator is provided, prefer exact creator match
+            if not creator or doc.creator == creator:
+                matching_doc = doc
+                break
+        # Fallback: try original filename match
+        elif hasattr(doc, 'original_filename') and doc.original_filename == document_name:
+            if not creator or doc.creator == creator:
+                matching_doc = doc
+                if doc.creator == creator:  # Exact creator match
+                    break
+    
+    if not matching_doc:
+        return jsonify({'error': 'Document not found'}), 404
+    
+    print(f"Found document: {matching_doc.name} by {matching_doc.creator}")
+    
+    # Return document data (similar to view page but just the data)
+    return jsonify({
+        'id': matching_doc.id,
+        'name': matching_doc.name,
+        'original_filename': matching_doc.original_filename,
+        'creator': matching_doc.creator,
+        'course_name': matching_doc.course_name,
+        'institution': matching_doc.institution,
+        'doc_type': matching_doc.doc_type,
+        'notes': matching_doc.notes,
+        'learning_goals': matching_doc.learning_goals,
+        'created_at': str(matching_doc.created_at) if matching_doc.created_at else None,
+        'lo_extraction_prompt': getattr(matching_doc, 'lo_extraction_prompt', None)
+    })
+
 @main.route('/fix-storage-paths')
 def fix_storage_paths():
     """Debug and fix storage path issues for all documents"""

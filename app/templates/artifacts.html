@@ -250,6 +250,18 @@
         font-style: italic;
     }
     
+    .document-link {
+        color: #007bff;
+        cursor: pointer;
+        text-decoration: none;
+        transition: color 0.2s ease;
+    }
+    
+    .document-link:hover {
+        color: #0056b3;
+        text-decoration: underline;
+    }
+    
     .clustering-stats {
         background-color: #e3f2fd;
         border: 1px solid #90caf9;
@@ -2101,7 +2113,7 @@ function buildTreeNode(node, level = 0) {
                             <div class="flex-grow-1">
                                 <div class="goal-text">"${goal}"</div>
                                                         <div class="goal-source">
-                            📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                            📄 <span class="document-link" onclick="openDocumentModal('${source.document_name || 'Unknown'}', '${source.creator || 'Unknown'}')" title="Click to view document">${truncateText(source.document_name || 'Unknown', 25)}</span> | 
                             👤 ${truncateText(source.creator || 'Unknown', 15)}
                             ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
                             ${source.institution ? ` | 🏛️ ${truncateText(source.institution, 20)}` : ''}
@@ -2936,7 +2948,7 @@ function buildFlattenedGoalsAsync(clusterData, contentElem, doneCallback) {
         for (; i < end; i++) {
             const goalData = goals[i];
             const { goal, source, sourceNodeId, originalIndex } = goalData;
-            html += `<div class=\"goal-item\" data-goal-index=\"${i}\"><div class=\"d-flex justify-content-between align-items-start\"><div class=\"flex-grow-1\"><div class=\"goal-text\">\"${goal}\"</div><div class=\"goal-source\">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div></div><div class=\"goal-actions\"><button class=\"goal-move-btn\" onclick=\"openMoveModal('${sourceNodeId}','goal',${originalIndex})\" title=\"Move this learning goal\">↔</button><button class=\"goal-delete-btn\" onclick=\"deleteGoal('${sourceNodeId}',${originalIndex})\" title=\"Delete this learning goal\">🗑</button></div></div></div>`;
+            html += `<div class=\"goal-item\" data-goal-index=\"${i}\"><div class=\"d-flex justify-content-between align-items-start\"><div class=\"flex-grow-1\"><div class=\"goal-text\">\"${goal}\"</div><div class=\"goal-source\">📄 <span class=\"document-link\" onclick=\"openDocumentModal('${source.document_name || 'Unknown'}', '${source.creator || 'Unknown'}')\" title=\"Click to view document\">${truncateText(source.document_name || 'Unknown',25)}</span> | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div></div><div class=\"goal-actions\"><button class=\"goal-move-btn\" onclick=\"openMoveModal('${sourceNodeId}','goal',${originalIndex})\" title=\"Move this learning goal\">↔</button><button class=\"goal-delete-btn\" onclick=\"deleteGoal('${sourceNodeId}',${originalIndex})\" title=\"Delete this learning goal\">🗑</button></div></div></div>`;
         }
         if (i < goals.length) {
             requestAnimationFrame(processChunk);
@@ -3948,7 +3960,7 @@ function buildClusterContent(node, level) {
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
                             <div class="goal-text">"${goal}"</div>
-                            <div class="goal-source">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div>
+                            <div class="goal-source">📄 <span class="document-link" onclick="openDocumentModal('${source.document_name || 'Unknown'}', '${source.creator || 'Unknown'}')" title="Click to view document">${truncateText(source.document_name || 'Unknown',25)}</span> | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div>
                         </div>
                         <div class="goal-actions">
                             <button class="goal-move-btn" onclick="openMoveModal('${node.id}','goal',${idx})" title="Move this learning goal">↔</button>
@@ -4106,7 +4118,7 @@ function searchFlattenedView(term) {
                 let goalsHtml = '';
                 clusterData.goalsWithSource.forEach((goalData, goalIndex) => {
                     const { goal, source, sourceNodeId, originalIndex } = goalData;
-                    goalsHtml += `<div class="goal-item" data-goal-index="${goalIndex}"><div class="d-flex justify-content-between align-items-start"><div class="flex-grow-1"><div class="goal-text">"${goal}"</div><div class="goal-source">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name ? ` | 📚 ${truncateText(source.course_name,20)}` : ''}${source.institution ? ` | 🏛️ ${truncateText(source.institution,20)}` : ''}</div></div><div class="goal-actions"><button class="goal-move-btn" onclick="openMoveModal('${sourceNodeId}','goal',${originalIndex})" title="Move this learning goal">↔</button><button class="goal-delete-btn" onclick="deleteGoal('${sourceNodeId}',${originalIndex})" title="Delete this learning goal">🗑</button></div></div></div>`;
+                    goalsHtml += `<div class="goal-item" data-goal-index="${goalIndex}"><div class="d-flex justify-content-between align-items-start"><div class="flex-grow-1"><div class="goal-text">"${goal}"</div><div class="goal-source">📄 <span class="document-link" onclick="openDocumentModal('${source.document_name || 'Unknown'}', '${source.creator || 'Unknown'}')" title="Click to view document">${truncateText(source.document_name || 'Unknown',25)}</span> | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name ? ` | 📚 ${truncateText(source.course_name,20)}` : ''}${source.institution ? ` | 🏛️ ${truncateText(source.institution,20)}` : ''}</div></div><div class="goal-actions"><button class="goal-move-btn" onclick="openMoveModal('${sourceNodeId}','goal',${originalIndex})" title="Move this learning goal">↔</button><button class="goal-delete-btn" onclick="deleteGoal('${sourceNodeId}',${originalIndex})" title="Delete this learning goal">🗑</button></div></div></div>`;
                 });
                 $content.html(goalsHtml);
                 $content.attr('data-loaded', 'true');
@@ -4219,7 +4231,7 @@ function buildFullClusterContent(node, level) {
                     <div class="d-flex justify-content-between align-items-start">
                         <div class="flex-grow-1">
                             <div class="goal-text">"${goal}"</div>
-                            <div class="goal-source">📄 ${truncateText(source.document_name || 'Unknown',25)} | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div>
+                            <div class="goal-source">📄 <span class="document-link" onclick="openDocumentModal('${source.document_name || 'Unknown'}', '${source.creator || 'Unknown'}')" title="Click to view document">${truncateText(source.document_name || 'Unknown',25)}</span> | 👤 ${truncateText(source.creator || 'Unknown',15)}${source.course_name?` | 📚 ${truncateText(source.course_name,20)}`:''}${source.institution?` | 🏛️ ${truncateText(source.institution,20)}`:''}</div>
                         </div>
                         <div class="goal-actions">
                             <button class="goal-move-btn" onclick="openMoveModal('${node.id}','goal',${idx})" title="Move this learning goal">↔</button>
@@ -4290,7 +4302,7 @@ function buildFullTreeNode(node, level = 0) {
                             <div class="flex-grow-1">
                                 <div class="goal-text">"${goal}"</div>
                                 <div class="goal-source">
-                                    📄 ${truncateText(source.document_name || 'Unknown', 25)} | 
+                                    📄 <span class="document-link" onclick="openDocumentModal('${source.document_name || 'Unknown'}', '${source.creator || 'Unknown'}')" title="Click to view document">${truncateText(source.document_name || 'Unknown', 25)}</span> | 
                                     👤 ${truncateText(source.creator || 'Unknown', 15)}
                                     ${source.course_name ? ` | 📚 ${truncateText(source.course_name, 20)}` : ''}
                                     ${source.institution ? ` | 🏛️ ${truncateText(source.institution, 20)}` : ''}
@@ -5152,5 +5164,203 @@ function exportDendrogramSVG() {
     URL.revokeObjectURL(url);
 }
 
+// Document Modal Functions
+function openDocumentModal(documentName, creator) {
+    // Remove quotes and clean up the document name and creator
+    const cleanDocumentName = documentName.replace(/['"]/g, '');
+    const cleanCreator = creator.replace(/['"]/g, '');
+    
+    console.log('Opening modal for document:', cleanDocumentName, 'by', cleanCreator);
+    
+    // Show loading state
+    $('#documentModalLabel').text('Loading Document...');
+    $('#documentModalBody').html(`
+        <div class="text-center p-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading document details...</p>
+        </div>
+    `);
+    
+    // Show the modal
+    $('#documentModal').modal('show');
+    
+    // Make API call to find the document
+    $.ajax({
+        url: '/api/find-document-by-name',
+        method: 'GET',
+        data: {
+            name: cleanDocumentName,
+            creator: cleanCreator
+        },
+        success: function(document) {
+            displayDocumentInModal(document);
+        },
+        error: function(xhr) {
+            let errorMessage = 'Unable to load document';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            }
+            $('#documentModalBody').html(`
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> ${errorMessage}
+                </div>
+            `);
+        }
+    });
+}
+
+function displayDocumentInModal(document) {
+    $('#documentModalLabel').text(`Document: ${document.name}`);
+    
+    // Build the modal content similar to the view page
+    let modalContent = `
+        <div class="document-metadata mb-4">
+            <div class="row mb-2">
+                <div class="col-md-4">
+                    <strong>Original Filename:</strong>
+                    <p class="mb-1">${document.original_filename || 'N/A'}</p>
+                </div>
+                <div class="col-md-4">
+                    <strong>Creator:</strong>
+                    <p class="mb-1">${document.creator || 'N/A'}</p>
+                </div>
+                <div class="col-md-4">
+                    <strong>Course:</strong>
+                    <p class="mb-1">${document.course_name || 'N/A'}</p>
+                </div>
+            </div>
+            <div class="row mb-2">
+                <div class="col-md-4">
+                    <strong>Institution:</strong>
+                    <p class="mb-1">${document.institution || 'N/A'}</p>
+                </div>
+                <div class="col-md-4">
+                    <strong>Document Type:</strong>
+                    <p class="mb-1">${document.doc_type || 'N/A'}</p>
+                </div>
+                <div class="col-md-4">
+                    <strong>Upload Date:</strong>
+                    <p class="mb-1">${document.created_at || 'N/A'}</p>
+                </div>
+            </div>`;
+    
+    if (document.notes) {
+        modalContent += `
+            <div class="row">
+                <div class="col-md-12">
+                    <strong>Notes:</strong>
+                    <div class="notes-box bg-light p-3 border-start border-secondary border-4 rounded">
+                        <p class="mb-0">${document.notes}</p>
+                    </div>
+                </div>
+            </div>`;
+    }
+    
+    modalContent += `</div>`;
+    
+    // Add learning goals section
+    modalContent += `
+        <h5 class="mb-3">Learning Goals:</h5>
+        <div class="learning-goals-container mb-4">`;
+    
+    if (document.learning_goals && document.learning_goals.length > 0) {
+        modalContent += `
+            <div class="learning-goals-list" style="max-height: 200px; overflow-y: auto;">
+                <ul class="list-group list-group-flush">`;
+        
+        document.learning_goals.forEach(goal => {
+            modalContent += `<li class="list-group-item">${goal}</li>`;
+        });
+        
+        modalContent += `
+                </ul>
+            </div>`;
+    } else {
+        modalContent += `<p class="text-muted">No learning goals available for this document.</p>`;
+    }
+    
+    modalContent += `</div>`;
+    
+    // Add document preview section
+    modalContent += `
+        <h5 class="mb-3">Document Preview:</h5>
+        <div class="pdf-container">
+            <div id="modal-pdf-loading" class="text-center p-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading document...</span>
+                </div>
+                <p class="mt-2">Loading document preview...</p>
+            </div>
+            <iframe id="modal-pdf-iframe" style="width: 100%; height: 400px; border: 1px solid #ddd; border-radius: 4px; display: none;"></iframe>
+            <div id="modal-pdf-error" class="alert alert-danger" style="display: none;">
+                <i class="bi bi-exclamation-triangle"></i> 
+                <span id="modal-error-message">Unable to load document preview.</span>
+            </div>
+        </div>`;
+    
+    $('#documentModalBody').html(modalContent);
+    
+    // Load the document preview
+    loadDocumentPreviewInModal(document.id);
+}
+
+function loadDocumentPreviewInModal(documentId) {
+    $.ajax({
+        url: `/document-url/${documentId}`,
+        method: 'GET',
+        success: function(response) {
+            if (response.url) {
+                // Hide loading spinner
+                $('#modal-pdf-loading').hide();
+                
+                // Set iframe source and show it
+                $('#modal-pdf-iframe').attr('src', response.url).show();
+                
+                // Show correction message if path was corrected
+                if (response.corrected) {
+                    console.log('Document storage path was automatically corrected');
+                }
+            } else {
+                showModalPdfError('Invalid response from server');
+            }
+        },
+        error: function(xhr) {
+            let errorMessage = 'Unable to load document preview';
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            }
+            showModalPdfError(errorMessage);
+        }
+    });
+}
+
+function showModalPdfError(message) {
+    $('#modal-pdf-loading').hide();
+    $('#modal-pdf-iframe').hide();
+    $('#modal-error-message').text(message);
+    $('#modal-pdf-error').show();
+}
+
 </script>
+
+<!-- Document Modal -->
+<div class="modal fade" id="documentModal" tabindex="-1" aria-labelledby="documentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="documentModalLabel">Document</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="documentModalBody">
+                <!-- Content will be dynamically loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
