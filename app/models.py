@@ -71,8 +71,14 @@ class Document:
         for category_name, category_data in self.learning_goals_by_prompt.items():
             if include_categories and category_name not in include_categories:
                 continue
+            
+            # Handle both old (list) and new (dict) structures
+            if isinstance(category_data, dict):
+                goals = category_data.get('goals', [])
+            else:
+                # Legacy data: category_data is just a list of goals
+                goals = category_data if isinstance(category_data, list) else []
                 
-            goals = category_data.get('goals', [])
             if exclude_none:
                 goals = [goal for goal in goals if goal.strip().upper() != "NONE"]
             

@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}Archived Prompts - Learning Goals Extractor{% endblock %}
+
+{% block extra_css %}
+<style>
+    .archived-item {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-left: 4px solid #6c757d;
+    }
+    
+    .archived-item.recent {
+        border-left-color: #ffc107;
+    }
+    
+    .archived-metadata {
+        font-size: 0.85em;
+        color: #6c757d;
+        margin-bottom: 10px;
+    }
+    
+    .goal-text {
+        background-color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        margin: 5px 0;
+        border-left: 3px solid #007bff;
+        font-size: 0.9rem;
+    }
+    
+    .no-archives {
+        text-align: center;
+        padding: 60px 20px;
+        color: #6c757d;
+    }
+    
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <h2 class="card-title h4 mb-0">
+                        <i class="bi bi-archive"></i> Archived Learning Goals & Prompts
+                    </h2>
+                    <small>Goals and prompts that were deleted from the system (archived for reference)</small>
+                </div>
+                
+                <div class="card-body">
+                    <!-- Stats Summary -->
+                    <div class="stats-card" id="stats-summary" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-4 text-center">
+                                <h3 class="mb-0" id="total-archived">-</h3>
+                                <small>Total Archived Items</small>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <h3 class="mb-0" id="unique-prompts">-</h3>
+                                <small>Unique Prompts</small>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <h3 class="mb-0" id="total-goals">-</h3>
+                                <small>Total Goals Archived</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Controls -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <button type="button" class="btn btn-primary" id="load-archives-btn">
+                                <i class="bi bi-arrow-clockwise"></i> Load Archived Items
+                            </button>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <div class="form-check form-switch d-inline-block me-3">
+                                <input class="form-check-input" type="checkbox" id="show-recent-only">
+                                <label class="form-check-label" for="show-recent-only">
+                                    Recent only (last 30 days)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Loading State -->
+                    <div id="loading-state" class="text-center" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading archived items...</p>
+                    </div>
+                    
+                    <!-- No Archives State -->
+                    <div id="no-archives" class="no-archives">
+                        <i class="bi bi-archive display-1 text-muted"></i>
+                        <h4>No Archived Items</h4>
+                        <p class="text-muted">No learning goals or prompts have been archived yet.</p>
+                        <small class="text-muted">Deleted prompts and goals will appear here for reference.</small>
+                    </div>
+                    
+                    <!-- Archived Items Container -->
+                    <div id="archived-items-container">
+                        <!-- Items will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    let archivedItems = [];
+    
+    // Event handlers
+    $('#load-archives-btn').click(loadArchivedItems);
+    $('#show-recent-only').change(filterAndDisplayItems);
+    
+    // Auto-load on page load
+    loadArchivedItems();
+    
+    function loadArchivedItems() {
+        $('#loading-state').show();
+        $('#no-archives').hide();
+        $('#archived-items-container').empty();
+        $('#stats-summary').hide();
+        
+        const loadBtn = $('#load-archives-btn');
+        loadBtn.prop('disabled', true).html('<i class="bi bi-spinner-border spinner-border-sm"></i> Loading...');
+        
+        $.ajax({
+            url: '/api/get-archived-prompts',
+            method: 'GET',
+            data: { limit: 200 }
+        })
+        .done(function(response) {
+            if (response.success) {
+                archivedItems = response.archived_prompts || [];
+                filterAndDisplayItems();
+                updateStats();
+            } else {
+                showError('Failed to load archived items: ' + response.message);
+            }
+        })
+        .fail(function() {
+            showError('Error loading archived items');
+        })
+        .always(function() {
+            $('#loading-state').hide();
+            loadBtn.prop('disabled', false).html('<i class="bi bi-arrow-clockwise"></i> Load Archived Items');
+        });
+    }
+    
+    function filterAndDisplayItems() {
+        const showRecentOnly = $('#show-recent-only').is(':checked');
+        let itemsToShow = archivedItems;
+        
+        if (showRecentOnly) {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            itemsToShow = archivedItems.filter(item => {
+                const archivedDate = new Date(item.deleted_at || item.archived_at);
+                return archivedDate >= thirtyDaysAgo;
+            });
+        }
+        
+        displayArchivedItems(itemsToShow);
+    }
+    
+    function displayArchivedItems(items) {
+        const container = $('#archived-items-container');
+        container.empty();
+        
+        if (items.length === 0) {
+            $('#no-archives').show();
+            $('#stats-summary').hide();
+            return;
+        }
+        
+        $('#no-archives').hide();
+        $('#stats-summary').show();
+        
+        // Group items by prompt and document for better display
+        const groupedItems = {};
+        
+        items.forEach(item => {
+            const key = `${item.prompt_title || 'Unknown'}_${item.document_name || 'Unknown'}`;
+            if (!groupedItems[key]) {
+                groupedItems[key] = {
+                    prompt_title: item.prompt_title || 'Unknown Prompt',
+                    document_name: item.document_name || 'Unknown Document',
+                    document_id: item.document_id,
+                    creator: item.creator,
+                    course_name: item.course_name,
+                    deleted_at: item.deleted_at || item.archived_at,
+                    goals: [],
+                    category_data: item.category_data
+                };
+            }
+            
+            if (item.goal_text) {
+                groupedItems[key].goals.push(item.goal_text);
+            }
+        });
+        
+        // Sort by deletion date (newest first)
+        const sortedGroups = Object.values(groupedItems).sort((a, b) => {
+            return new Date(b.deleted_at) - new Date(a.deleted_at);
+        });
+        
+        sortedGroups.forEach(group => {
+            const isRecent = isRecentlyDeleted(group.deleted_at);
+            const archivedHtml = buildArchivedItemHtml(group, isRecent);
+            container.append(archivedHtml);
+        });
+    }
+    
+    function buildArchivedItemHtml(group, isRecent) {
+        const deletedDate = new Date(group.deleted_at).toLocaleString();
+        const recentClass = isRecent ? 'recent' : '';
+        
+        const goalsHtml = group.goals.map(goal => 
+            `<div class="goal-text">"${goal}"</div>`
+        ).join('');
+        
+        const promptInfo = group.category_data ? `
+            <div class="mt-2">
+                <small class="text-muted">
+                    <strong>Prompt Details:</strong><br>
+                    <strong>System:</strong> ${truncateText(group.category_data.system_prompt || 'N/A', 100)}<br>
+                    <strong>User:</strong> ${group.category_data.user_prompt || 'N/A'}
+                </small>
+            </div>
+        ` : '';
+        
+        return `
+            <div class="archived-item ${recentClass}">
+                <div class="archived-metadata">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <strong>Prompt:</strong> ${group.prompt_title}<br>
+                            <strong>Document:</strong> ${group.document_name}<br>
+                            <strong>Creator:</strong> ${group.creator || 'Unknown'} 
+                            ${group.course_name ? `| <strong>Course:</strong> ${group.course_name}` : ''}
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <small class="text-muted">
+                                <i class="bi bi-calendar"></i> Deleted: ${deletedDate}
+                                ${isRecent ? '<span class="badge bg-warning text-dark ms-1">Recent</span>' : ''}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="goals-section">
+                    <strong>Archived Goals (${group.goals.length}):</strong>
+                    <div class="mt-2">
+                        ${goalsHtml}
+                    </div>
+                </div>
+                
+                ${promptInfo}
+            </div>
+        `;
+    }
+    
+    function updateStats() {
+        const totalItems = archivedItems.length;
+        const uniquePrompts = new Set(archivedItems.map(item => item.prompt_title)).size;
+        const totalGoals = archivedItems.filter(item => item.goal_text).length;
+        
+        $('#total-archived').text(totalItems);
+        $('#unique-prompts').text(uniquePrompts);
+        $('#total-goals').text(totalGoals);
+    }
+    
+    function isRecentlyDeleted(deletedAt) {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        return new Date(deletedAt) >= sevenDaysAgo;
+    }
+    
+    function truncateText(text, maxLength) {
+        if (!text || text.length <= maxLength) return text || '';
+        return text.substring(0, maxLength) + '...';
+    }
+    
+    function showError(message) {
+        const errorHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle"></i> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        $('.card-body').prepend(errorHtml);
+        
+        setTimeout(() => {
+            $('.alert-danger').fadeOut();
+        }, 8000);
+    }
+});
+</script>
+{% endblock %} 

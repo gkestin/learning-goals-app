@@ -327,7 +327,7 @@
                         </div>
                         <div class="col-md-3">
                             <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#categorySelectionModal">
-                                <i class="bi bi-funnel"></i> Select Categories
+                                <i class="bi bi-funnel"></i> Select Categories/Prompts
                             </button>
                         </div>
                     </div>
@@ -1313,15 +1313,16 @@ function showTemporaryMessage(message, type) {
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="categorySelectionModalLabel">
-                    <i class="bi bi-funnel"></i> Select Learning Goal Categories
+                    <i class="bi bi-funnel"></i> Select Learning Goal Categories (Prompts)
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">
                     <p class="text-muted">
-                        Choose which learning goal categories to include in clustering. 
+                        Choose which learning goal categories (prompts) to include in clustering. 
                         Only goals from selected categories will be used for analysis.
+                        Categories marked as "Saved" are reusable prompts, while "Used" indicates prompts found in the database.
                     </p>
                 </div>
                 
@@ -1367,15 +1368,16 @@ function loadAvailableCategories() {
         </div>
     `);
     
-    $.get('/api/get-available-categories')
+    $.get('/api/get-all-prompts')
         .done(function(response) {
-            if (response.success && response.categories) {
-                availableCategories = response.categories;
+            if (response.success && response.prompts) {
+                // Extract just the titles for categories, but keep the full prompt info for status display
+                availableCategories = response.prompts.map(prompt => prompt.title);
                 if (selectedCategories.length === 0) {
                     // First time - select all by default
                     selectedCategories = [...availableCategories];
                 }
-                renderCategoryList();
+                renderCategoryList(response.prompts);
             } else {
                 $('#category-list').html('<div class="text-muted">No categories found</div>');
             }
@@ -1385,7 +1387,7 @@ function loadAvailableCategories() {
         });
 }
 
-function renderCategoryList() {
+function renderCategoryList(allPrompts = null) {
     if (availableCategories.length === 0) {
         $('#category-list').html('<div class="text-muted">No categories available</div>');
         return;
@@ -1396,12 +1398,24 @@ function renderCategoryList() {
         const isSelected = selectedCategories.includes(category);
         const categoryId = `category-${category.replace(/\s+/g, '-').toLowerCase()}`;
         
+        // Find the full prompt data to show status
+        let statusText = '';
+        if (allPrompts) {
+            const promptData = allPrompts.find(p => p.title === category);
+            if (promptData) {
+                const status = [];
+                if (promptData.is_saved) status.push('Saved');
+                if (promptData.is_used) status.push('Used');
+                statusText = status.length > 0 ? ` <small class="text-muted">(${status.join(', ')})</small>` : '';
+            }
+        }
+        
         html += `
             <div class="form-check mb-2">
                 <input class="form-check-input category-checkbox" type="checkbox" 
                        id="${categoryId}" value="${category}" ${isSelected ? 'checked' : ''}>
                 <label class="form-check-label" for="${categoryId}">
-                    ${category}
+                    ${category}${statusText}
                 </label>
             </div>
         `;

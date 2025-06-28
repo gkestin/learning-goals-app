@@ -393,6 +393,76 @@
                         </button>
                     </div>
 
+                    <!-- Prompt Deletion Section (Subtle/Collapsed by default) -->
+                    <div class="mt-4">
+                        <div class="text-center">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#prompt-deletion-section" aria-expanded="false" aria-controls="prompt-deletion-section">
+                                <i class="bi bi-trash3"></i> Advanced: Delete Learning Goals by Prompt
+                            </button>
+                        </div>
+                        
+                        <div class="collapse mt-3" id="prompt-deletion-section">
+                            <div class="card border-warning">
+                                <div class="card-header bg-warning text-dark">
+                                    <h6 class="mb-0">
+                                        <i class="bi bi-exclamation-triangle"></i> Delete Learning Goals by Prompt
+                                    </h6>
+                                    <small>Remove learning goals for specific prompts from selected files. Deleted goals will be archived.</small>
+                                    <div class="mt-2">
+                                        <a href="/archived-prompts" target="_blank" class="btn btn-sm btn-outline-secondary">
+                                            <i class="bi bi-archive"></i> View Archived Items
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label for="deletion-prompt-select" class="form-label">Select Prompt to Delete:</label>
+                                            <select id="deletion-prompt-select" class="form-select">
+                                                <option value="">Choose a prompt...</option>
+                                            </select>
+                                            <div class="form-text">
+                                                <small class="text-muted">Shows all prompts used in the database (saved and non-saved)</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Files with this prompt:</label>
+                                            <div id="prompt-files-container" class="border rounded p-2" style="max-height: 200px; overflow-y: auto; min-height: 100px;">
+                                                <div class="text-muted text-center">
+                                                    <small>Select a prompt to see files</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-3" id="deletion-actions" style="display: none;">
+                                        <div class="row">
+                                            <div class="col-md-8">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="delete-prompt-if-empty">
+                                                    <label class="form-check-label" for="delete-prompt-if-empty" id="delete-prompt-checkbox-label">
+                                                        Also delete the prompt itself if no files use it (or if it's unused)
+                                                    </label>
+                                                    <div id="delete-prompt-help" class="form-text" style="display: none;">
+                                                        Select all files to enable prompt deletion
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4 text-end">
+                                                <button type="button" class="btn btn-outline-primary btn-sm me-2" id="select-all-files-btn">
+                                                    <i class="bi bi-check-square"></i> Select All
+                                                </button>
+                                                <button type="button" class="btn btn-danger" id="delete-prompt-goals-btn" disabled>
+                                                    <i class="bi bi-trash3"></i> Delete Selected
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Progress Section -->
                     <div class="progress-section" id="progress-section">
                         <h5 class="mb-3">
@@ -461,10 +531,13 @@ $(document).ready(function() {
     let documents = [];
     let selectedDocuments = new Set();
     let savedPrompts = [];
+    let allPrompts = [];
+    let selectedFilesForDeletion = new Set();
     
     // Load documents and saved prompts
     loadDocuments();
     loadSavedPrompts();
+    loadAllPrompts();
     
     // Initialize save prompt checkbox state
     $('#save-prompt').prop('checked', true).prop('disabled', false);
@@ -481,6 +554,11 @@ $(document).ready(function() {
     $('#confirm-save-btn').click(confirmAndSaveResults);
     $('#go-back-btn').click(goBackToForm);
     $('#cancel-extraction-btn').click(cancelExtraction);
+    
+    // Prompt deletion functionality
+    $('#deletion-prompt-select').change(onDeletionPromptChange);
+    $('#select-all-files-btn').click(selectAllFilesForDeletion);
+    $('#delete-prompt-goals-btn').click(deletePromptGoals);
     
     // Validation and prompt modification handling
     $('#category-title, #system-prompt').on('input', validateForm);
@@ -1354,6 +1432,330 @@ $(document).ready(function() {
         }, 8000);
     }
     
+    // =====================================
+    // PROMPT DELETION FUNCTIONALITY
+    // =====================================
+    
+    function loadAllPrompts() {
+        $.ajax({
+            url: '/api/get-all-prompts',
+            method: 'GET'
+        })
+        .done(function(response) {
+            if (response.success && response.prompts) {
+                allPrompts = response.prompts;
+                populateAllPromptsDropdown();
+            } else {
+                console.log('Failed to load all prompts:', response.message);
+            }
+        })
+        .fail(function() {
+            console.log('Error loading all prompts');
+        });
+    }
+    
+    function populateAllPromptsDropdown() {
+        const select = $('#deletion-prompt-select');
+        select.empty().append('<option value="">Choose a prompt...</option>');
+        
+        allPrompts.forEach((prompt) => {
+            const status = [];
+            if (prompt.is_saved) status.push('Saved');
+            if (prompt.is_used) status.push('Used');
+            
+            const statusText = status.length > 0 ? ` (${status.join(', ')})` : '';
+            
+            select.append(`<option value="${prompt.title}">${prompt.title}${statusText}</option>`);
+        });
+    }
+    
+    function onDeletionPromptChange() {
+        const selectedPrompt = $('#deletion-prompt-select').val();
+        
+        if (!selectedPrompt) {
+            $('#prompt-files-container').html('<div class="text-muted text-center"><small>Select a prompt to see files</small></div>');
+            $('#deletion-actions').hide();
+            // Reset checkbox state
+            $('#delete-prompt-if-empty').prop('disabled', true).prop('checked', false);
+            $('#delete-prompt-checkbox-label').addClass('text-muted');
+            $('#delete-prompt-help').hide();
+            return;
+        }
+        
+        // Load files for this prompt
+        loadFilesForPrompt(selectedPrompt);
+    }
+    
+    function loadFilesForPrompt(promptTitle) {
+        $('#prompt-files-container').html('<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div> Loading files...</div>');
+        
+        $.ajax({
+            url: `/api/get-files-by-prompt/${encodeURIComponent(promptTitle)}`,
+            method: 'GET'
+        })
+        .done(function(response) {
+            if (response.success) {
+                displayFilesForDeletion(response.files, promptTitle);
+                // Show deletion actions if there are files OR if it's a saved prompt (even with no files)
+                const selectedPromptData = allPrompts.find(p => p.title === promptTitle);
+                const isUnusedSavedPrompt = selectedPromptData && selectedPromptData.is_saved && response.files.length === 0;
+                
+                if (response.files.length > 0 || isUnusedSavedPrompt) {
+                    $('#deletion-actions').show();
+                } else {
+                    $('#deletion-actions').hide();
+                }
+            } else {
+                $('#prompt-files-container').html(`<div class="text-danger text-center"><small>Error: ${response.message}</small></div>`);
+                $('#deletion-actions').hide();
+            }
+        })
+        .fail(function() {
+            $('#prompt-files-container').html('<div class="text-danger text-center"><small>Error loading files</small></div>');
+            $('#deletion-actions').hide();
+        });
+    }
+    
+    function displayFilesForDeletion(files, promptTitle) {
+        selectedFilesForDeletion.clear();
+        
+        if (files.length === 0) {
+            // Check if this is a saved prompt with no files
+            const selectedPromptData = allPrompts.find(p => p.title === promptTitle);
+            const isUnusedSavedPrompt = selectedPromptData && selectedPromptData.is_saved;
+            
+            if (isUnusedSavedPrompt) {
+                $('#prompt-files-container').html(`
+                    <div class="alert alert-info text-center">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>No files found with this prompt</strong><br>
+                        <small>This is a saved prompt that is not currently used in any documents. You can delete the prompt itself if desired.</small>
+                    </div>
+                `);
+                // Enable deletion for unused saved prompts
+                $('#delete-prompt-goals-btn').prop('disabled', false);
+                $('#delete-prompt-goals-btn').html('<i class="bi bi-trash3"></i> Delete Prompt');
+                // Enable the checkbox for unused prompts
+                $('#delete-prompt-if-empty').prop('disabled', false).prop('checked', true);
+                $('#delete-prompt-checkbox-label').removeClass('text-muted');
+                $('#delete-prompt-help').hide();
+            } else {
+                $('#prompt-files-container').html('<div class="text-muted text-center"><small>No files found with this prompt</small></div>');
+                $('#delete-prompt-goals-btn').prop('disabled', true);
+                $('#delete-prompt-goals-btn').html('<i class="bi bi-trash3"></i> Delete Selected');
+                // Disable the checkbox since there's nothing to delete
+                $('#delete-prompt-if-empty').prop('disabled', true).prop('checked', false);
+                $('#delete-prompt-checkbox-label').addClass('text-muted');
+                $('#delete-prompt-help').hide();
+            }
+            return;
+        }
+        
+        // Files found - show normal file selection interface
+        $('#delete-prompt-goals-btn').html('<i class="bi bi-trash3"></i> Delete Selected');
+        $('#delete-prompt-goals-btn').prop('disabled', true);
+        // Initially disable the checkbox - will be enabled only if all files are selected
+        $('#delete-prompt-if-empty').prop('disabled', true).prop('checked', false);
+        $('#delete-prompt-checkbox-label').addClass('text-muted');
+        $('#delete-prompt-help').show().text('Select all files to enable prompt deletion');
+        
+        let html = '';
+        files.forEach((file) => {
+            html += `
+                <div class="form-check mb-2">
+                    <input class="form-check-input file-deletion-checkbox" type="checkbox" 
+                           id="file-${file.id}" value="${file.id}" 
+                           data-file-name="${file.name}" data-goals-count="${file.goals_count}">
+                    <label class="form-check-label" for="file-${file.id}">
+                        <strong>${file.name}</strong><br>
+                        <small class="text-muted">
+                            📄 ${file.original_filename} | 👤 ${file.creator || 'Unknown'}
+                            ${file.course_name ? ` | 📚 ${file.course_name}` : ''}
+                            | 🎯 ${file.goals_count} goals
+                        </small>
+                    </label>
+                </div>
+            `;
+        });
+        
+        $('#prompt-files-container').html(html);
+        
+        // Add event listeners for checkboxes
+        $('.file-deletion-checkbox').change(function() {
+            const fileId = $(this).val();
+            if ($(this).is(':checked')) {
+                selectedFilesForDeletion.add(fileId);
+            } else {
+                selectedFilesForDeletion.delete(fileId);
+            }
+            
+            $('#delete-prompt-goals-btn').prop('disabled', selectedFilesForDeletion.size === 0);
+            
+            // Enable/disable the "delete prompt if empty" checkbox based on selection
+            updateDeletePromptCheckbox(files.length);
+        });
+    }
+    
+    function selectAllFilesForDeletion() {
+        const checkboxes = $('.file-deletion-checkbox');
+        const allChecked = checkboxes.length > 0 && checkboxes.filter(':checked').length === checkboxes.length;
+        
+        if (allChecked) {
+            // Uncheck all
+            checkboxes.prop('checked', false);
+            selectedFilesForDeletion.clear();
+            $('#select-all-files-btn').html('<i class="bi bi-check-square"></i> Select All');
+        } else {
+            // Check all
+            checkboxes.prop('checked', true);
+            selectedFilesForDeletion.clear();
+            checkboxes.each(function() {
+                selectedFilesForDeletion.add($(this).val());
+            });
+            $('#select-all-files-btn').html('<i class="bi bi-square"></i> Clear All');
+        }
+        
+        $('#delete-prompt-goals-btn').prop('disabled', selectedFilesForDeletion.size === 0);
+        
+        // Update the delete prompt checkbox
+        updateDeletePromptCheckbox(checkboxes.length);
+    }
+    
+    function updateDeletePromptCheckbox(totalFiles) {
+        const selectedCount = selectedFilesForDeletion.size;
+        
+        if (selectedCount === totalFiles && totalFiles > 0) {
+            // All files are selected - enable the checkbox
+            $('#delete-prompt-if-empty').prop('disabled', false);
+            $('#delete-prompt-checkbox-label').removeClass('text-muted');
+            $('#delete-prompt-help').hide();
+        } else if (totalFiles > 0) {
+            // Not all files selected - disable the checkbox and show help
+            $('#delete-prompt-if-empty').prop('disabled', true).prop('checked', false);
+            $('#delete-prompt-checkbox-label').addClass('text-muted');
+            $('#delete-prompt-help').show().text('Select all files to enable prompt deletion');
+        } else {
+            // No files (handled elsewhere) - just hide help
+            $('#delete-prompt-help').hide();
+        }
+    }
+    
+    function deletePromptGoals() {
+        const promptTitle = $('#deletion-prompt-select').val();
+        const deletePromptIfEmpty = $('#delete-prompt-if-empty').is(':checked');
+        
+        if (!promptTitle) {
+            return;
+        }
+        
+        // Check if this is an unused saved prompt deletion
+        const selectedPromptData = allPrompts.find(p => p.title === promptTitle);
+        const isUnusedSavedPrompt = selectedPromptData && selectedPromptData.is_saved && selectedFilesForDeletion.size === 0;
+        
+        if (!isUnusedSavedPrompt && selectedFilesForDeletion.size === 0) {
+            return;
+        }
+        
+        let confirmMessage;
+        
+        if (isUnusedSavedPrompt) {
+            // Confirmation for deleting unused saved prompt
+            confirmMessage = `Are you sure you want to delete the saved prompt "${promptTitle}"?
+
+This prompt is not currently used in any documents and will be permanently removed from your saved prompts.
+
+This action cannot be undone.`;
+        } else {
+            // Confirmation for deleting learning goals from files
+            const fileNames = Array.from(selectedFilesForDeletion).map(fileId => {
+                const checkbox = $(`#file-${fileId}`);
+                return checkbox.data('file-name');
+            });
+            
+            const totalGoals = Array.from(selectedFilesForDeletion).reduce((sum, fileId) => {
+                const checkbox = $(`#file-${fileId}`);
+                return sum + (checkbox.data('goals-count') || 0);
+            }, 0);
+            
+            confirmMessage = `Are you sure you want to delete learning goals for "${promptTitle}" from ${selectedFilesForDeletion.size} file(s)?
+        
+Files: ${fileNames.join(', ')}
+Total goals to be deleted: ${totalGoals}
+
+${deletePromptIfEmpty ? 'The prompt itself will also be deleted if no other files use it.' : ''}
+
+This action cannot be undone, but deleted goals will be archived.`;
+        }
+        
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        // Perform deletion
+        const deleteBtn = $('#delete-prompt-goals-btn');
+        deleteBtn.prop('disabled', true).html('<i class="bi bi-spinner-border spinner-border-sm"></i> Deleting...');
+        
+        $.ajax({
+            url: '/api/delete-learning-goals-by-prompt',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                prompt_title: promptTitle,
+                file_ids: Array.from(selectedFilesForDeletion),
+                delete_prompt_if_empty: isUnusedSavedPrompt ? true : deletePromptIfEmpty
+            })
+        })
+        .done(function(response) {
+            if (response.success) {
+                let message;
+                
+                if (isUnusedSavedPrompt) {
+                    // Success message for deleting unused saved prompt
+                    message = `✅ Successfully deleted prompt!\n\n`;
+                    message += `• Prompt "${promptTitle}" was removed from saved prompts\n`;
+                } else {
+                    // Success message for deleting learning goals from files
+                    message = `✅ Successfully deleted learning goals!\n\n`;
+                    message += `• Files processed: ${response.deleted_count}/${response.total_requested}\n`;
+                    message += `• Goals archived: ${response.archived_goals}\n`;
+                    
+                    if (response.prompt_deleted) {
+                        message += `• Prompt "${promptTitle}" was also deleted\n`;
+                    }
+                    
+                    if (response.deletion_details && response.deletion_details.length > 0) {
+                        message += `\nDetails:\n`;
+                        response.deletion_details.forEach(detail => {
+                            if (detail.error) {
+                                message += `• ${detail.file_name}: Error - ${detail.error}\n`;
+                            } else {
+                                message += `• ${detail.file_name}: ${detail.goals_deleted} goals deleted\n`;
+                            }
+                        });
+                    }
+                }
+                
+                alert(message);
+                
+                // Refresh the prompt list and reset the form
+                loadAllPrompts();
+                $('#deletion-prompt-select').val('');
+                $('#prompt-files-container').html('<div class="text-muted text-center"><small>Select a prompt to see files</small></div>');
+                $('#deletion-actions').hide();
+                selectedFilesForDeletion.clear();
+                
+            } else {
+                alert(`❌ Deletion failed: ${response.message}`);
+            }
+        })
+        .fail(function() {
+            alert('❌ Error performing deletion. Please try again.');
+        })
+        .always(function() {
+            deleteBtn.prop('disabled', false).html('<i class="bi bi-trash3"></i> Delete Selected');
+        });
+    }
+
     // Expose toggle function globally
     window.toggleExpand = toggleExpand;
 });

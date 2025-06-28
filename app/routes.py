@@ -549,7 +549,13 @@ def api_goals_overview():
                     if categories_filter and category_name not in categories_filter:
                         continue
                     
-                    goals = category_data.get('goals', [])
+                    # Handle both old (list) and new (dict) structures
+                    if isinstance(category_data, dict):
+                        goals = category_data.get('goals', [])
+                    else:
+                        # Legacy data: category_data is just a list of goals
+                        goals = category_data if isinstance(category_data, list) else []
+                    
                     # Filter out NONE goals
                     from app.clustering_service import filter_none_goals
                     goals = filter_none_goals(goals)
@@ -3732,7 +3738,12 @@ def api_cleanup_duplicates():
                 updated_structure = {}
                 
                 for category_key, category_data in doc.learning_goals_by_prompt.items():
-                    goals = category_data.get('goals', [])
+                    # Handle both old (list) and new (dict) structures
+                    if isinstance(category_data, dict):
+                        goals = category_data.get('goals', [])
+                    else:
+                        # Legacy data: category_data is just a list of goals
+                        goals = category_data if isinstance(category_data, list) else []
                     
                     # Remove duplicates while preserving order
                     unique_goals = []
@@ -3745,9 +3756,13 @@ def api_cleanup_duplicates():
                     # Update if duplicates were found
                     if len(unique_goals) != len(goals):
                         changes_made = True
-                        category_data_copy = category_data.copy()
-                        category_data_copy['goals'] = unique_goals
-                        updated_structure[category_key] = category_data_copy
+                        if isinstance(category_data, dict):
+                            category_data_copy = category_data.copy()
+                            category_data_copy['goals'] = unique_goals
+                            updated_structure[category_key] = category_data_copy
+                        else:
+                            # Legacy data: just replace with unique list
+                            updated_structure[category_key] = unique_goals
                     else:
                         updated_structure[category_key] = category_data
                 
@@ -4158,3 +4173,301 @@ def api_confirm_bulk_extraction():
             'success': False,
             'message': f'Failed to save results: {str(e)}'
         })
+
+@main.route('/api/get-all-prompts', methods=['GET'])
+def api_get_all_prompts():
+    """Get all prompts that exist in the database (both saved and used in documents)"""
+    from app.firebase_service import search_documents, get_saved_prompts
+    
+    try:
+        # Get all saved prompts
+        saved_prompts = get_saved_prompts()
+        saved_prompt_titles = {prompt['title'].lower() for prompt in saved_prompts}
+        
+        # Get all prompts used in documents
+        all_documents = search_documents(limit=1000)
+        used_prompts = set()
+        
+        for doc in all_documents:
+            if doc.learning_goals_by_prompt:
+                for category_key, category_data in doc.learning_goals_by_prompt.items():
+                    # Handle both old (list) and new (dict) structures
+                    if isinstance(category_data, dict):
+                        title = category_data.get('title', category_key.replace('_', ' ').title())
+                    else:
+                        # Legacy data: category_data is just a list of goals
+                        title = category_key.replace('_', ' ').title()
+                    used_prompts.add(title)
+        
+        # Combine and categorize prompts
+        all_prompts = []
+        
+        # Add saved prompts
+        for prompt in saved_prompts:
+            all_prompts.append({
+                'id': prompt['id'],
+                'title': prompt['title'],
+                'system_prompt': prompt['system_prompt'],
+                'user_prompt': prompt['user_prompt'],
+                'created_at': prompt.get('created_at'),
+                'is_saved': True,
+                'is_used': prompt['title'] in used_prompts
+            })
+        
+        # Add used prompts that aren't saved (with deduplication)
+        used_prompt_titles = {prompt['title'].lower() for prompt in all_prompts}  # Track already added prompts
+        
+        for used_title in used_prompts:
+            # Skip if this title is already in our list (either saved or already added)
+            if used_title.lower() not in saved_prompt_titles and used_title.lower() not in used_prompt_titles:
+                all_prompts.append({
+                    'id': None,
+                    'title': used_title,
+                    'system_prompt': None,
+                    'user_prompt': None,
+                    'created_at': None,
+                    'is_saved': False,
+                    'is_used': True
+                })
+                used_prompt_titles.add(used_title.lower())  # Track that we added this title
+        
+        # Note: Only pulling from learning_goals_by_prompt structure
+        # Old learning_goals structure is ignored for prompt deletion interface
+        
+        return jsonify({
+            'success': True,
+            'prompts': all_prompts
+        })
+        
+    except Exception as e:
+        print(f"Error getting all prompts: {e}")
+        return jsonify({
+            'success': False,
+            'prompts': [],
+            'message': f'Error: {str(e)}'
+        })
+
+@main.route('/api/get-files-by-prompt/<prompt_title>', methods=['GET'])
+def api_get_files_by_prompt(prompt_title):
+    """Get all files that have learning goals for a specific prompt"""
+    from app.firebase_service import search_documents
+    
+    try:
+        all_documents = search_documents(limit=1000)
+        matching_files = []
+        
+        for doc in all_documents:
+            has_prompt = False
+            goals_count = 0
+            
+            # Only check learning_goals_by_prompt structure (no special Default handling)
+            if doc.learning_goals_by_prompt:
+                for category_key, category_data in doc.learning_goals_by_prompt.items():
+                    # Handle both old (list) and new (dict) structures
+                    if isinstance(category_data, dict):
+                        category_title = category_data.get('title', category_key.replace('_', ' ').title())
+                        goals = category_data.get('goals', [])
+                    else:
+                        # Legacy data: category_data is just a list of goals
+                        category_title = category_key.replace('_', ' ').title()
+                        goals = category_data if isinstance(category_data, list) else []
+                        
+                    if category_title.lower() == prompt_title.lower():
+                        has_prompt = True
+                        goals_count = len([goal for goal in goals if goal.strip().upper() != "NONE"])
+                        break
+            
+            if has_prompt and goals_count > 0:
+                matching_files.append({
+                    'id': doc.id,
+                    'name': doc.name,
+                    'original_filename': doc.original_filename,
+                    'creator': doc.creator,
+                    'course_name': doc.course_name,
+                    'institution': doc.institution,
+                    'goals_count': goals_count
+                })
+        
+        return jsonify({
+            'success': True,
+            'files': matching_files,
+            'total_files': len(matching_files)
+        })
+        
+    except Exception as e:
+        print(f"Error getting files by prompt: {e}")
+        return jsonify({
+            'success': False,
+            'files': [],
+            'message': f'Error: {str(e)}'
+        })
+
+@main.route('/api/delete-learning-goals-by-prompt', methods=['POST'])
+def api_delete_learning_goals_by_prompt():
+    """Delete learning goals for specific prompt/files combination"""
+    from app.firebase_service import get_document, update_document
+    
+    try:
+        data = request.get_json()
+        prompt_title = data.get('prompt_title')
+        file_ids = data.get('file_ids', [])
+        delete_prompt_if_empty = data.get('delete_prompt_if_empty', False)
+        
+        if not prompt_title:
+            return jsonify({
+                'success': False,
+                'message': 'Missing prompt_title'
+            })
+        
+        # For unused saved prompts, file_ids can be empty if delete_prompt_if_empty is True
+        if not file_ids and not delete_prompt_if_empty:
+            return jsonify({
+                'success': False,
+                'message': 'Must provide file_ids or set delete_prompt_if_empty to true'
+            })
+        
+        deleted_count = 0
+        deletion_details = []
+        archived_data = []
+        
+        for file_id in file_ids:
+            try:
+                doc = get_document(file_id)
+                if not doc:
+                    continue
+                
+                goals_deleted = 0
+                
+                # Only handle learning_goals_by_prompt structure (no special Default handling)
+                if doc.learning_goals_by_prompt:
+                    updated_structure = doc.learning_goals_by_prompt.copy()
+                    
+                    # Find matching category
+                    category_to_delete = None
+                    for category_key, category_data in updated_structure.items():
+                        # Handle both old (list) and new (dict) structures
+                        if isinstance(category_data, dict):
+                            category_title = category_data.get('title', category_key.replace('_', ' ').title())
+                            goals = category_data.get('goals', [])
+                        else:
+                            # Legacy data: category_data is just a list of goals
+                            category_title = category_key.replace('_', ' ').title()
+                            goals = category_data if isinstance(category_data, list) else []
+                            
+                        if category_title.lower() == prompt_title.lower():
+                            category_to_delete = category_key
+                            
+                            # Archive the goals before deletion
+                            for goal in goals:
+                                if goal.strip().upper() != "NONE":
+                                    archived_data.append({
+                                        'goal_text': goal,
+                                        'prompt_title': prompt_title,
+                                        'category_key': category_key,
+                                        'category_data': category_data,
+                                        'document_id': doc.id,
+                                        'document_name': doc.name,
+                                        'creator': doc.creator,
+                                        'course_name': doc.course_name,
+                                        'institution': doc.institution,
+                                        'deleted_at': datetime.now().isoformat()
+                                    })
+                            
+                            goals_deleted = len([goal for goal in goals if goal.strip().upper() != "NONE"])
+                            break
+                    
+                    if category_to_delete:
+                        # Remove the category
+                        del updated_structure[category_to_delete]
+                        
+                        # Update the document with REPLACE operation (not merge)
+                        update_success = update_document(file_id, {
+                            'learning_goals_by_prompt': updated_structure
+                        }, force_replace=True)
+                        if update_success:
+                            deleted_count += 1
+                
+                deletion_details.append({
+                    'file_id': file_id,
+                    'file_name': doc.name,
+                    'goals_deleted': goals_deleted
+                })
+                
+            except Exception as e:
+                print(f"Error deleting from file {file_id}: {e}")
+                deletion_details.append({
+                    'file_id': file_id,
+                    'file_name': 'Unknown',
+                    'error': str(e),
+                    'goals_deleted': 0
+                })
+        
+        # Archive the deleted data
+        if archived_data:
+            from app.firebase_service import archive_deleted_prompts
+            archive_deleted_prompts(archived_data)
+        
+        # Check if prompt should be deleted (if requested by user)
+        prompt_deleted = False
+        if delete_prompt_if_empty:
+            # Check if any files still have this prompt after our deletion
+            remaining_files_response = api_get_files_by_prompt(prompt_title)
+            total_remaining_files = remaining_files_response.get_json().get('total_files', 0)
+            
+            # Delete prompt if:
+            # 1. We deleted all requested files successfully AND no other files have this prompt, OR  
+            # 2. There are no files with this prompt (was an unused saved prompt)
+            should_delete_prompt = (
+                (deleted_count == len(file_ids) and total_remaining_files == 0) or  # All files deleted
+                (len(file_ids) == 0 and total_remaining_files == 0)  # No files selected & none exist (unused prompt)
+            )
+            
+            if should_delete_prompt:
+                # Delete the prompt from saved prompts if it exists
+                from app.firebase_service import delete_saved_prompt_by_title
+                prompt_deleted = delete_saved_prompt_by_title(prompt_title)
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'total_requested': len(file_ids),
+            'deletion_details': deletion_details,
+            'prompt_deleted': prompt_deleted,
+            'archived_goals': len(archived_data)
+        })
+        
+    except Exception as e:
+        print(f"Error deleting learning goals by prompt: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Deletion failed: {str(e)}'
+        })
+
+@main.route('/api/get-archived-prompts', methods=['GET'])
+def api_get_archived_prompts():
+    """Get archived prompt data"""
+    from app.firebase_service import get_archived_prompts
+    
+    try:
+        limit = request.args.get('limit', 100, type=int)
+        archived_prompts = get_archived_prompts(limit=limit)
+        
+        return jsonify({
+            'success': True,
+            'archived_prompts': archived_prompts,
+            'total': len(archived_prompts)
+        })
+        
+    except Exception as e:
+        print(f"Error getting archived prompts: {e}")
+        return jsonify({
+            'success': False,
+            'archived_prompts': [],
+            'message': f'Error: {str(e)}'
+        })
+
+@main.route('/archived-prompts')
+def archived_prompts_page():
+    """View archived prompts page"""
+    return render_template('archived_prompts.html')
+

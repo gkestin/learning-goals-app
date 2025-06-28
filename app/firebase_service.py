@@ -299,7 +299,7 @@ def save_document(document):
         
     return doc_ref.id
 
-def update_document(doc_id, updates):
+def update_document(doc_id, updates, force_replace=False):
     """Update specific fields of an existing document in Firestore"""
     global db, using_mock
     
@@ -313,14 +313,14 @@ def update_document(doc_id, updates):
             
             # Deep merge for nested dictionaries like learning_goals_by_prompt
             for key, value in updates.items():
-                if key == 'learning_goals_by_prompt' and isinstance(value, dict):
+                if key == 'learning_goals_by_prompt' and isinstance(value, dict) and not force_replace:
                     # Merge with existing learning_goals_by_prompt
                     if key in current_data and isinstance(current_data[key], dict):
                         current_data[key].update(value)  # Merge categories
                     else:
                         current_data[key] = value  # Set if doesn't exist
                 else:
-                    # Regular update for other fields
+                    # Regular update for other fields (or force replace)
                     current_data[key] = value
             
             db.collections['documents'].documents[doc_id].data = current_data
@@ -335,7 +335,9 @@ def update_document(doc_id, updates):
             doc_ref = db.collection('documents').document(doc_id)
             
             # Check if we need to do deep merge for learning_goals_by_prompt
-            if 'learning_goals_by_prompt' in updates and isinstance(updates['learning_goals_by_prompt'], dict):
+            if ('learning_goals_by_prompt' in updates and 
+                isinstance(updates['learning_goals_by_prompt'], dict) and 
+                not force_replace):
                 # Get current document to merge with existing categories
                 current_doc = doc_ref.get()
                 if current_doc.exists:
@@ -360,7 +362,10 @@ def update_document(doc_id, updates):
                     # Document doesn't exist, just do regular update
                     doc_ref.update(updates)
             else:
-                # No learning_goals_by_prompt to merge, do regular update
+                # Force replace or no learning_goals_by_prompt to merge, do regular update
+                if force_replace and 'learning_goals_by_prompt' in updates:
+                    print(f"🔄 REAL DATABASE: Force replacing learning_goals_by_prompt (no merge)")
+                    print(f"   New categories: {list(updates['learning_goals_by_prompt'].keys())}")
                 doc_ref.update(updates)
             
             print(f"✅ REAL DATABASE: Document updated: {doc_id}")
@@ -3129,4 +3134,115 @@ def get_saved_prompts():
         
     except Exception as e:
         print(f"❌ Error retrieving saved prompts: {e}")
+        return []
+
+def archive_deleted_prompts(deleted_prompt_data):
+    """Archive deleted prompt data to the database"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        archived_count = 0
+        
+        if using_mock:
+            # Mock archiving
+            if 'archived_prompts' not in db.collections:
+                db.collections['archived_prompts'] = type(db.collections['documents'])('archived_prompts')
+            
+            for prompt_data in deleted_prompt_data:
+                doc_id = f"archived_prompt_{len(db.collections['archived_prompts'].documents)}"
+                db.collections['archived_prompts'].documents[doc_id] = type('doc', (), {
+                    'id': doc_id,
+                    'data': prompt_data,
+                    'to_dict': lambda: prompt_data
+                })()
+                archived_count += 1
+        else:
+            # Real database archiving
+            for prompt_data in deleted_prompt_data:
+                # Add timestamp
+                prompt_data['archived_at'] = datetime.datetime.now()
+                
+                doc_ref = db.collection('archived_prompts').document()
+                doc_ref.set(prompt_data)
+                archived_count += 1
+        
+        print(f"✅ Archived {archived_count} deleted prompt entries")
+        return archived_count
+        
+    except Exception as e:
+        print(f"❌ Error archiving deleted prompts: {e}")
+        return 0
+
+def delete_saved_prompt_by_title(prompt_title):
+    """Delete a saved prompt by its title"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        if using_mock:
+            # Mock deletion
+            if 'saved_prompts' in db.collections:
+                for doc_id, doc in list(db.collections['saved_prompts'].documents.items()):
+                    prompt_data = doc.to_dict()
+                    if prompt_data.get('title', '').lower() == prompt_title.lower():
+                        del db.collections['saved_prompts'].documents[doc_id]
+                        print(f"✅ Deleted saved prompt (mock): {prompt_title}")
+                        return True
+            return False
+        else:
+            # Real database deletion
+            docs = db.collection('saved_prompts').where('title', '==', prompt_title).stream()
+            
+            deleted = False
+            for doc in docs:
+                doc.reference.delete()
+                deleted = True
+            
+            if deleted:
+                print(f"✅ Deleted saved prompt: {prompt_title}")
+            return deleted
+        
+    except Exception as e:
+        print(f"❌ Error deleting saved prompt: {e}")
+        return False
+
+def get_archived_prompts(limit=100):
+    """Get archived prompt data"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        archived_prompts = []
+        
+        if using_mock:
+            # Mock retrieval
+            if 'archived_prompts' in db.collections:
+                for doc_id, doc in db.collections['archived_prompts'].documents.items():
+                    prompt_data = doc.to_dict()
+                    prompt_data['id'] = doc_id
+                    archived_prompts.append(prompt_data)
+        else:
+            # Real database retrieval
+            docs = db.collection('archived_prompts').limit(limit).stream()
+            
+            for doc in docs:
+                prompt_data = doc.to_dict()
+                prompt_data['id'] = doc.id
+                archived_prompts.append(prompt_data)
+        
+        # Sort by archived date (newest first)
+        archived_prompts.sort(key=lambda x: x.get('archived_at', datetime.datetime.min), reverse=True)
+        
+        print(f"✅ Retrieved {len(archived_prompts)} archived prompts")
+        return archived_prompts
+        
+    except Exception as e:
+        print(f"❌ Error retrieving archived prompts: {e}")
         return []
