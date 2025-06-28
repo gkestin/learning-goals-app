@@ -4,7 +4,7 @@ import time
 import uuid
 import csv
 import io
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app, flash, session, Response, stream_with_context
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app, flash, session, Response, stream_with_context, render_template_string
 from app.models import Document
 from app.pdf_utils import allowed_file, save_pdf, extract_text_from_pdf
 from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
@@ -3181,16 +3181,41 @@ def get_document_url(document_id):
     from app.firebase_service import smart_resolve_storage_path, bucket, using_mock
     import datetime as dt
     
+    # Check if this is an AJAX request vs iframe/direct browser request
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or \
+              'application/json' in request.headers.get('Accept', '')
+    
     doc = get_document(document_id)
     if not doc or not doc.storage_path:
-        return jsonify({'error': 'Document not found or no storage path'}), 404
+        if is_ajax:
+            return jsonify({'error': 'Document not found or no storage path'}), 404
+        else:
+            # For iframe/browser requests, return HTML error page instead of JSON
+            return render_template_string("""
+                <html><body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                    <h2 style="color: #dc3545;">Document Not Found</h2>
+                    <p>The requested document could not be found or has no storage path.</p>
+                    <p style="color: #6c757d; font-size: 0.9em;">Document ID: {{ doc_id }}</p>
+                </body></html>
+            """, doc_id=document_id), 404
     
     try:
         # Use smart resolution to find the correct storage path
         path_result = smart_resolve_storage_path(doc, fix_in_db=True)
         
         if not path_result['resolved_path']:
-            return jsonify({'error': 'Document file not found in storage'}), 404
+            if is_ajax:
+                return jsonify({'error': 'Document file not found in storage'}), 404
+            else:
+                # For iframe/browser requests, return HTML error page
+                return render_template_string("""
+                    <html><body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                        <h2 style="color: #dc3545;">Document File Not Found</h2>
+                        <p>The document file could not be found in storage.</p>
+                        <p style="color: #6c757d; font-size: 0.9em;">Document: {{ doc_name }}</p>
+                        <p style="color: #6c757d; font-size: 0.9em;">Storage Path: {{ storage_path }}</p>
+                    </body></html>
+                """, doc_name=doc.name, storage_path=doc.storage_path), 404
         
         if using_mock:
             # For mock storage, return a mock URL
@@ -3199,26 +3224,83 @@ def get_document_url(document_id):
             # For real Firebase Storage, generate a signed URL that includes authentication
             try:
                 blob = bucket.blob(path_result['resolved_path'])
-                # Generate signed URL valid for 24 hours
+                
+                # Get file metadata for debugging
+                file_size = None
+                content_type = None
+                try:
+                    blob.reload()  # Load metadata
+                    file_size = blob.size
+                    content_type = blob.content_type or "unknown"
+                    print(f"DEBUG - File size: {file_size} bytes ({file_size/(1024*1024):.1f}MB)")
+                    print(f"DEBUG - Content type: {content_type}")
+                    print(f"DEBUG - Content disposition: {blob.content_disposition}")
+                    print(f"DEBUG - Cache control: {blob.cache_control}")
+                    print(f"DEBUG - File updated: {blob.updated}")
+                    
+                    # FIX THE METADATA if it's causing downloads!
+                    if blob.content_disposition and 'attachment' in blob.content_disposition:
+                        print(f"🔧 FIXING: File has 'attachment' disposition, changing to 'inline'")
+                        blob.content_disposition = 'inline; filename="' + doc.original_filename + '"'
+                        blob.content_type = 'application/pdf'
+                        blob.patch()  # Update the metadata in Firebase Storage
+                        print(f"✅ FIXED: Updated file metadata to inline disposition")
+                    elif not blob.content_disposition:
+                        print(f"🔧 SETTING: File has no disposition, setting to 'inline'")
+                        blob.content_disposition = 'inline; filename="' + doc.original_filename + '"'
+                        blob.content_type = 'application/pdf'  
+                        blob.patch()  # Update the metadata
+                        print(f"✅ SET: Added inline disposition to file metadata")
+                        
+                except Exception as meta_e:
+                    print(f"DEBUG - Could not get/fix metadata: {meta_e}")
+                
+                # Generate BASIC signed URL with NO response parameters to test
                 url = blob.generate_signed_url(
                     version="v4",
                     expiration=dt.timedelta(hours=24),
                     method="GET"
                 )
-                print(f"Successfully generated signed URL")
+                print(f"DEBUG - Generated basic signed URL with NO response parameters")
+                print(f"Successfully generated basic signed URL")
+                print(f"DEBUG - Full generated URL: {url}")  # Log complete URL for testing
             except Exception as e:
                 print(f"Error generating signed URL: {e}")
-                # If signed URL fails, the files require authentication and can't use direct URLs
-                return jsonify({'error': 'Unable to generate access URL for document'}), 500
+                error_msg = 'Unable to generate access URL for document'
+                if is_ajax:
+                    return jsonify({'error': error_msg}), 500
+                else:
+                    return render_template_string("""
+                        <html><body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                            <h2 style="color: #dc3545;">Unable to Access Document</h2>
+                            <p>{{ error_msg }}</p>
+                            <p style="color: #6c757d; font-size: 0.9em;">Document: {{ doc_name }}</p>
+                            <p style="color: #6c757d; font-size: 0.9em;">Error: {{ error_details }}</p>
+                        </body></html>
+                    """, error_msg=error_msg, doc_name=doc.name, error_details=str(e)), 500
         
-        return jsonify({
-            'url': url,
-            'corrected': path_result['corrected']
-        })
+        if is_ajax:
+            return jsonify({
+                'url': url,
+                'corrected': path_result['corrected']
+            })
+        else:
+            # For direct browser access, redirect to the actual file URL
+            return redirect(url)
         
     except Exception as e:
         print(f"Error generating document URL: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_msg = f'Error: {str(e)}'
+        if is_ajax:
+            return jsonify({'error': error_msg}), 500
+        else:
+            return render_template_string("""
+                <html><body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                    <h2 style="color: #dc3545;">Server Error</h2>
+                    <p>An error occurred while processing your request.</p>
+                    <p style="color: #6c757d; font-size: 0.9em;">{{ error_msg }}</p>
+                </body></html>
+            """, error_msg=error_msg), 500
 
 @main.route('/api/find-document-by-name')
 def api_find_document_by_name():
@@ -3636,83 +3718,443 @@ def api_get_saved_prompts():
 
 @main.route('/api/cleanup-duplicates', methods=['POST'])
 def api_cleanup_duplicates():
-    """
-    Finds and resolves duplicate documents created by the faulty migration.
-    It identifies duplicates based on creator and original filename, merges the
-    migrated learning_goals_by_prompt from the newest duplicate to the oldest
-    original, and then deletes all duplicate documents and their storage files.
-    """
-    from app.firebase_service import search_documents, update_document, delete_document
-    from collections import defaultdict
-
-    print("--- Starting Duplicate Document Cleanup ---")
+    """Remove duplicate learning goals from documents"""
+    from app.firebase_service import search_documents, update_document
     
     try:
-        all_docs = search_documents(limit=5000)
-        print(f"Found {len(all_docs)} total documents to check.")
-
-        grouped_docs = defaultdict(list)
-        for doc in all_docs:
-            if doc.original_filename: # Only group documents with an original filename
-                key = (doc.creator, doc.original_filename)
-                grouped_docs[key].append(doc)
-
-        updated_originals = 0
-        deleted_duplicates = 0
-        groups_processed = 0
-
-        for key, docs_in_group in grouped_docs.items():
-            if len(docs_in_group) > 1:
-                groups_processed += 1
-                
-                print(f"\nProcessing group for {key}: {len(docs_in_group)} documents found.")
-                
-                # Sort by creation date to find the true original
-                docs_in_group.sort(key=lambda d: d.created_at)
-                original_doc = docs_in_group[0]
-                duplicates = docs_in_group[1:]
-                
-                print(f"  Original identified: {original_doc.id} (Created: {original_doc.created_at})")
-
-                # Find the best `learning_goals_by_prompt` from the duplicates
-                # The newest duplicate is the most likely to have the most recent data.
-                best_lg_by_prompt = {}
-                for dup in reversed(duplicates):
-                    if dup.learning_goals_by_prompt:
-                        best_lg_by_prompt = dup.learning_goals_by_prompt
-                        print(f"  Found migrated data in duplicate: {dup.id}")
-                        break
-                
-                # If the original doesn't have the migrated data, update it.
-                if best_lg_by_prompt and not original_doc.learning_goals_by_prompt:
-                    print(f"  Updating original document {original_doc.id} with migrated data...")
-                    update_document(original_doc.id, {
-                        'learning_goals_by_prompt': best_lg_by_prompt
-                    })
-                    updated_originals += 1
-                else:
-                    print(f"  Original document {original_doc.id} already has data or no data found in duplicates. Skipping update.")
-
-                # Delete all the duplicate documents
-                for dup in duplicates:
-                    print(f"  Deleting duplicate document: {dup.id} (Name: {dup.name})...")
-                    delete_document(dup.id)
-                    deleted_duplicates += 1
+        all_documents = search_documents(limit=1000)
+        updated_count = 0
         
-        print("\n--- Cleanup Summary ---")
-        print(f"Groups with duplicates: {groups_processed}")
-        print(f"Originals updated with migrated data: {updated_originals}")
-        print(f"Duplicate documents deleted: {deleted_duplicates}")
-        print("------------------------")
+        for doc in all_documents:
+            # Check learning_goals_by_prompt structure
+            if doc.learning_goals_by_prompt:
+                changes_made = False
+                updated_structure = {}
+                
+                for category_key, category_data in doc.learning_goals_by_prompt.items():
+                    goals = category_data.get('goals', [])
+                    
+                    # Remove duplicates while preserving order
+                    unique_goals = []
+                    seen = set()
+                    for goal in goals:
+                        if goal not in seen:
+                            unique_goals.append(goal)
+                            seen.add(goal)
+                    
+                    # Update if duplicates were found
+                    if len(unique_goals) != len(goals):
+                        changes_made = True
+                        category_data_copy = category_data.copy()
+                        category_data_copy['goals'] = unique_goals
+                        updated_structure[category_key] = category_data_copy
+                    else:
+                        updated_structure[category_key] = category_data
+                
+                if changes_made:
+                    update_document(doc.id, {
+                        'learning_goals_by_prompt': updated_structure
+                    })
+                    updated_count += 1
+            
+            # Check old learning_goals structure
+            elif doc.learning_goals:
+                unique_goals = []
+                seen = set()
+                for goal in doc.learning_goals:
+                    if goal not in seen:
+                        unique_goals.append(goal)
+                        seen.add(goal)
+                
+                if len(unique_goals) != len(doc.learning_goals):
+                    update_document(doc.id, {
+                        'learning_goals': unique_goals
+                    })
+                    updated_count += 1
         
         return jsonify({
             'success': True,
-            'message': 'Cleanup complete.',
-            'groups_with_duplicates_found': groups_processed,
-            'originals_updated': updated_originals,
-            'duplicates_deleted': deleted_duplicates
+            'updated_count': updated_count,
+            'message': f'Cleaned up duplicates in {updated_count} documents'
+        })
+        
+    except Exception as e:
+        print(f"Error cleaning duplicates: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Cleanup failed: {str(e)}'
         })
 
+@main.route('/api/reupload/<document_id>', methods=['POST'])
+def api_reupload_document(document_id):
+    """Reupload a document file while preserving all metadata"""
+    from app.firebase_service import get_document, bucket, using_mock, update_document
+    import tempfile
+    import os
+    import datetime as datetime_module
+    
+    try:
+        # Get the existing document
+        doc = get_document(document_id)
+        if not doc:
+            return jsonify({'success': False, 'message': 'Document not found'}), 404
+        
+        # Check for uploaded file
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if not file or not file.filename:
+            return jsonify({'success': False, 'message': 'Invalid file'}), 400
+        
+        # Validate file type
+        if not allowed_file(file.filename, current_app.config['ALLOWED_EXTENSIONS']):
+            return jsonify({'success': False, 'message': 'Invalid file type. Only PDFs are allowed.'}), 400
+        
+        # Validate file size (same limits as index.html: 100MB max)
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        file.seek(0, 2)  # Seek to end to get file size
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({
+                'success': False, 
+                'message': f'File size ({file_size/(1024*1024):.1f}MB) exceeds maximum allowed size (100MB)'
+            }), 413
+        
+        print(f"🔄 Reuploading file for document {document_id}")
+        print(f"   Original file: {doc.original_filename}")
+        print(f"   New file: {file.filename}")
+        
+        # 1. Backup old file to backup bucket
+        old_storage_path = doc.storage_path
+        if old_storage_path and not using_mock:
+            backup_path = f"backup/{old_storage_path}"
+            try:
+                source_blob = bucket.blob(old_storage_path)
+                backup_blob = bucket.blob(backup_path)
+                backup_blob.rewrite(source_blob)
+                print(f"✅ Backed up old file to: {backup_path}")
+            except Exception as e:
+                print(f"⚠️ Could not backup old file: {e}")
+                # Continue anyway - don't fail the upload for backup issues
+        
+        # 2. Generate new storage path
+        new_storage_path = f"pdfs/{doc.creator}_{file.filename}"
+        
+        # 3. Upload new file to Firebase Storage
+        if using_mock:
+            print(f"⚠️ MOCK STORAGE: Pretending to upload {file.filename} to {new_storage_path}")
+            public_url = f"https://mock-storage.example.com/{new_storage_path}"
+        else:
+            print(f"✅ REAL STORAGE: Uploading {file.filename} ({file_size/(1024*1024):.1f}MB) to {new_storage_path}")
+            
+            try:
+                # Upload file directly to storage with timeout handling for large files
+                blob = bucket.blob(new_storage_path)
+                
+                # For large files, use chunked upload to avoid timeouts
+                if file_size > 32 * 1024 * 1024:  # 32MB+
+                    print(f"🔄 Using chunked upload for large file...")
+                    # Use resumable upload for large files
+                    blob.upload_from_file(
+                        file.stream, 
+                        content_type='application/pdf',
+                        timeout=300  # 5 minutes timeout for large files
+                    )
+                else:
+                    blob.upload_from_file(file.stream, content_type='application/pdf')
+                    
+                print(f"✅ Upload completed successfully")
+                
+            except Exception as upload_error:
+                print(f"❌ Upload failed: {upload_error}")
+                return jsonify({
+                    'success': False,
+                    'message': f'Upload failed: {str(upload_error)}. This may be due to poor network connection or file size. Try again or use a smaller file.'
+                }), 500
+            
+            # Set proper metadata for inline viewing
+            blob.content_disposition = f'inline; filename="{file.filename}"'
+            blob.content_type = 'application/pdf'
+            blob.patch()  # Update metadata
+            
+            # Generate public URL
+            try:
+                public_url = blob.generate_signed_url(
+                    version="v4",
+                    expiration=datetime_module.timedelta(weeks=1),
+                    method="GET"
+                )
+            except Exception as e:
+                print(f"Error generating signed URL: {e}")
+                bucket_name = bucket.name
+                encoded_path = new_storage_path.replace('/', '%2F')
+                public_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/{encoded_path}?alt=media"
+        
+        # 4. Update document record in Firestore (preserving all metadata except file info)
+        updates = {
+            'original_filename': file.filename,
+            'storage_path': new_storage_path,
+            'public_url': public_url
+        }
+        
+        success = update_document(document_id, updates)
+        if not success:
+            return jsonify({'success': False, 'message': 'Failed to update document record'}), 500
+        
+        # 5. Delete old file (after successful update)
+        if old_storage_path and not using_mock:
+            try:
+                old_blob = bucket.blob(old_storage_path)
+                old_blob.delete()
+                print(f"🗑️ Deleted old file: {old_storage_path}")
+            except Exception as e:
+                print(f"⚠️ Could not delete old file: {e}")
+                # Don't fail for this - file was already backed up
+        
+        print(f"🎉 Successfully reuploaded document {document_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'File reuploaded successfully',
+            'new_filename': file.filename,
+            'storage_path': new_storage_path
+        })
+        
     except Exception as e:
-        print(f"❌ Error during duplicate cleanup: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        print(f"❌ Error reuploading document: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Reupload failed: {str(e)}'
+        }), 500
+
+@main.route('/api/extract-bulk-learning-goals-stream', methods=['POST'])
+def api_extract_bulk_learning_goals_stream():
+    """Extract learning goals for multiple documents with real-time progress updates via SSE"""
+    from flask import Response, stream_with_context
+    from app.firebase_service import get_document, download_from_storage
+    from app.openai_service import extract_learning_goals
+    from app.pdf_utils import extract_text_from_pdf
+    import json
+    import tempfile
+    import os
+    import threading
+    import queue
+    import time
+    
+    def generate_extraction_progress():
+        try:
+            # Get request data
+            request_data = request.get_json()
+            document_ids = request_data.get('document_ids', [])
+            category_title = request_data.get('category_title')
+            system_prompt = request_data.get('system_prompt')
+            user_prompt = request_data.get('user_prompt')
+            model = request_data.get('model', 'gpt-4o')
+            save_prompt_flag = request_data.get('save_prompt', False)
+            
+            if not document_ids or not category_title or not system_prompt:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Missing required parameters'})}\n\n"
+                return
+            
+            # Send initial status
+            yield f"data: {json.dumps({'status': 'starting', 'message': 'Initializing extraction process...', 'total_documents': len(document_ids)})}\n\n"
+            
+            # Save the prompt if requested
+            if save_prompt_flag:
+                from app.firebase_service import save_prompt
+                try:
+                    prompt_id = save_prompt(category_title, system_prompt, user_prompt)
+                    yield f"data: {json.dumps({'status': 'prompt_saved', 'message': f'Saved prompt: {category_title}', 'prompt_id': prompt_id})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'status': 'prompt_save_failed', 'message': f'Failed to save prompt: {str(e)}'})}\n\n"
+            
+            # Process each document
+            processed_count = 0
+            total_goals = 0
+            failures = []
+            extraction_results = []
+            
+            api_key = current_app.config['OPENAI_API_KEY']
+            
+            for i, doc_id in enumerate(document_ids):
+                try:
+                    # Update progress
+                    yield f"data: {json.dumps({'status': 'processing', 'message': f'Loading document {i+1} of {len(document_ids)}...', 'current_index': i, 'completed': i, 'total': len(document_ids)})}\n\n"
+                    
+                    doc = get_document(doc_id)
+                    if not doc:
+                        failures.append({
+                            'document_id': doc_id,
+                            'document_name': 'Unknown',
+                            'error': 'Document not found'
+                        })
+                        continue
+                    
+                    yield f"data: {json.dumps({'status': 'processing', 'message': f'Processing: {doc.name}', 'current_document': doc.name, 'current_index': i, 'completed': i, 'total': len(document_ids)})}\n\n"
+                    
+                    # Extract text from document
+                    if doc.storage_path:
+                        temp_file = None
+                        try:
+                            # Create a temporary file
+                            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                            temp_file.close()
+                            
+                            # Download from Firebase Storage
+                            download_from_storage(doc.storage_path, temp_file.name)
+                            
+                            # Extract text from the downloaded file
+                            text = extract_text_from_pdf(temp_file.name)
+                            
+                        except Exception as e:
+                            failures.append({
+                                'document_id': doc_id,
+                                'document_name': doc.name,
+                                'error': f'Failed to download or extract text: {str(e)}'
+                            })
+                            continue
+                        finally:
+                            # Clean up temporary file
+                            if temp_file and os.path.exists(temp_file.name):
+                                os.unlink(temp_file.name)
+                    else:
+                        failures.append({
+                            'document_id': doc_id,
+                            'document_name': doc.name,
+                            'error': 'No storage path available'
+                        })
+                        continue
+                    
+                    if not text.strip():
+                        failures.append({
+                            'document_id': doc_id,
+                            'document_name': doc.name,
+                            'error': 'No text could be extracted'
+                        })
+                        continue
+                    
+                    # Extract learning goals
+                    yield f"data: {json.dumps({'status': 'extracting', 'message': f'Extracting goals from: {doc.name}', 'current_document': doc.name, 'current_index': i, 'completed': i, 'total': len(document_ids)})}\n\n"
+                    
+                    extraction_result = extract_learning_goals(
+                        text, api_key, system_prompt, user_prompt, 
+                        model=model, category_title=category_title
+                    )
+                    
+                    # Store the extraction result for preview
+                    extraction_results.append({
+                        'document_id': doc_id,
+                        'document_name': doc.name,
+                        'creator': doc.creator,
+                        'course_name': doc.course_name,
+                        'goals': extraction_result['learning_goals'],
+                        'category_data': extraction_result['category_data']
+                    })
+                    
+                    processed_count += 1
+                    total_goals += len(extraction_result['learning_goals'])
+                    
+                    # Update progress after successful processing
+                    goals_count = len(extraction_result['learning_goals'])
+                    yield f"data: {json.dumps({'status': 'processed', 'message': f'Completed: {doc.name} ({goals_count} goals)', 'current_document': doc.name, 'current_index': i, 'completed': i+1, 'total': len(document_ids), 'goals_extracted': goals_count})}\n\n"
+                    
+                except Exception as e:
+                    failures.append({
+                        'document_id': doc_id,
+                        'document_name': doc.name if 'doc' in locals() else 'Unknown',
+                        'error': str(e)
+                    })
+            
+            # Send completion with results for preview
+            yield f"data: {json.dumps({'status': 'complete', 'message': f'Extraction complete! Processed {processed_count} documents with {total_goals} total goals.', 'results': {'processed_count': processed_count, 'total_count': len(document_ids), 'total_goals': total_goals, 'category_title': category_title, 'failures': failures, 'extraction_results': extraction_results, 'requires_confirmation': True}})}\n\n"
+            
+        except Exception as e:
+            print(f"Error in bulk extraction stream: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Extraction failed: {str(e)}'})}\n\n"
+    
+    return Response(
+        stream_with_context(generate_extraction_progress()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )
+
+@main.route('/api/confirm-bulk-extraction', methods=['POST'])
+def api_confirm_bulk_extraction():
+    """Confirm and save the bulk extraction results"""
+    from app.firebase_service import update_document
+    
+    try:
+        data = request.get_json()
+        extraction_results = data.get('extraction_results', [])
+        
+        if not extraction_results:
+            return jsonify({
+                'success': False,
+                'message': 'No extraction results provided'
+            })
+        
+        saved_count = 0
+        save_failures = []
+        
+        for result in extraction_results:
+            try:
+                doc_id = result['document_id']
+                category_data = result['category_data']
+                category_title = data.get('category_title', 'Custom')
+                
+                # Get current learning_goals_by_prompt or initialize empty
+                doc = get_document(doc_id)
+                if not doc:
+                    save_failures.append({
+                        'document_id': doc_id,
+                        'document_name': result.get('document_name', 'Unknown'),
+                        'error': 'Document not found during save'
+                    })
+                    continue
+                
+                current_goals_by_prompt = doc.learning_goals_by_prompt or {}
+                
+                # Add the new category to existing structure
+                category_key = category_title.lower().replace(' ', '_')
+                current_goals_by_prompt[category_key] = category_data
+                
+                # Update only the learning_goals_by_prompt field
+                update_success = update_document(doc_id, {
+                    'learning_goals_by_prompt': current_goals_by_prompt
+                })
+                
+                if update_success:
+                    saved_count += 1
+                else:
+                    save_failures.append({
+                        'document_id': doc_id,
+                        'document_name': result.get('document_name', 'Unknown'),
+                        'error': 'Failed to save to database'
+                    })
+                    
+            except Exception as e:
+                save_failures.append({
+                    'document_id': result.get('document_id', 'Unknown'),
+                    'document_name': result.get('document_name', 'Unknown'),
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'success': True,
+            'saved_count': saved_count,
+            'total_count': len(extraction_results),
+            'failures': save_failures
+        })
+        
+    except Exception as e:
+        print(f"Error confirming bulk extraction: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to save results: {str(e)}'
+        })

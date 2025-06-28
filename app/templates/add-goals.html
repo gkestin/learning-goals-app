@@ -88,6 +88,141 @@
         margin-bottom: 20px;
     }
     
+    .confirmation-section {
+        display: none;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .results-preview {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: white;
+        margin: 15px 0;
+    }
+    
+    .document-result {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        background-color: #fafafa;
+    }
+    
+    .document-result h6 {
+        color: #495057;
+        margin-bottom: 10px;
+    }
+    
+    .goals-list {
+        list-style-type: none;
+        padding-left: 0;
+    }
+    
+    .goals-list li {
+        background-color: white;
+        margin: 5px 0;
+        padding: 8px 12px;
+        border-left: 3px solid #007bff;
+        border-radius: 0 4px 4px 0;
+        font-size: 0.9rem;
+    }
+    
+    .sample-warning {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 4px;
+        padding: 10px;
+        margin-bottom: 15px;
+    }
+    
+    .processing-files {
+        background-color: #e3f2fd;
+        border: 1px solid #90caf9;
+        border-radius: 4px;
+        padding: 10px;
+        margin-bottom: 15px;
+        max-height: 200px;
+        overflow-y: auto;
+        transition: all 0.3s ease;
+    }
+    
+    .single-file-processing {
+        background-color: #f0f8ff;
+        border: 2px solid #4285f4;
+        padding: 15px;
+        box-shadow: 0 2px 8px rgba(66, 133, 244, 0.15);
+    }
+    
+    .single-file-processing .file-processing-item {
+        font-size: 1rem;
+        padding: 8px 0;
+        font-weight: 500;
+    }
+    
+    .file-processing-item {
+        display: flex;
+        align-items: center;
+        padding: 4px 0;
+        font-size: 0.9rem;
+    }
+    
+    .file-processing-item .status-icon {
+        margin-right: 8px;
+        width: 16px;
+        text-align: center;
+    }
+    
+    .file-status-pending { color: #6c757d; }
+    .file-status-processing { color: #007bff; }
+    .file-status-complete { color: #28a745; }
+    .file-status-error { color: #dc3545; }
+    
+    /* Spinning animation for processing icons */
+    .spin {
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    /* Processing indicator animations */
+    .processing-indicator {
+        margin-left: 8px;
+        color: #007bff;
+        font-weight: bold;
+    }
+    
+    .processing-indicator i {
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+    }
+    
+    /* Enhanced progress bar for single documents */
+    .progress-bar-enhanced {
+        background: linear-gradient(-45deg, #007bff, #0056b3, #007bff, #0056b3);
+        background-size: 400% 400%;
+        animation: gradientShift 2s ease infinite;
+    }
+    
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
     .document-count {
         font-size: 0.875rem;
         color: #6c757d;
@@ -114,6 +249,27 @@
     
     .saved-prompts {
         margin-bottom: 15px;
+    }
+    
+    .form-check.text-muted {
+        opacity: 0.6;
+    }
+    
+    .form-check.text-muted .form-check-input:disabled {
+        opacity: 0.5;
+    }
+    
+    .border-warning {
+        border-color: #ffc107 !important;
+        box-shadow: 0 0 0 0.2rem rgba(255, 193, 7, 0.25);
+    }
+    
+    #category-title-warning {
+        margin-top: 0.5rem;
+        padding: 0.5rem;
+        background-color: #fff3cd;
+        border: 1px solid #ffecb5;
+        border-radius: 0.25rem;
     }
 </style>
 {% endblock %}
@@ -184,6 +340,10 @@
                             <label for="category-title" class="form-label">Category Title *</label>
                             <input type="text" id="category-title" class="form-control" placeholder="e.g., 'Graphing Skills', 'Basic Concepts', 'Advanced Topics'" required>
                             <div class="form-text">This will be the heading under which these learning goals are organized.</div>
+                            <div id="category-title-warning" class="form-text text-warning" style="display: none;">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>Name Conflict:</strong> <span id="conflict-message"></span>
+                            </div>
                         </div>
                         
                         <!-- System Prompt -->
@@ -219,6 +379,9 @@
                                 <label class="form-check-label" for="save-prompt">
                                     Save this prompt for future reuse
                                 </label>
+                                <div class="form-text">
+                                    <small class="text-muted" id="save-prompt-help">This will save your custom prompt settings for quick reuse in future extractions.</small>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -243,9 +406,44 @@
                             <div><strong>Current:</strong> <span id="current-document">-</span></div>
                             <div><strong>Progress:</strong> <span id="document-progress">0 / 0</span></div>
                         </div>
-                        <div id="extraction-results" class="mt-4" style="display: none;">
-                            <h6>Extraction Results:</h6>
-                            <div id="results-summary"></div>
+                        
+                        <!-- Processing Files List -->
+                        <div id="processing-files-container" class="processing-files" style="display: none;">
+                            <h6><i class="bi bi-list-ul"></i> Processing Files:</h6>
+                            <div id="processing-files-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- Confirmation Section -->
+                    <div class="confirmation-section" id="confirmation-section">
+                        <h5 class="mb-3">
+                            <i class="bi bi-check-circle"></i> Review Extracted Learning Goals
+                        </h5>
+                        
+                        <div id="confirmation-summary" class="alert alert-info">
+                            <!-- Summary will be populated here -->
+                </div>
+                        
+                        <div id="sample-warning" class="sample-warning" style="display: none;">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <strong>Note:</strong> You are viewing a sample of results from a subset of files. 
+                            All selected files have been processed and will be saved.
+            </div>
+                        
+                        <div class="results-preview" id="results-preview">
+                            <!-- Results will be populated here -->
+                        </div>
+                        
+                        <div class="text-center">
+                            <button type="button" class="btn btn-success btn-lg me-3" id="confirm-save-btn">
+                                <i class="bi bi-check-lg"></i> Save Learning Goals
+                            </button>
+                            <button type="button" class="btn btn-secondary btn-lg me-3" id="go-back-btn">
+                                <i class="bi bi-arrow-left"></i> Go Back & Modify
+                            </button>
+                            <button type="button" class="btn btn-outline-danger" id="cancel-extraction-btn">
+                                <i class="bi bi-x-lg"></i> Cancel
+                            </button>
                         </div>
                     </div>
 
@@ -268,6 +466,9 @@ $(document).ready(function() {
     loadDocuments();
     loadSavedPrompts();
     
+    // Initialize save prompt checkbox state
+    $('#save-prompt').prop('checked', true).prop('disabled', false);
+    
     // Event handlers
     $('#select-all-btn').click(selectAllDocuments);
     $('#clear-all-btn').click(clearAllDocuments);
@@ -276,8 +477,14 @@ $(document).ready(function() {
     $('#extract-btn').click(extractLearningGoals);
     $('#saved-prompt-select').change(loadSavedPrompt);
     
-    // Validation
+    // Confirmation dialog buttons
+    $('#confirm-save-btn').click(confirmAndSaveResults);
+    $('#go-back-btn').click(goBackToForm);
+    $('#cancel-extraction-btn').click(cancelExtraction);
+    
+    // Validation and prompt modification handling
     $('#category-title, #system-prompt').on('input', validateForm);
+    $('#category-title, #system-prompt, #user-prompt').on('input', handlePromptModification);
     
     function loadDocuments() {
         $('#document-selector').html(`
@@ -334,10 +541,38 @@ $(document).ready(function() {
     function loadSavedPrompt() {
         const index = $('#saved-prompt-select').val();
         if (index && savedPrompts[index]) {
+            // Loading an existing saved prompt
             const prompt = savedPrompts[index];
             $('#category-title').val(prompt.title);
             $('#system-prompt').val(prompt.system_prompt);
             $('#user-prompt').val(prompt.user_prompt);
+            
+            // Disable and uncheck save prompt option since this is an existing prompt
+            $('#save-prompt').prop('checked', false).prop('disabled', true);
+            $('#save-prompt').closest('.form-check').addClass('text-muted');
+            $('label[for="save-prompt"]').text('Using existing saved prompt');
+            $('#save-prompt-help').text('You are using a previously saved prompt. Modify any field to enable saving a new version.');
+            
+            validateForm();
+        } else {
+            // Creating a new prompt or cleared selection
+            $('#save-prompt').prop('disabled', false);
+            $('#save-prompt').closest('.form-check').removeClass('text-muted');
+            $('label[for="save-prompt"]').text('Save this prompt for future reuse');
+            $('#save-prompt-help').text('This will save your custom prompt settings for quick reuse in future extractions.');
+            
+            // Clear any conflict warnings
+            $('#category-title-warning').hide();
+            $('#category-title').removeClass('border-warning');
+            
+            // If fields are cleared, reset save checkbox to checked
+            if (!index) {
+                $('#category-title').val('');
+                $('#system-prompt').val('');
+                $('#user-prompt').val('Extract learning goals from the following text:');
+                $('#save-prompt').prop('checked', true);
+            }
+            
             validateForm();
         }
     }
@@ -541,7 +776,95 @@ $(document).ready(function() {
         $('#extract-btn').prop('disabled', !(hasSelection && hasTitle && hasSystemPrompt));
     }
     
+    function handlePromptModification() {
+        const selectedIndex = $('#saved-prompt-select').val();
+        const currentTitle = $('#category-title').val().trim();
+        
+        if (selectedIndex && savedPrompts[selectedIndex]) {
+            const originalPrompt = savedPrompts[selectedIndex];
+            const currentSystem = $('#system-prompt').val().trim();
+            const currentUser = $('#user-prompt').val().trim();
+            
+            // Check if any field has been modified from the original
+            const isModified = currentTitle !== originalPrompt.title || 
+                             currentSystem !== originalPrompt.system_prompt || 
+                             currentUser !== originalPrompt.user_prompt;
+            
+            if (isModified) {
+                // User has modified the saved prompt, so re-enable save option
+                $('#save-prompt').prop('disabled', false).prop('checked', true);
+                $('#save-prompt').closest('.form-check').removeClass('text-muted');
+                $('label[for="save-prompt"]').text('Save this modified prompt for future reuse');
+                
+                // Check for potential overwrite conflicts
+                checkForPromptNameConflict(currentTitle, selectedIndex);
+            } else {
+                // Back to original saved prompt, disable save again
+                $('#save-prompt').prop('checked', false).prop('disabled', true);
+                $('#save-prompt').closest('.form-check').addClass('text-muted');
+                $('label[for="save-prompt"]').text('Using existing saved prompt');
+                $('#save-prompt-help').text('You are using a previously saved prompt. Modify any field to enable saving a new version.');
+                
+                // Clear any conflict warnings since we're back to original
+                $('#category-title-warning').hide();
+                $('#category-title').removeClass('border-warning');
+            }
+        } else {
+            // No saved prompt selected, this is a new custom prompt
+            $('#save-prompt').prop('disabled', false);
+            $('#save-prompt').closest('.form-check').removeClass('text-muted');
+            $('label[for="save-prompt"]').text('Save this prompt for future reuse');
+            
+            // Check for potential overwrite conflicts
+            checkForPromptNameConflict(currentTitle, null);
+        }
+    }
+    
+    function checkForPromptNameConflict(currentTitle, excludeIndex) {
+        if (!currentTitle) {
+            $('#save-prompt-help').text('This will save your custom prompt settings for quick reuse in future extractions.');
+            $('#category-title-warning').hide();
+            $('#category-title').removeClass('border-warning');
+            return;
+        }
+        
+        // Check if title conflicts with any existing saved prompt (excluding the current one being modified)
+        const conflictingPrompt = savedPrompts.find((prompt, index) => 
+            prompt.title.toLowerCase() === currentTitle.toLowerCase() && 
+            index != excludeIndex
+        );
+        
+        if (conflictingPrompt) {
+            // There's a name conflict
+            $('#save-prompt-help').html(`
+                <span class="text-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>Warning:</strong> A prompt named "${currentTitle}" already exists. 
+                    Saving will overwrite the existing prompt.
+                </span>
+            `);
+            
+            // Show warning in category title field
+            $('#conflict-message').text(`This will overwrite the existing "${currentTitle}" prompt. Change the name to create a new prompt instead.`);
+            $('#category-title-warning').show();
+            $('#category-title').addClass('border-warning');
+        } else {
+            // No conflict
+            $('#category-title-warning').hide();
+            $('#category-title').removeClass('border-warning');
+            
+            if (excludeIndex !== null) {
+                $('#save-prompt-help').text('You have modified the saved prompt. This will save the modified version as a new prompt.');
+            } else {
+                $('#save-prompt-help').text('This will save your custom prompt settings for quick reuse in future extractions.');
+            }
+        }
+    }
+    
 
+    
+    let extractionResults = null; // Store extraction results for confirmation
+    let eventSource = null; // Store event source for cleanup
     
     function extractLearningGoals() {
         const categoryTitle = $('#category-title').val().trim();
@@ -560,11 +883,24 @@ $(document).ready(function() {
             return;
         }
         
-        // Show progress section
+        // Reset previous results
+        extractionResults = null;
+        
+        // Show progress section and hide confirmation
         $('#progress-section').show();
+        $('#confirmation-section').hide();
         $('#extract-btn').prop('disabled', true);
         
-        // Start extraction
+        // Reset progress
+        $('#main-progress').css('width', '0%').removeClass('progress-bar-enhanced bg-danger');
+        $('#progress-status').text('Preparing...');
+        $('#current-document').text('-');
+        $('#document-progress').text('0 / 0');
+        
+        // Initialize processing files list
+        initializeProcessingFilesList();
+        
+        // Start extraction with streaming
         const extractionData = {
             document_ids: Array.from(selectedDocuments),
             category_title: categoryTitle,
@@ -574,65 +910,448 @@ $(document).ready(function() {
             save_prompt: savePrompt
         };
         
+        // Start streaming extraction using fetch with streaming response
+        fetch('/api/extract-bulk-learning-goals-stream', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(extractionData)
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            function readStream() {
+                return reader.read().then(({ done, value }) => {
+                    if (done) {
+                        return;
+                    }
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                handleExtractionProgress(data);
+                            } catch (e) {
+                                console.error('Error parsing stream data:', e);
+                            }
+                        }
+                    }
+                    
+                    return readStream();
+                });
+            }
+            
+            return readStream();
+            
+        }).catch(error => {
+            console.error('Error during extraction:', error);
+                showError('Extraction failed. Please try again.');
+                $('#extract-btn').prop('disabled', false);
+        });
+    }
+    
+    function initializeProcessingFilesList() {
+        const filesList = $('#processing-files-list');
+        filesList.empty();
+        
+        // Get selected document names from the DOM
+        const selectedDocs = [];
+        $('.document-checkbox:checked').each(function() {
+            const docId = $(this).data('document-id');
+            const docName = $(this).closest('.document-item').find('.item-info strong').text();
+            selectedDocs.push({ id: docId, name: docName });
+        });
+        
+        // Update container title based on number of files
+        const containerTitle = selectedDocs.length === 1 ? 
+            '<h6><i class="bi bi-file-earmark-text"></i> Processing File:</h6>' : 
+            `<h6><i class="bi bi-list-ul"></i> Processing ${selectedDocs.length} Files:</h6>`;
+        $('#processing-files-container h6').html(containerTitle);
+        
+        selectedDocs.forEach((doc, index) => {
+            const item = $(`
+                <div class="file-processing-item" data-doc-id="${doc.id}" data-doc-index="${index}">
+                    <span class="status-icon file-status-pending">
+                        <i class="bi bi-circle"></i>
+                    </span>
+                    <span class="file-name">${doc.name}</span>
+                    <span class="processing-indicator" style="display: none;">
+                        <i class="bi bi-three-dots"></i>
+                    </span>
+                </div>
+            `);
+            filesList.append(item);
+        });
+        
+        $('#processing-files-container').show();
+        
+        // For single documents, make the processing more prominent
+        if (selectedDocs.length === 1) {
+            $('#processing-files-container').addClass('single-file-processing');
+        }
+    }
+    
+    function updateFileStatus(docIndex, status, docName) {
+        // Find by index first, then by name as fallback
+        let item = $(`.file-processing-item[data-doc-index="${docIndex}"]`);
+        
+        if (item.length === 0 && docName) {
+            // Try to find by name as fallback
+            item = $(`.file-processing-item .file-name:contains("${docName}")`).closest('.file-processing-item');
+        }
+        
+        if (item.length === 0 && docName) {
+            // Add new item if not found (fallback)
+            const newItem = $(`
+                <div class="file-processing-item" data-doc-index="${docIndex}">
+                    <span class="status-icon file-status-pending">
+                        <i class="bi bi-circle"></i>
+                    </span>
+                    <span class="file-name">${docName}</span>
+                    <span class="processing-indicator" style="display: none;">
+                        <i class="bi bi-three-dots"></i>
+                    </span>
+                </div>
+            `);
+            $('#processing-files-list').append(newItem);
+            item = newItem;
+        }
+        
+        const statusIcon = item.find('.status-icon');
+        const processingIndicator = item.find('.processing-indicator');
+        statusIcon.removeClass('file-status-pending file-status-processing file-status-complete file-status-error');
+        
+        switch (status) {
+            case 'processing':
+                statusIcon.addClass('file-status-processing').html('<i class="bi bi-arrow-clockwise spin"></i>');
+                processingIndicator.show();
+                break;
+            case 'complete':
+                statusIcon.addClass('file-status-complete').html('<i class="bi bi-check-circle-fill"></i>');
+                processingIndicator.hide();
+                break;
+            case 'error':
+                statusIcon.addClass('file-status-error').html('<i class="bi bi-x-circle-fill"></i>');
+                processingIndicator.hide();
+                break;
+            default:
+                statusIcon.addClass('file-status-pending').html('<i class="bi bi-circle"></i>');
+                processingIndicator.hide();
+        }
+    }
+    
+    function handleExtractionProgress(data) {
+        switch (data.status) {
+            case 'starting':
+                $('#progress-status').text(data.message);
+                $('#document-progress').text(`0 / ${data.total_documents || 0}`);
+                // Start with a small progress to show activity
+                $('#main-progress').css('width', '5%').addClass('progress-bar-animated');
+                
+                // Add enhanced animation for single documents
+                if (data.total_documents === 1) {
+                    $('#main-progress').addClass('progress-bar-enhanced');
+                }
+                break;
+                
+            case 'prompt_saved':
+                $('#progress-status').text(data.message);
+                $('#main-progress').css('width', '10%');
+                break;
+                
+            case 'processing':
+                $('#progress-status').text(data.message);
+                if (data.current_document) {
+                    $('#current-document').text(data.current_document);
+                    updateFileStatus(data.current_index, 'processing', data.current_document);
+                }
+                
+                // FIXED: Calculate progress that ONLY moves forward
+                if (data.completed !== undefined && data.total !== undefined) {
+                    $('#document-progress').text(`${data.completed} / ${data.total}`);
+                    
+                    if (data.total === 1) {
+                        // Single document: show 30% when starting to process
+                        $('#main-progress').css('width', '30%');
+                    } else {
+                        // Multiple documents: calculate forward-only progress
+                        const completedDocs = data.completed; // Documents already done
+                        const currentDocIndex = data.current_index || 0; // Current document being processed
+                        const totalDocs = data.total;
+                        
+                        // Each document gets equal slice of 90% (reserve 10% for completion)
+                        const docSliceSize = 90 / totalDocs;
+                        const baseProgress = completedDocs * docSliceSize;
+                        const currentDocProgress = 0.15 * docSliceSize; // 15% into current document
+                        
+                        const totalProgress = baseProgress + currentDocProgress;
+                        $('#main-progress').css('width', `${Math.min(90, totalProgress)}%`);
+                    }
+                }
+                break;
+                
+            case 'extracting':
+                $('#progress-status').text(data.message);
+                if (data.current_document) {
+                    $('#current-document').text(data.current_document);
+                }
+                
+                // FIXED: Ensure progress only moves forward during extraction
+                if (data.total === 1) {
+                    $('#main-progress').css('width', '60%');
+                } else if (data.completed !== undefined && data.total !== undefined) {
+                    // Multiple documents: extraction phase
+                    const completedDocs = data.completed;
+                    const totalDocs = data.total;
+                    
+                    const docSliceSize = 90 / totalDocs;
+                    const baseProgress = completedDocs * docSliceSize;
+                    const currentDocProgress = 0.5 * docSliceSize; // 50% into current document
+                    
+                    const totalProgress = baseProgress + currentDocProgress;
+                    $('#main-progress').css('width', `${Math.min(90, totalProgress)}%`);
+                }
+                break;
+                
+            case 'processed':
+                $('#progress-status').text(data.message);
+                if (data.current_document) {
+                    updateFileStatus(data.current_index, 'complete', data.current_document);
+                }
+                
+                if (data.completed !== undefined && data.total !== undefined) {
+                    $('#document-progress').text(`${data.completed} / ${data.total}`);
+                    
+                    if (data.total === 1) {
+                        // Single document: show 90% when processing is done
+                        $('#main-progress').css('width', '90%');
+                    } else {
+                        // Multiple documents: document completed
+                        const completedDocs = data.completed; // This includes the just-completed document
+                        const totalDocs = data.total;
+                        
+                        const docSliceSize = 90 / totalDocs;
+                        const totalProgress = completedDocs * docSliceSize;
+                        
+                        $('#main-progress').css('width', `${Math.min(90, totalProgress)}%`);
+                    }
+                }
+                break;
+                
+            case 'complete':
+                $('#main-progress').css('width', '100%').removeClass('progress-bar-animated progress-bar-enhanced');
+                $('#progress-status').text('Extraction complete!');
+                
+                // Store results and show confirmation
+                extractionResults = data.results;
+                showConfirmationDialog(data.results);
+                break;
+                
+            case 'error':
+                $('#main-progress').removeClass('progress-bar-animated progress-bar-enhanced').addClass('bg-danger');
+                showError('Extraction failed: ' + data.message);
+                $('#extract-btn').prop('disabled', false);
+                break;
+        }
+    }
+    
+    function showConfirmationDialog(results) {
+        // Hide progress section and show confirmation
+        $('#progress-section').hide();
+        $('#confirmation-section').show();
+        
+        // Populate summary
+        const summaryHtml = `
+            <strong>Extraction Summary:</strong><br>
+            • Documents processed: ${results.processed_count} / ${results.total_count}<br>
+            • Total learning goals extracted: ${results.total_goals}<br>
+            • Category: "${results.category_title}"
+        `;
+        $('#confirmation-summary').html(summaryHtml);
+        
+        // Show results preview
+        showResultsPreview(results);
+        
+        // Re-enable the extract button
+        $('#extract-btn').prop('disabled', false);
+    }
+    
+    function showResultsPreview(results) {
+        const resultsContainer = $('#results-preview');
+        resultsContainer.empty();
+        
+        const extractionResults = results.extraction_results || [];
+        const showSample = extractionResults.length > 10;
+        const documentsToShow = showSample ? extractionResults.slice(0, 5) : extractionResults;
+        
+        // Show sample warning if needed
+        if (showSample) {
+            $('#sample-warning').show();
+        } else {
+            $('#sample-warning').hide();
+        }
+        
+        // Add results
+        documentsToShow.forEach(result => {
+            const goals = result.goals || [];
+            const goalsHtml = goals.map(goal => `<li>${goal}</li>`).join('');
+            
+            const resultHtml = `
+                <div class="document-result">
+                    <h6>
+                        <i class="bi bi-file-earmark-text"></i> ${result.document_name}
+                        <small class="text-muted">(${goals.length} goals)</small>
+                    </h6>
+                    <div class="mb-2">
+                        <small class="text-muted">
+                            Creator: ${result.creator || 'Unknown'} | 
+                            Course: ${result.course_name || 'No Course'}
+                        </small>
+                    </div>
+                    <ul class="goals-list">
+                        ${goalsHtml}
+                </ul>
+            </div>
+        `;
+            resultsContainer.append(resultHtml);
+        });
+        
+        // Add summary if showing sample
+        if (showSample) {
+            const remainingCount = extractionResults.length - documentsToShow.length;
+            const additionalInfo = `
+                <div class="alert alert-info mt-3">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Additional Files:</strong> ${remainingCount} more documents were processed. 
+                    All results will be saved when you confirm.
+                </div>
+            `;
+            resultsContainer.append(additionalInfo);
+        }
+        
+        // Show failures if any
+        if (results.failures && results.failures.length > 0) {
+            const failuresHtml = results.failures.map(failure => 
+                `<li><strong>${failure.document_name}:</strong> ${failure.error}</li>`
+            ).join('');
+            
+            const failuresSection = `
+                <div class="alert alert-warning mt-3">
+                    <h6><i class="bi bi-exclamation-triangle"></i> Some files failed to process:</h6>
+                    <ul class="mb-0">
+                        ${failuresHtml}
+                    </ul>
+                </div>
+            `;
+            resultsContainer.append(failuresSection);
+        }
+    }
+    
+    function confirmAndSaveResults() {
+        if (!extractionResults) {
+            showError('No extraction results to save.');
+            return;
+        }
+        
+        $('#confirm-save-btn').prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Saving...');
+        
+        const confirmData = {
+            extraction_results: extractionResults.extraction_results,
+            category_title: extractionResults.category_title
+        };
+        
         $.ajax({
-            url: '/api/extract-bulk-learning-goals',
+            url: '/api/confirm-bulk-extraction',
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify(extractionData),
+            data: JSON.stringify(confirmData),
             success: function(response) {
                 if (response.success) {
-                    showExtractionResults(response);
+                    // Show success message
+                    const successHtml = `
+                        <div class="alert alert-success">
+                            <h6><i class="bi bi-check-circle"></i> Learning Goals Saved Successfully!</h6>
+                            <p class="mb-1">• Documents updated: ${response.saved_count} / ${response.total_count}</p>
+                            <p class="mb-0">• Category: "${extractionResults.category_title}"</p>
+                        </div>
+                    `;
+                    
+                    if (response.failures && response.failures.length > 0) {
+                        const failuresHtml = response.failures.map(failure => 
+                            `<li><strong>${failure.document_name}:</strong> ${failure.error}</li>`
+                        ).join('');
+                        
+                        successHtml += `
+                            <div class="alert alert-warning mt-2">
+                                <h6>Some saves failed:</h6>
+                                <ul class="mb-0">${failuresHtml}</ul>
+                            </div>
+                        `;
+                    }
+                    
+                    $('#confirmation-section').html(`
+                        <div class="text-center">
+                            ${successHtml}
+                            <button type="button" class="btn btn-primary mt-3" onclick="location.reload()">
+                                <i class="bi bi-arrow-clockwise"></i> Start New Extraction
+                            </button>
+                        </div>
+                    `);
                 } else {
-                    showError('Extraction failed: ' + response.message);
+                    showError('Failed to save results: ' + response.message);
+                    $('#confirm-save-btn').prop('disabled', false).html('<i class="bi bi-check-lg"></i> Save Learning Goals');
                 }
             },
             error: function() {
-                showError('Extraction failed. Please try again.');
-            },
-            complete: function() {
-                $('#extract-btn').prop('disabled', false);
+                showError('Failed to save results. Please try again.');
+                $('#confirm-save-btn').prop('disabled', false).html('<i class="bi bi-check-lg"></i> Save Learning Goals');
             }
         });
     }
     
-    function showExtractionResults(response) {
-        $('#main-progress').css('width', '100%');
-        $('#progress-status').text('Complete!');
-        $('#document-progress').text(`${response.processed_count} / ${response.total_count}`);
+    function goBackToForm() {
+        // Hide confirmation and show form again
+        $('#confirmation-section').hide();
+        $('#progress-section').hide();
+        $('#extract-btn').prop('disabled', false);
         
-        let resultsHtml = `
-            <div class="alert alert-success">
-                <h6>Extraction Complete!</h6>
-                <ul class="mb-0">
-                    <li>Documents processed: ${response.processed_count}</li>
-                    <li>Total learning goals extracted: ${response.total_goals}</li>
-                    <li>Category: "${response.category_title}"</li>
-                </ul>
-            </div>
-        `;
+        // Reset the form state
+        extractionResults = null;
         
-        if (response.failures && response.failures.length > 0) {
-            resultsHtml += `
-                <div class="alert alert-warning">
-                    <h6>Some documents failed:</h6>
-                    <ul class="mb-0">
-                        ${response.failures.map(failure => `<li>${failure.document_name}: ${failure.error}</li>`).join('')}
-                    </ul>
-                </div>
-            `;
+        // Scroll to top
+        $('html, body').animate({ scrollTop: 0 }, 500);
+    }
+    
+    function cancelExtraction() {
+        if (confirm('Are you sure you want to cancel? All extracted results will be lost.')) {
+            location.reload();
         }
-        
-        $('#results-summary').html(resultsHtml);
-        $('#extraction-results').show();
-        
-        // Auto-hide after 10 seconds
-        setTimeout(() => {
-            $('#progress-section').fadeOut();
-        }, 10000);
     }
     
     function showError(message) {
-        alert(message); // TODO: Replace with better error handling
+        // Create a better error display
+        const errorHtml = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle"></i> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        // Insert error at the top of the card body
+        $('.card-body').prepend(errorHtml);
+        
+        // Auto-dismiss after 8 seconds
+        setTimeout(() => {
+            $('.alert-danger').fadeOut();
+        }, 8000);
     }
     
     // Expose toggle function globally

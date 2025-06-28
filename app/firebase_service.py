@@ -51,9 +51,16 @@ def init_app(app):
             bucket_name = bucket_name[5:]
             print(f"Removed gs:// prefix, bucket name now: {bucket_name}")
             
-        # Keep the bucket name as provided - don't convert appspot.com to firebasestorage.app
-        # The bucket name from environment should be used as-is
-        print(f"Using bucket name as provided: {bucket_name}")
+        # Ensure bucket name is in proper format (project-id.firebasestorage.app)  
+        if bucket_name.endswith('.appspot.com'):
+            project_id = bucket_name.split('.')[0]
+            bucket_name = f"{project_id}.firebasestorage.app"
+            print(f"Converted bucket name from appspot.com to correct Storage format: {bucket_name}")
+        elif not bucket_name.endswith('.firebasestorage.app'):
+            # If it doesn't have either domain extension, assume it's just the project ID
+            if '.' not in bucket_name:
+                bucket_name = f"{bucket_name}.firebasestorage.app"
+                print(f"Added .firebasestorage.app domain to bucket name: {bucket_name}")
             
         print(f"Final bucket name to use: {bucket_name}")    
         

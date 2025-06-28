@@ -188,6 +188,16 @@
                 <h3 class="h5 mb-3">Document Preview:</h3>
                 <div class="pdf-container">
                     {% if document.storage_path %}
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <small class="text-muted">Having trouble viewing this document?</small>
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-sm btn-outline-warning" onclick="showReuploadModal()">
+                                    <i class="bi bi-cloud-upload"></i> Reupload File
+                                </button>
+                            </div>
+                        </div>
                         <div id="pdf-loading" style="text-align: center; padding: 50px;">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading document...</span>
@@ -204,6 +214,55 @@
                             <i class="bi bi-exclamation-triangle"></i> Document file not available.
                         </div>
                     {% endif %}
+                </div>
+                
+                <!-- Reupload Modal -->
+                <div class="modal fade" id="reuploadModal" tabindex="-1" aria-labelledby="reuploadModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="reuploadModalLabel">Reupload Document</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle"></i>
+                                    <strong>Note:</strong> This will only replace the file. All existing metadata (learning goals, creator, course, etc.) will be preserved.
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="reuploadFile" class="form-label">Select new file:</label>
+                                    <input type="file" class="form-control" id="reuploadFile" accept=".pdf" onchange="checkFileName()">
+                                    <div class="form-text">Original file: <strong>{{ document.original_filename }}</strong></div>
+                                </div>
+                                
+                                <div id="fileSizeWarning" class="alert" style="display: none;">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <span id="fileSizeWarningText"></span>
+                                </div>
+                                
+                                <div id="nameWarning" class="alert alert-warning" style="display: none;">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Filename differs!</strong> 
+                                    <span id="nameWarningText"></span>
+                                    <br><small>All metadata will be preserved. Only the file will be replaced.</small>
+                                </div>
+                                
+                                <div id="uploadProgress" style="display: none;">
+                                    <div class="progress mb-2">
+                                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                    </div>
+                                    <small class="text-muted">Uploading...</small>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-warning" id="confirmReupload" onclick="performReupload()" disabled>
+                                    <i class="bi bi-cloud-upload"></i> Replace File
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Collapsed Prompt Section -->
@@ -231,6 +290,10 @@
 {% block scripts %}
 <script>
 $(document).ready(function() {
+    // Set up iframe event handlers
+    $('#pdf-iframe').on('load', handleIframeLoad);
+    $('#pdf-iframe').on('error', handleIframeError);
+    
     // Load document URL dynamically if storage path exists
     {% if document.storage_path %}
     loadDocumentPreview('{{ document.id }}');
@@ -241,13 +304,44 @@ function loadDocumentPreview(documentId) {
     $.ajax({
         url: "{{ url_for('main.get_document_url', document_id='PLACEHOLDER') }}".replace('PLACEHOLDER', documentId),
         method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+        },
         success: function(response) {
             if (response.url) {
+                console.log('DEBUG - Document URL received:', response.url.substring(0, 100) + '...');
+                
                 // Hide loading spinner
                 $('#pdf-loading').hide();
                 
                 // Set iframe source and show it
                 $('#pdf-iframe').attr('src', response.url).show();
+                
+                // Add additional error handling for PDF loading
+                $('#pdf-iframe').on('load', function() {
+                    // Test if we can access the iframe content
+                    setTimeout(() => {
+                        try {
+                            const iframe = this;
+                            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                            
+                            // Check if it's a PDF by looking at content type or URL
+                            if (response.url.includes('.pdf') || response.url.includes('application/pdf')) {
+                                console.log('PDF should be loading in iframe');
+                                
+                                // Additional check: see if iframe has actual content
+                                if (iframeDoc && iframeDoc.body && iframeDoc.body.children.length === 0) {
+                                    console.warn('Iframe loaded but appears empty');
+                                    showPdfError('PDF failed to load - the file may be corrupted or inaccessible');
+                                }
+                            }
+                        } catch (e) {
+                            // This is expected for cross-origin PDF content
+                            console.log('Cannot access iframe content (normal for PDFs):', e.message);
+                        }
+                    }, 1000); // Wait 1 second for PDF to start loading
+                });
                 
                 // Show correction message if path was corrected
                 if (response.corrected) {
@@ -261,10 +355,44 @@ function loadDocumentPreview(documentId) {
             let errorMessage = 'Unable to load document preview';
             if (xhr.responseJSON && xhr.responseJSON.error) {
                 errorMessage = xhr.responseJSON.error;
+            } else if (xhr.status === 404) {
+                errorMessage = 'Document not found or file missing from storage';
+            } else if (xhr.status === 500) {
+                errorMessage = 'Server error while accessing document';
             }
+            console.error('AJAX Error:', xhr.status, xhr.responseText);
             showPdfError(errorMessage);
         }
     });
+}
+
+function handleIframeLoad() {
+    // Check if iframe loaded successfully
+    const iframe = document.getElementById('pdf-iframe');
+    try {
+        // Try to access iframe content to check if it loaded properly
+        // This will throw an error if the content is not accessible (CORS, error page, etc.)
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        
+        // If we can access the document and it's an error page (contains our error HTML)
+        if (iframeDoc && iframeDoc.body && iframeDoc.body.innerHTML.includes('Document Not Found')) {
+            showPdfError('Document file not found in storage');
+            return;
+        }
+        
+        // If we get here, the iframe probably loaded successfully
+        console.log('PDF iframe loaded successfully');
+    } catch (e) {
+        // Cross-origin or other access error - this is normal for PDFs
+        // The iframe is likely showing the actual PDF content
+        console.log('PDF iframe loaded (cross-origin content)');
+        console.log('Cross-origin details:', e.message);
+    }
+}
+
+function handleIframeError() {
+    console.log('Iframe failed to load');
+    showPdfError('Failed to load document preview');
 }
 
 function showPdfError(message) {
@@ -272,6 +400,190 @@ function showPdfError(message) {
     $('#pdf-iframe').hide();
     $('#error-message').text(message);
     $('#pdf-error').show();
+}
+
+// Reupload functionality
+const originalFilename = '{{ document.original_filename }}';
+const documentId = '{{ document.id }}';
+
+// File size constants (same as index.html)
+const LARGE_FILE_THRESHOLD = 32 * 1024 * 1024; // 32MB - warning threshold
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB - hard limit
+
+function showReuploadModal() {
+    // Reset modal state
+    const fileInput = document.getElementById('reuploadFile');
+    const progressDiv = document.getElementById('uploadProgress');
+    const progressBar = progressDiv.querySelector('.progress-bar');
+    const confirmButton = document.getElementById('confirmReupload');
+    const nameWarning = document.getElementById('nameWarning');
+    const sizeWarning = document.getElementById('fileSizeWarning');
+    
+    // Reset all elements
+    fileInput.value = '';
+    progressDiv.style.display = 'none';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '';
+    progressBar.className = 'progress-bar'; // Remove bg-success/bg-danger classes
+    confirmButton.disabled = true;
+    nameWarning.style.display = 'none';
+    sizeWarning.style.display = 'none';
+    
+    const modal = new bootstrap.Modal(document.getElementById('reuploadModal'));
+    modal.show();
+}
+
+function getFileNameBeforeFirstDot(filename) {
+    return filename.split('.')[0];
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function checkFileName() {
+    const fileInput = document.getElementById('reuploadFile');
+    const nameWarning = document.getElementById('nameWarning');
+    const nameWarningText = document.getElementById('nameWarningText');
+    const confirmButton = document.getElementById('confirmReupload');
+    const sizeWarning = document.getElementById('fileSizeWarning');
+    const sizeWarningText = document.getElementById('fileSizeWarningText');
+    
+    if (fileInput.files.length === 0) {
+        confirmButton.disabled = true;
+        nameWarning.style.display = 'none';
+        sizeWarning.style.display = 'none';
+        return;
+    }
+    
+    const newFile = fileInput.files[0];
+    const newFileName = newFile.name;
+    const fileSize = newFile.size;
+    
+    // Check file size first
+    let fileSizeValid = true;
+    if (fileSize > MAX_FILE_SIZE) {
+        sizeWarningText.innerHTML = `
+            <strong>⚠️ File too large (${formatFileSize(fileSize)})</strong><br>
+            Files over 100MB cannot be uploaded. Please compress or use a smaller file.
+        `;
+        sizeWarning.className = 'alert alert-danger';
+        sizeWarning.style.display = 'block';
+        fileSizeValid = false;
+    } else if (fileSize > LARGE_FILE_THRESHOLD) {
+        sizeWarningText.innerHTML = `
+            <strong>📤 Large file detected (${formatFileSize(fileSize)})</strong><br>
+            This file is between 32MB-100MB and may take longer to upload.
+        `;
+        sizeWarning.className = 'alert alert-warning';
+        sizeWarning.style.display = 'block';
+    } else {
+        sizeWarning.style.display = 'none';
+    }
+    
+    // Check filename
+    const originalBaseName = getFileNameBeforeFirstDot(originalFilename);
+    const newBaseName = getFileNameBeforeFirstDot(newFileName);
+    
+    if (originalBaseName !== newBaseName) {
+        nameWarningText.textContent = `Original: "${originalBaseName}" → New: "${newBaseName}"`;
+        nameWarning.style.display = 'block';
+    } else {
+        nameWarning.style.display = 'none';
+    }
+    
+    // Enable button only if file size is valid
+    confirmButton.disabled = !fileSizeValid;
+}
+
+function performReupload() {
+    const fileInput = document.getElementById('reuploadFile');
+    const progressDiv = document.getElementById('uploadProgress');
+    const progressBar = progressDiv.querySelector('.progress-bar');
+    const confirmButton = document.getElementById('confirmReupload');
+    
+    if (fileInput.files.length === 0) {
+        alert('Please select a file first');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    confirmButton.disabled = true;
+    progressDiv.style.display = 'block';
+    
+    // Create FormData for upload
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('documentId', documentId);
+    
+    // Upload with progress tracking
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', function(e) {
+        if (e.lengthComputable) {
+            // Cap client upload at 70% to leave room for server processing
+            const uploadProgress = Math.round((e.loaded / e.total) * 70);
+            progressBar.style.width = uploadProgress + '%';
+            progressBar.textContent = uploadProgress + '%';
+            
+            if (uploadProgress >= 70) {
+                progressBar.textContent = 'Processing on server...';
+            }
+        }
+    });
+    
+    xhr.addEventListener('load', function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            const response = JSON.parse(xhr.responseText);
+            if (response.success) {
+                // Show completion
+                progressBar.style.width = '100%';
+                progressBar.textContent = 'Complete!';
+                progressBar.classList.add('bg-success');
+                
+                setTimeout(() => {
+                    alert('File reuploaded successfully! Refreshing page...');
+                    window.location.reload();
+                }, 500);
+            } else {
+                progressBar.style.width = '100%';
+                progressBar.textContent = 'Failed';
+                progressBar.classList.add('bg-danger');
+                alert('Upload failed: ' + (response.message || 'Unknown error'));
+                confirmButton.disabled = false;
+                setTimeout(() => {
+                    progressDiv.style.display = 'none';
+                }, 2000);
+            }
+        } else {
+            progressBar.style.width = '100%';
+            progressBar.textContent = 'Error';
+            progressBar.classList.add('bg-danger');
+            alert('Upload failed with status: ' + xhr.status);
+            confirmButton.disabled = false;
+            setTimeout(() => {
+                progressDiv.style.display = 'none';
+            }, 2000);
+        }
+    });
+    
+    xhr.addEventListener('error', function() {
+        progressBar.style.width = '100%';
+        progressBar.textContent = 'Network Error';
+        progressBar.classList.add('bg-danger');
+        alert('Upload failed due to network error');
+        confirmButton.disabled = false;
+        setTimeout(() => {
+            progressDiv.style.display = 'none';
+        }, 2000);
+    });
+    
+    xhr.open('POST', '/api/reupload/' + documentId);
+    xhr.send(formData);
 }
 </script>
 {% endblock %}
