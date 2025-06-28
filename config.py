@@ -27,6 +27,8 @@ class Config:
     CORS_ORIGINS = [
         'https://mathmatic.org',
         'https://www.mathmatic.org',
+        'https://thegrowbot.org',
+        'https://www.thegrowbot.org',
         'http://localhost:3000',  # For development
         'http://127.0.0.1:3000'   # For development
     ] 

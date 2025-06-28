@@ -98,6 +98,10 @@
                                 <a class="nav-link {% if request.path == url_for('main.search_page') %}active{% endif %}" 
                                    href="{{ url_for('main.search_page') }}">Search</a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link {% if request.path == url_for('main.add_goals_page') %}active{% endif %}" 
+                                   href="{{ url_for('main.add_goals_page') }}">Add Goals</a>
+                            </li>
                             <!-- Hidden menu items - pages still exist but removed from navigation
                             <li class="nav-item">
                                 <a class="nav-link {% if request.path == url_for('main.cluster_page') %}active{% endif %}" 

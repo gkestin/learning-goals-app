@@ -170,6 +170,13 @@
                         </div>
                     </div>
                     
+                    <!-- Category Title Field (shown when custom prompt is used) -->
+                    <div class="mb-3" id="categoryTitleSection" style="display: none;">
+                        <label for="category_title" class="form-label">Category Title for These Learning Goals:</label>
+                        <input type="text" class="form-control" id="category_title" name="category_title" placeholder="e.g., 'Graphing Skills', 'Basic Concepts', 'Advanced Topics'">
+                        <div class="form-text">Since you're using a custom prompt, please provide a title to categorize these learning goals.</div>
+                    </div>
+                    
                     <div class="d-grid gap-2">
                             <button type="submit" class="btn btn-primary btn-lg" id="extractBtn">
                                 <i class="bi bi-cpu"></i> Extract Learning Goals
@@ -295,6 +302,21 @@
     // File input change handler
     document.getElementById('file').addEventListener('change', updateFileDisplay);
     
+    // Show/hide category title field based on custom prompt usage
+    document.getElementById('system_message').addEventListener('input', function() {
+        const categorySection = document.getElementById('categoryTitleSection');
+        const hasCustomPrompt = this.value.trim().length > 0;
+        
+        if (hasCustomPrompt) {
+            categorySection.style.display = 'block';
+            document.getElementById('category_title').required = true;
+        } else {
+            categorySection.style.display = 'none';
+            document.getElementById('category_title').required = false;
+            document.getElementById('category_title').value = '';
+        }
+    });
+    
     function formatFileSize(bytes) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
@@ -348,7 +370,7 @@
     }
     
     // Extract learning goals from text using API
-    async function extractLearningGoals(text, systemMessage, model) {
+    async function extractLearningGoals(text, systemMessage, model, categoryTitle) {
         try {
             const response = await fetch('/api/extract-learning-goals', {
                 method: 'POST',
@@ -358,6 +380,7 @@
                 body: JSON.stringify({
                     text: text,
                     system_message: systemMessage,
+                    category_title: categoryTitle,
                     model: model
                 })
             });
@@ -374,7 +397,7 @@
     }
     
     // Process all files and extract learning goals
-    async function processFiles(files, systemMessage, model) {
+    async function processFiles(files, systemMessage, model, categoryTitle) {
         const progressContainer = document.getElementById('extractionProgress');
         const progressBar = progressContainer.querySelector('.progress-bar');
         const progressText = document.getElementById('progressText');
@@ -417,13 +440,14 @@
                 progressBar.style.width = (progress - 10 / validFiles.length) + '%';
                 
                 // Extract learning goals
-                const result = await extractLearningGoals(text, systemMessage, model);
+                const result = await extractLearningGoals(text, systemMessage, model, categoryTitle);
                             
                 // Store file data and content for later upload
                 const fileData = {
                     file: file, // Keep the actual File object for later upload
                     original_filename: file.name,
-                    learning_goals: result.learning_goals,
+                    learning_goals: result.learning_goals, // For backward compatibility
+                    learning_goals_by_prompt: categoryTitle ? {[categoryTitle.toLowerCase().replace(/\s+/g, '_')]: result.category_data} : {},
                     lo_extraction_prompt: result.system_message_used,
                     extracted_text: text.substring(0, 1000) + '...' // Store sample for preview
                 };
@@ -445,11 +469,11 @@
         if (processedFiles.length === 0) {
             alert('No files were successfully processed.');
             return null;
-            }
-        
-        return processedFiles;
         }
         
+        return processedFiles;
+    }
+    
     // Form submission handler
     document.getElementById('extract-form').addEventListener('submit', async function(event) {
         event.preventDefault();
@@ -474,11 +498,12 @@
         }
         
         const systemMessage = document.getElementById('system_message').value;
+        const categoryTitle = document.getElementById('category_title').value || 'Default';
         const model = document.getElementById('model').value;
         
         try {
             // Process files and extract learning goals
-            const processedFiles = await processFiles(files, systemMessage, model);
+            const processedFiles = await processFiles(files, systemMessage, model, categoryTitle);
             
             if (processedFiles && processedFiles.length > 0) {
                 // Show progress for final steps
@@ -496,6 +521,7 @@
                 const sessionData = processedFiles.map(fileData => ({
                     original_filename: fileData.original_filename,
                     learning_goals: fileData.learning_goals,
+                    learning_goals_by_prompt: fileData.learning_goals_by_prompt,
                     lo_extraction_prompt: fileData.lo_extraction_prompt,
                     extracted_text: fileData.extracted_text,
                     file_size: fileData.file.size,

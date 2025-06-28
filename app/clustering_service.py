@@ -13,6 +13,12 @@ from scipy.spatial.distance import pdist
 # STEM context prefix for better embeddings
 STEM_CONTEXT = "In STEM education, students should be able to: "
 
+def filter_none_goals(goals):
+    """Filter out 'NONE' goals from a list of learning goals"""
+    if not goals:
+        return []
+    return [goal for goal in goals if goal.strip().upper() != "NONE"]
+
 class LearningGoalsClusteringService:
     def __init__(self):
         # Load local sentence-transformer model
@@ -26,8 +32,10 @@ class LearningGoalsClusteringService:
         self._cache_lock = threading.Lock()
         
     def prepare_goals_for_embedding(self, learning_goals):
-        """Prepend STEM context to learning goals for better embeddings"""
-        return [f"{STEM_CONTEXT}{goal}" for goal in learning_goals]
+        """Prepend STEM context to learning goals for better embeddings and filter NONE goals"""
+        # Filter out "NONE" goals first
+        filtered_goals = filter_none_goals(learning_goals)
+        return [f"{STEM_CONTEXT}{goal}" for goal in filtered_goals]
     
     def generate_embeddings(self, learning_goals):
         """Generate embeddings for learning goals with caching and batch processing"""

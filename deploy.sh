@@ -48,7 +48,7 @@ gcloud run deploy $SERVICE_NAME \
   --cpu=2 \
   --timeout=3600 \
   --concurrency=20 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=10 \
   --no-use-http2 \
   --set-env-vars "SECRET_KEY=learning-goals-secret-key-production" \

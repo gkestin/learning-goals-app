@@ -101,7 +101,59 @@
                 
                 <h3 class="h5 mb-3">Learning Goals:</h3>
                 <div class="learning-goals-container mb-4">
-                    {% if document.learning_goals %}
+                    {% if document.learning_goals_by_prompt %}
+                        <!-- New categorized learning goals -->
+                        {% for category_key, category_data in document.learning_goals_by_prompt.items() %}
+                            <div class="category-section mb-4">
+                                <h4 class="h6 mb-2">
+                                    <i class="bi bi-tag"></i> {{ category_data.title or category_key.replace('_', ' ').title() }}
+                                </h4>
+                                
+                                {% if category_data.goals %}
+                                    <div class="learning-goals-list mb-3">
+                                        <ul class="list-group list-group-flush">
+                                            {% for goal in category_data.goals %}
+                                                {% if goal.upper() == "NONE" %}
+                                                    <li class="list-group-item text-muted fst-italic">No goals for {{ category_data.title or category_key.replace('_', ' ').title() }}</li>
+                                                {% else %}
+                                                    <li class="list-group-item">{{ goal }}</li>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                {% else %}
+                                    <p class="text-muted">No goals for {{ category_data.title or category_key.replace('_', ' ').title() }}</p>
+                                {% endif %}
+                                
+                                <!-- Show prompt details -->
+                                <div class="prompt-details">
+                                    <button class="btn btn-sm btn-outline-secondary prompt-toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#prompt-{{ loop.index0 }}" aria-expanded="false">
+                                        <i class="bi bi-chevron-down"></i> View Prompt Details
+                                    </button>
+                                    <div class="collapse mt-2" id="prompt-{{ loop.index0 }}">
+                                        <div class="card card-body bg-light prompt-section">
+                                            <small>
+                                                <strong>System Prompt:</strong><br>
+                                                <pre class="small mb-2">{{ category_data.system_prompt or 'Default system prompt' }}</pre>
+                                                <strong>User Prompt:</strong><br>
+                                                <code>{{ category_data.user_prompt or 'Extract learning goals from the following text:' }}</code><br>
+                                                {% if category_data.created_at %}
+                                                    <strong>Created:</strong> {{ category_data.created_at }}<br>
+                                                {% endif %}
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% if not loop.last %}<hr>{% endif %}
+                        {% endfor %}
+                        
+                    {% elif document.learning_goals %}
+                        <!-- Fallback to old structure -->
+                        <div class="category-section mb-4">
+                            <h4 class="h6 mb-2">
+                                <i class="bi bi-tag"></i> Default
+                            </h4>
                         <div class="learning-goals-list">
                             <ul class="list-group list-group-flush">
                                 {% for goal in document.learning_goals %}
@@ -109,6 +161,25 @@
                                 {% endfor %}
                             </ul>
                         </div>
+                            
+                            <!-- Show original prompt if available -->
+                            {% if document.lo_extraction_prompt %}
+                                <div class="prompt-details">
+                                    <button class="btn btn-sm btn-outline-secondary prompt-toggle-btn" type="button" data-bs-toggle="collapse" data-bs-target="#prompt-default" aria-expanded="false">
+                                        <i class="bi bi-chevron-down"></i> View Prompt Details
+                                    </button>
+                                    <div class="collapse mt-2" id="prompt-default">
+                                        <div class="card card-body bg-light prompt-section">
+                                            <small>
+                                                <strong>System Prompt:</strong><br>
+                                                <pre class="small">{{ document.lo_extraction_prompt }}</pre>
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                        
                     {% else %}
                         <p class="text-muted">No learning goals available for this document.</p>
                     {% endif %}

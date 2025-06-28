@@ -11,6 +11,7 @@ from app.openai_service import extract_learning_goals, DEFAULT_SYSTEM_MESSAGE
 from app.firebase_service import upload_pdf_to_storage, save_document, get_document, search_documents, get_learning_goal_suggestions, delete_document, move_storage_file, smart_resolve_storage_path
 from datetime import datetime
 import datetime as dt
+from collections import defaultdict
 
 main = Blueprint('main', __name__)
 
@@ -191,6 +192,9 @@ def save_document_data():
             # Get learning goals for this document
             learning_goals = request.form.getlist(f'learning_goals_{index}[]')
             
+            # Get learning goals by prompt structure (new categorized system)
+            learning_goals_by_prompt = file_data.get('learning_goals_by_prompt', {})
+            
             original_filename = file_data['original_filename']
             storage_path = upload_result['storagePath']
             
@@ -227,6 +231,7 @@ def save_document_data():
                 doc_type=doc_type,
                 notes=notes,
                 learning_goals=learning_goals,
+                learning_goals_by_prompt=learning_goals_by_prompt,
                 storage_path=final_storage_path,
                 public_url=public_url,
                 lo_extraction_prompt=file_data.get('lo_extraction_prompt', '')
@@ -285,6 +290,13 @@ def api_search():
     # Convert to JSON-serializable format
     docs = []
     for doc in results:
+        # Get available prompt categories
+        prompt_categories = []
+        if doc.learning_goals_by_prompt:
+            prompt_categories = list(doc.learning_goals_by_prompt.keys())
+        elif doc.learning_goals:
+            prompt_categories = ['default']
+        
         docs.append({
             'id': doc.id,
             'name': doc.name,
@@ -294,6 +306,8 @@ def api_search():
             'doc_type': doc.doc_type,
             'notes': doc.notes,
             'learning_goals': doc.learning_goals,
+            'learning_goals_by_prompt': doc.learning_goals_by_prompt,
+            'prompt_categories': prompt_categories,
             'storage_path': doc.storage_path
         })
     
@@ -506,26 +520,55 @@ def cluster_page():
 def api_goals_overview():
     """API endpoint to get overview of available learning goals"""
     try:
-        # Get course filter from query parameters
+        # Get filters from query parameters
         course_filter = request.args.get('course')
+        categories_filter = request.args.getlist('categories')  # Multiple categories allowed
         
         # Get all learning goals from Firebase
         all_documents = search_documents(limit=1000)  # Get all documents
         
-        # Extract all learning goals with course filtering
+        # Extract all learning goals with filtering
         all_goals = []
         documents_count = 0
         unique_creators = set()
         unique_courses = set()
+        available_categories = set()
         
         for doc in all_documents:
             # Apply course filter if specified
             if course_filter and doc.course_name != course_filter:
                 continue
+            
+            # Collect goals from new categorized structure
+            doc_has_goals = False
+            if doc.learning_goals_by_prompt:
+                available_categories.update(doc.learning_goals_by_prompt.keys())
                 
-            if doc.learning_goals:  # Only count documents with learning goals
+                for category_name, category_data in doc.learning_goals_by_prompt.items():
+                    # Apply category filter if specified
+                    if categories_filter and category_name not in categories_filter:
+                        continue
+                    
+                    goals = category_data.get('goals', [])
+                    # Filter out NONE goals
+                    from app.clustering_service import filter_none_goals
+                    goals = filter_none_goals(goals)
+                    
+                    if goals:
+                        all_goals.extend(goals)
+                        doc_has_goals = True
+            
+            # Fall back to old structure if no categorized goals
+            elif doc.learning_goals:
+                if not categories_filter or 'default' in categories_filter:
+                    from app.clustering_service import filter_none_goals
+                    goals = filter_none_goals(doc.learning_goals)
+                    all_goals.extend(goals)
+                    doc_has_goals = True
+                    available_categories.add('default')
+            
+            if doc_has_goals:
                 documents_count += 1
-                all_goals.extend(doc.learning_goals)
                 if doc.creator:
                     unique_creators.add(doc.creator)
                 if doc.course_name:
@@ -538,7 +581,8 @@ def api_goals_overview():
             'unique_creators': len(unique_creators),
             'unique_courses': len(unique_courses),
             'unique_goals': len(set(all_goals)),  # Count unique goals
-            'avg_goals_per_doc': round(len(all_goals) / documents_count, 1) if documents_count > 0 else 0
+            'avg_goals_per_doc': round(len(all_goals) / documents_count, 1) if documents_count > 0 else 0,
+            'available_categories': sorted(list(available_categories))
         })
         
     except Exception as e:
@@ -1283,6 +1327,8 @@ def extract_learning_goals_from_text():
         data = request.get_json()
         text = data.get('text')
         custom_system_message = data.get('system_message')
+        custom_user_prompt = data.get('user_prompt')
+        category_title = data.get('category_title', 'Default')
         model = data.get('model', 'gpt-4o')
         
         if not text or not text.strip():
@@ -1290,11 +1336,15 @@ def extract_learning_goals_from_text():
         
         # Extract learning goals using OpenAI
         api_key = current_app.config['OPENAI_API_KEY']
-        extraction_result = extract_learning_goals(text, api_key, custom_system_message, model=model)
+        extraction_result = extract_learning_goals(
+            text, api_key, custom_system_message, custom_user_prompt, 
+            model=model, category_title=category_title
+        )
         
         return jsonify({
             'success': True,
             'learning_goals': extraction_result['learning_goals'],
+            'category_data': extraction_result['category_data'],
             'system_message_used': extraction_result['system_message_used']
         })
         
@@ -3217,6 +3267,7 @@ def api_find_document_by_name():
         'doc_type': matching_doc.doc_type,
         'notes': matching_doc.notes,
         'learning_goals': matching_doc.learning_goals,
+        'learning_goals_by_prompt': matching_doc.learning_goals_by_prompt,  # NEW STRUCTURE
         'created_at': str(matching_doc.created_at) if matching_doc.created_at else None,
         'lo_extraction_prompt': getattr(matching_doc, 'lo_extraction_prompt', None)
     })
@@ -3270,5 +3321,398 @@ def fix_storage_paths():
             results['broken_count'] += 1
         
         results['details'].append(doc_info)
-    
+            
     return jsonify(results)
+
+
+# =============================================
+# ADD GOALS FUNCTIONALITY
+# =============================================
+
+@main.route('/add-goals')
+def add_goals_page():
+    """Add Learning Goals page with custom prompts"""
+    return render_template('add-goals.html')
+
+@main.route('/api/get-documents-hierarchical', methods=['GET'])
+def api_get_documents_hierarchical():
+    """Get documents organized hierarchically by creator -> course -> document"""
+    from app.firebase_service import search_documents
+    
+    try:
+        all_documents = search_documents(limit=1000)
+        
+        # Organize into hierarchy
+        hierarchy = {}
+        documents_list = []
+        
+        for doc in all_documents:
+            creator = doc.creator or "Unknown Creator"
+            course = doc.course_name or "No Course"
+            institution = doc.institution or ""
+            
+            # Add to flat documents list
+            documents_list.append({
+                'id': doc.id,
+                'name': doc.name,
+                'creator': creator,
+                'course_name': course,
+                'institution': institution,
+                'doc_type': doc.doc_type,
+                'has_goals': len(doc.learning_goals) > 0 or len(doc.learning_goals_by_prompt) > 0
+            })
+            
+            # Build hierarchy
+            if creator not in hierarchy:
+                hierarchy[creator] = {
+                    'institution': institution,
+                    'courses': {}
+                }
+            
+            if course not in hierarchy[creator]['courses']:
+                hierarchy[creator]['courses'][course] = {
+                    'documents': []
+                }
+            
+            hierarchy[creator]['courses'][course]['documents'].append({
+                'id': doc.id,
+                'name': doc.name,
+                'doc_type': doc.doc_type,
+                'has_goals': len(doc.learning_goals) > 0 or len(doc.learning_goals_by_prompt) > 0
+            })
+        
+        return jsonify({
+            'success': True,
+            'hierarchy': hierarchy,
+            'documents': documents_list,
+            'total_count': len(documents_list)
+        })
+        
+    except Exception as e:
+        print(f"Error getting documents hierarchically: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        })
+
+@main.route('/api/copy-existing-goals', methods=['POST'])
+def api_copy_existing_goals():
+    """Copy existing learning goals to the new categorized system under 'Default' category"""
+    from app.firebase_service import search_documents, update_document
+    from app.openai_service import DEFAULT_SYSTEM_MESSAGE, DEFAULT_USER_PROMPT
+    from datetime import datetime
+    
+    try:
+        all_documents = search_documents(limit=1000)
+        copied_count = 0
+        
+        for doc in all_documents:
+            # Skip if document already has categorized goals or no goals at all
+            if doc.learning_goals_by_prompt or not doc.learning_goals:
+                continue
+                
+            # Create default category data
+            default_category = {
+                "goals": doc.learning_goals,
+                "system_prompt": DEFAULT_SYSTEM_MESSAGE,
+                "user_prompt": DEFAULT_USER_PROMPT,
+                "title": "Default",
+                "created_at": datetime.now().isoformat()
+            }
+            
+            # Add to the new structure
+            doc.learning_goals_by_prompt = {"default": default_category}
+            
+            # Update the existing document (don't create a new one!)
+            update_document(doc.id, {
+                'learning_goals_by_prompt': {"default": default_category}
+            })
+            copied_count += 1
+        
+        return jsonify({
+            'success': True,
+            'copied_count': copied_count,
+            'message': f'Successfully copied {copied_count} documents to "Default" category'
+        })
+        
+    except Exception as e:
+        print(f"Error copying existing goals: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Copy failed: {str(e)}'
+        })
+
+@main.route('/api/extract-bulk-learning-goals', methods=['POST'])
+def api_extract_bulk_learning_goals():
+    """Extract learning goals for multiple documents with custom prompts"""
+    from app.firebase_service import get_document, save_document, download_from_storage, update_document
+    from app.openai_service import extract_learning_goals
+    from app.pdf_utils import extract_text_from_pdf
+    import tempfile
+    import os
+    
+    try:
+        data = request.get_json()
+        document_ids = data.get('document_ids', [])
+        category_title = data.get('category_title')
+        system_prompt = data.get('system_prompt')
+        user_prompt = data.get('user_prompt')
+        model = data.get('model', 'gpt-4o')  # Default to gpt-4o if not specified
+        save_prompt_flag = data.get('save_prompt', False)  # Whether to save this prompt for reuse
+        
+        if not document_ids or not category_title or not system_prompt:
+            return jsonify({
+                'success': False,
+                'message': 'Missing required parameters'
+            })
+        
+        # Save the prompt if requested
+        if save_prompt_flag:
+            from app.firebase_service import save_prompt
+            try:
+                prompt_id = save_prompt(category_title, system_prompt, user_prompt)
+                print(f"✅ Saved prompt '{category_title}' with ID: {prompt_id}")
+            except Exception as e:
+                print(f"⚠️ Failed to save prompt: {e}")
+                # Don't fail the extraction if prompt saving fails
+        
+        # Process each document
+        processed_count = 0
+        total_goals = 0
+        failures = []
+        
+        api_key = current_app.config['OPENAI_API_KEY']
+        
+        for doc_id in document_ids:
+            try:
+                doc = get_document(doc_id)
+                if not doc:
+                    failures.append({
+                        'document_id': doc_id,
+                        'document_name': 'Unknown',
+                        'error': 'Document not found'
+                    })
+                    continue
+                
+                # Extract text from document
+                if doc.storage_path:
+                    # Download PDF from Firebase Storage to temporary file
+                    temp_file = None
+                    try:
+                        # Create a temporary file
+                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+                        temp_file.close()
+                        
+                        # Download from Firebase Storage
+                        download_from_storage(doc.storage_path, temp_file.name)
+                        
+                        # Extract text from the downloaded file
+                        text = extract_text_from_pdf(temp_file.name)
+                        
+                    except Exception as e:
+                        failures.append({
+                            'document_id': doc_id,
+                            'document_name': doc.name,
+                            'error': f'Failed to download or extract text: {str(e)}'
+                        })
+                        continue
+                    finally:
+                        # Clean up temporary file
+                        if temp_file and os.path.exists(temp_file.name):
+                            os.unlink(temp_file.name)
+                else:
+                    failures.append({
+                        'document_id': doc_id,
+                        'document_name': doc.name,
+                        'error': 'No storage path available'
+                    })
+                    continue
+                
+                if not text.strip():
+                    failures.append({
+                        'document_id': doc_id,
+                        'document_name': doc.name,
+                        'error': 'No text could be extracted'
+                    })
+                    continue
+                
+                # Extract learning goals
+                extraction_result = extract_learning_goals(
+                    text, api_key, system_prompt, user_prompt, 
+                    model=model, category_title=category_title
+                )
+                
+                # Get current learning_goals_by_prompt or initialize empty
+                current_goals_by_prompt = doc.learning_goals_by_prompt or {}
+                
+                # Add the new category to existing structure
+                category_key = category_title.lower().replace(' ', '_')
+                current_goals_by_prompt[category_key] = extraction_result['category_data']
+                
+                # Update only the learning_goals_by_prompt field, preserving other data
+                update_success = update_document(doc_id, {
+                    'learning_goals_by_prompt': current_goals_by_prompt
+                })
+                
+                if not update_success:
+                    failures.append({
+                        'document_id': doc_id,
+                        'document_name': doc.name,
+                        'error': 'Failed to save extracted goals to database'
+                    })
+                    continue
+                
+                processed_count += 1
+                total_goals += len(extraction_result['learning_goals'])
+                
+            except Exception as e:
+                failures.append({
+                    'document_id': doc_id,
+                    'document_name': doc.name if 'doc' in locals() else 'Unknown',
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'success': True,
+            'processed_count': processed_count,
+            'total_count': len(document_ids),
+            'total_goals': total_goals,
+            'category_title': category_title,
+            'failures': failures
+        })
+        
+    except Exception as e:
+        print(f"Error in bulk extraction: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Bulk extraction failed: {str(e)}'
+        })
+
+@main.route('/api/get-available-categories', methods=['GET'])
+def api_get_available_categories():
+    """Get all available learning goal categories across all documents"""
+    from app.firebase_service import search_documents
+    
+    try:
+        all_documents = search_documents(limit=1000)
+        categories = set()
+        
+        for doc in all_documents:
+            if doc.learning_goals_by_prompt:
+                categories.update(doc.learning_goals_by_prompt.keys())
+        
+        return jsonify({
+            'success': True,
+            'categories': sorted(list(categories))
+        })
+        
+    except Exception as e:
+        print(f"Error getting categories: {e}")
+        return jsonify({
+            'success': False,
+            'categories': []
+        })
+
+@main.route('/api/get-saved-prompts', methods=['GET'])
+def api_get_saved_prompts():
+    """Get all saved prompts for the dropdown in add-goals page"""
+    from app.firebase_service import get_saved_prompts
+    
+    try:
+        prompts = get_saved_prompts()
+        
+        return jsonify({
+            'success': True,
+            'prompts': prompts
+        })
+        
+    except Exception as e:
+        print(f"Error getting saved prompts: {e}")
+        return jsonify({
+            'success': False,
+            'prompts': [],
+            'message': f'Error: {str(e)}'
+        })
+
+@main.route('/api/cleanup-duplicates', methods=['POST'])
+def api_cleanup_duplicates():
+    """
+    Finds and resolves duplicate documents created by the faulty migration.
+    It identifies duplicates based on creator and original filename, merges the
+    migrated learning_goals_by_prompt from the newest duplicate to the oldest
+    original, and then deletes all duplicate documents and their storage files.
+    """
+    from app.firebase_service import search_documents, update_document, delete_document
+    from collections import defaultdict
+
+    print("--- Starting Duplicate Document Cleanup ---")
+    
+    try:
+        all_docs = search_documents(limit=5000)
+        print(f"Found {len(all_docs)} total documents to check.")
+
+        grouped_docs = defaultdict(list)
+        for doc in all_docs:
+            if doc.original_filename: # Only group documents with an original filename
+                key = (doc.creator, doc.original_filename)
+                grouped_docs[key].append(doc)
+
+        updated_originals = 0
+        deleted_duplicates = 0
+        groups_processed = 0
+
+        for key, docs_in_group in grouped_docs.items():
+            if len(docs_in_group) > 1:
+                groups_processed += 1
+                
+                print(f"\nProcessing group for {key}: {len(docs_in_group)} documents found.")
+                
+                # Sort by creation date to find the true original
+                docs_in_group.sort(key=lambda d: d.created_at)
+                original_doc = docs_in_group[0]
+                duplicates = docs_in_group[1:]
+                
+                print(f"  Original identified: {original_doc.id} (Created: {original_doc.created_at})")
+
+                # Find the best `learning_goals_by_prompt` from the duplicates
+                # The newest duplicate is the most likely to have the most recent data.
+                best_lg_by_prompt = {}
+                for dup in reversed(duplicates):
+                    if dup.learning_goals_by_prompt:
+                        best_lg_by_prompt = dup.learning_goals_by_prompt
+                        print(f"  Found migrated data in duplicate: {dup.id}")
+                        break
+                
+                # If the original doesn't have the migrated data, update it.
+                if best_lg_by_prompt and not original_doc.learning_goals_by_prompt:
+                    print(f"  Updating original document {original_doc.id} with migrated data...")
+                    update_document(original_doc.id, {
+                        'learning_goals_by_prompt': best_lg_by_prompt
+                    })
+                    updated_originals += 1
+                else:
+                    print(f"  Original document {original_doc.id} already has data or no data found in duplicates. Skipping update.")
+
+                # Delete all the duplicate documents
+                for dup in duplicates:
+                    print(f"  Deleting duplicate document: {dup.id} (Name: {dup.name})...")
+                    delete_document(dup.id)
+                    deleted_duplicates += 1
+        
+        print("\n--- Cleanup Summary ---")
+        print(f"Groups with duplicates: {groups_processed}")
+        print(f"Originals updated with migrated data: {updated_originals}")
+        print(f"Duplicate documents deleted: {deleted_duplicates}")
+        print("------------------------")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Cleanup complete.',
+            'groups_with_duplicates_found': groups_processed,
+            'originals_updated': updated_originals,
+            'duplicates_deleted': deleted_duplicates
+        })
+
+    except Exception as e:
+        print(f"❌ Error during duplicate cleanup: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500

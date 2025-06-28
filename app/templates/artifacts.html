@@ -5265,8 +5265,67 @@ function displayDocumentInModal(document) {
         <h5 class="mb-3">Learning Goals:</h5>
         <div class="learning-goals-container mb-4">`;
     
-    if (document.learning_goals && document.learning_goals.length > 0) {
+    if (document.learning_goals_by_prompt && Object.keys(document.learning_goals_by_prompt).length > 0) {
+        // New categorized learning goals
+        for (const [categoryKey, categoryData] of Object.entries(document.learning_goals_by_prompt)) {
+            const categoryTitle = categoryData.title || categoryKey.replace(/_/g, ' ').replace(/\w\S*/g, (txt) => 
+                txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+            );
+            
         modalContent += `
+                <div class="category-section mb-3">
+                    <h6 class="mb-2">
+                        <i class="bi bi-tag text-primary"></i> ${categoryTitle}
+                    </h6>`;
+            
+            if (categoryData.goals && categoryData.goals.length > 0) {
+                modalContent += `
+                    <div class="learning-goals-list mb-2" style="max-height: 150px; overflow-y: auto;">
+                        <ul class="list-group list-group-flush">`;
+                
+                categoryData.goals.forEach(goal => {
+                    if (goal.toUpperCase() === "NONE") {
+                        modalContent += `<li class="list-group-item text-muted fst-italic">No goals for ${categoryTitle}</li>`;
+                    } else {
+                        modalContent += `<li class="list-group-item">${goal}</li>`;
+                    }
+                });
+                
+                modalContent += `
+                        </ul>
+                    </div>`;
+            } else {
+                modalContent += `<p class="text-muted small">No goals for ${categoryTitle}</p>`;
+            }
+            
+            // Add collapsible prompt details
+            const promptId = `prompt-modal-${categoryKey}`;
+            modalContent += `
+                <div class="prompt-details">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#${promptId}">
+                        <i class="bi bi-chevron-down"></i> View Prompt
+                    </button>
+                    <div class="collapse mt-2" id="${promptId}">
+                        <div class="card card-body bg-light">
+                            <small>
+                                <strong>System:</strong><br>
+                                <code class="small">${(categoryData.system_prompt || 'Default system prompt').substring(0, 200)}${(categoryData.system_prompt || '').length > 200 ? '...' : ''}</code><br>
+                                <strong>User:</strong> <code>${categoryData.user_prompt || 'Extract learning goals from the following text:'}</code><br>
+                                ${categoryData.created_at ? `<strong>Created:</strong> ${categoryData.created_at}` : ''}
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+        
+    } else if (document.learning_goals && document.learning_goals.length > 0) {
+        // Fallback to old structure
+        modalContent += `
+            <div class="category-section mb-3">
+                <h6 class="mb-2">
+                    <i class="bi bi-tag text-primary"></i> Default
+                </h6>
             <div class="learning-goals-list" style="max-height: 200px; overflow-y: auto;">
                 <ul class="list-group list-group-flush">`;
         
@@ -5276,7 +5335,9 @@ function displayDocumentInModal(document) {
         
         modalContent += `
                 </ul>
+                </div>
             </div>`;
+            
     } else {
         modalContent += `<p class="text-muted">No learning goals available for this document.</p>`;
     }

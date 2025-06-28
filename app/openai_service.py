@@ -2,6 +2,7 @@ import os
 import json
 from openai import OpenAI
 import httpx
+from datetime import datetime
 
 # Default system message
 DEFAULT_SYSTEM_MESSAGE = """
@@ -52,8 +53,28 @@ IMPORTANT: Your response MUST be valid JSON with the following structure:
 Do not include any explanations or notes outside the JSON structure.
 """
 
-def extract_learning_goals(text, api_key, custom_system_message=None, model="gpt-4o"):
-    """Extract learning goals from text using OpenAI API"""
+DEFAULT_USER_PROMPT = "Extract learning goals from the following text:"
+
+def filter_none_goals(goals):
+    """Filter out 'NONE' goals from a list of learning goals"""
+    if not goals:
+        return []
+    return [goal for goal in goals if goal.strip().upper() != "NONE"]
+
+def extract_learning_goals(text, api_key, custom_system_message=None, custom_user_prompt=None, model="gpt-4o", category_title="Default"):
+    """Extract learning goals from text using OpenAI API
+    
+    Args:
+        text: Text to extract learning goals from
+        api_key: OpenAI API key
+        custom_system_message: Custom system prompt (optional)
+        custom_user_prompt: Custom user prompt (optional)
+        model: OpenAI model to use
+        category_title: Title for this category of learning goals
+        
+    Returns:
+        Dict with structured learning goals data for new categorized system
+    """
     http_client = httpx.Client(
         timeout=60.0,
         follow_redirects=True
@@ -67,6 +88,7 @@ def extract_learning_goals(text, api_key, custom_system_message=None, model="gpt
     
     # Use custom system message if provided, otherwise use default
     system_message = custom_system_message
+    user_prompt = custom_user_prompt or DEFAULT_USER_PROMPT
     
     # Ensure JSON format instructions are always included
     if system_message:
@@ -92,7 +114,7 @@ Do not include any explanations or notes outside the JSON structure.
             model=model,
             messages=[
                 {"role": "system", "content": system_message},
-                {"role": "user", "content": f"Extract learning goals from the following text:\n\n{text[:10000]}"}
+                {"role": "user", "content": f"{user_prompt}\n\n{text[:10000]}"}
             ],
             temperature=0.3,
             response_format={"type": "json_object"}
@@ -110,14 +132,36 @@ Do not include any explanations or notes outside the JSON structure.
             # Fallback if the response is not valid JSON
             learning_goals = []
             
+        # Filter out "NONE" goals
+        filtered_goals = filter_none_goals(learning_goals)
+        
+        # Return structured data for new categorized system
+        category_data = {
+            "goals": filtered_goals,
+            "system_prompt": system_message,
+            "user_prompt": user_prompt,
+            "title": category_title,
+            "created_at": datetime.now().isoformat()
+        }
+        
         return {
-            'learning_goals': learning_goals,
+            'learning_goals': filtered_goals,  # For backward compatibility
+            'category_data': category_data,    # For new categorized system
             'system_message_used': system_message
         }
     
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
+        category_data = {
+            "goals": [],
+            "system_prompt": system_message,
+            "user_prompt": user_prompt,
+            "title": category_title,
+            "created_at": datetime.now().isoformat()
+        }
+        
         return {
             'learning_goals': [],
+            'category_data': category_data,
             'system_message_used': system_message
         } 

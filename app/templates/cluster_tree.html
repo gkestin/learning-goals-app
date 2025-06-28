@@ -316,14 +316,19 @@
                 <!-- Learning Goals Overview & Course Selection -->
                 <div id="goals-overview" class="alert alert-info mb-4">
                     <div class="row align-items-center mb-3">
-                        <div class="col-md-8">
-                            <h5 class="mb-0">ℹ️ Learning Goals Overview & Course Selection</h5>
+                        <div class="col-md-6">
+                            <h5 class="mb-0">ℹ️ Learning Goals Overview & Filters</h5>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <select id="course-selector" class="form-select">
-                                <option value="">All Courses (Default)</option>
+                                <option value="">All Courses</option>
                                 <!-- Course options will be populated dynamically -->
                             </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#categorySelectionModal">
+                                <i class="bi bi-funnel"></i> Select Categories
+                            </button>
                         </div>
                     </div>
                     
@@ -335,6 +340,14 @@
                     </div>
                     <div id="overview-content" style="display: none;">
                         <!-- Overview content will be populated here -->
+                    </div>
+                    
+                    <!-- Selected categories display -->
+                    <div id="selected-categories" class="mt-2" style="display: none;">
+                        <small class="text-muted">
+                            <strong>Selected Categories:</strong> 
+                            <span id="selected-categories-list">All categories</span>
+                        </small>
                     </div>
                 </div>
 
@@ -699,6 +712,11 @@ function buildHierarchicalTree() {
     
     if (selectedCourse) {
         requestData.course = selectedCourse;
+    }
+    
+    // Include selected categories if not all are selected
+    if (selectedCategories.length > 0 && selectedCategories.length < availableCategories.length) {
+        requestData.categories = selectedCategories;
     }
     
     // Use fetch with streaming
@@ -1286,6 +1304,242 @@ function showTemporaryMessage(message, type) {
     setTimeout(() => {
         $('.alert').fadeOut();
     }, 5000);
+}
+</script>
+
+<!-- Category Selection Modal -->
+<div class="modal fade" id="categorySelectionModal" tabindex="-1" aria-labelledby="categorySelectionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="categorySelectionModalLabel">
+                    <i class="bi bi-funnel"></i> Select Learning Goal Categories
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <p class="text-muted">
+                        Choose which learning goal categories to include in clustering. 
+                        Only goals from selected categories will be used for analysis.
+                    </p>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="select-all-categories" checked>
+                        <label class="form-check-label fw-bold" for="select-all-categories">
+                            Select All Categories
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="category-list" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
+                    <div class="text-center text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading categories...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="apply-category-selection">Apply Selection</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global variables for category selection
+let availableCategories = [];
+let selectedCategories = [];
+
+// Load categories when modal is shown
+$('#categorySelectionModal').on('shown.bs.modal', function() {
+    loadAvailableCategories();
+});
+
+function loadAvailableCategories() {
+    $('#category-list').html(`
+        <div class="text-center text-muted">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <span class="ms-2">Loading categories...</span>
+        </div>
+    `);
+    
+    $.get('/api/get-available-categories')
+        .done(function(response) {
+            if (response.success && response.categories) {
+                availableCategories = response.categories;
+                if (selectedCategories.length === 0) {
+                    // First time - select all by default
+                    selectedCategories = [...availableCategories];
+                }
+                renderCategoryList();
+            } else {
+                $('#category-list').html('<div class="text-muted">No categories found</div>');
+            }
+        })
+        .fail(function() {
+            $('#category-list').html('<div class="text-danger">Failed to load categories</div>');
+        });
+}
+
+function renderCategoryList() {
+    if (availableCategories.length === 0) {
+        $('#category-list').html('<div class="text-muted">No categories available</div>');
+        return;
+    }
+    
+    let html = '';
+    availableCategories.forEach(category => {
+        const isSelected = selectedCategories.includes(category);
+        const categoryId = `category-${category.replace(/\s+/g, '-').toLowerCase()}`;
+        
+        html += `
+            <div class="form-check mb-2">
+                <input class="form-check-input category-checkbox" type="checkbox" 
+                       id="${categoryId}" value="${category}" ${isSelected ? 'checked' : ''}>
+                <label class="form-check-label" for="${categoryId}">
+                    ${category}
+                </label>
+            </div>
+        `;
+    });
+    
+    $('#category-list').html(html);
+    
+    // Update select all checkbox state
+    updateSelectAllState();
+    
+    // Set up event handlers
+    $('.category-checkbox').change(updateCategorySelection);
+    $('#select-all-categories').change(handleSelectAll);
+}
+
+function updateCategorySelection() {
+    selectedCategories = [];
+    $('.category-checkbox:checked').each(function() {
+        selectedCategories.push($(this).val());
+    });
+    updateSelectAllState();
+}
+
+function updateSelectAllState() {
+    const selectAllCheckbox = $('#select-all-categories');
+    const totalCategories = availableCategories.length;
+    const selectedCount = selectedCategories.length;
+    
+    if (selectedCount === 0) {
+        selectAllCheckbox.prop('checked', false);
+        selectAllCheckbox.prop('indeterminate', false);
+    } else if (selectedCount === totalCategories) {
+        selectAllCheckbox.prop('checked', true);
+        selectAllCheckbox.prop('indeterminate', false);
+    } else {
+        selectAllCheckbox.prop('checked', false);
+        selectAllCheckbox.prop('indeterminate', true);
+    }
+}
+
+function handleSelectAll() {
+    const isChecked = $('#select-all-categories').prop('checked');
+    
+    if (isChecked) {
+        // Select all
+        selectedCategories = [...availableCategories];
+        $('.category-checkbox').prop('checked', true);
+    } else {
+        // Deselect all
+        selectedCategories = [];
+        $('.category-checkbox').prop('checked', false);
+    }
+}
+
+// Apply category selection
+$('#apply-category-selection').click(function() {
+    $('#categorySelectionModal').modal('hide');
+    
+    // Update the displayed selection
+    updateSelectedCategoriesDisplay();
+    
+    // Refresh the goals overview with new categories
+    loadGoalsOverview();
+});
+
+function updateSelectedCategoriesDisplay() {
+    if (selectedCategories.length === 0) {
+        $('#selected-categories').hide();
+    } else if (selectedCategories.length === availableCategories.length) {
+        $('#selected-categories-list').text('All categories');
+        $('#selected-categories').show();
+    } else {
+        $('#selected-categories-list').text(selectedCategories.join(', '));
+        $('#selected-categories').show();
+    }
+}
+
+// Update the loadGoalsOverview function to include categories
+function loadGoalsOverview() {
+    $('#overview-loading').show();
+    $('#overview-content').hide();
+    
+    const params = {};
+    if (selectedCourse) {
+        params.course = selectedCourse;
+    }
+    if (selectedCategories.length > 0 && selectedCategories.length < availableCategories.length) {
+        params.categories = selectedCategories;
+    }
+    
+    $.get('/api/goals-overview', params)
+        .done(function(data) {
+            if (data.success) {
+                const statsHtml = `
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Total Goals:</strong> ${data.total_goals}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Documents:</strong> ${data.total_documents}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Creators:</strong> ${data.unique_creators}
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Courses:</strong> ${data.unique_courses}
+                        </div>
+                    </div>
+                    ${data.available_categories ? `
+                    <div class="row mt-2">
+                        <div class="col-md-12">
+                            <small class="text-muted">
+                                <strong>Available Categories:</strong> ${data.available_categories.join(', ')}
+                            </small>
+                        </div>
+                    </div>
+                    ` : ''}
+                `;
+                $('#overview-content').html(statsHtml);
+                
+                // Enable build button if we have goals
+                if (data.total_goals > 0) {
+                    $('#build-tree-btn').prop('disabled', false);
+                } else {
+                    $('#build-tree-btn').prop('disabled', true);
+                }
+                
+                $('#overview-loading').hide();
+                $('#overview-content').show();
+            } else {
+                $('#overview-loading').hide();
+                $('#no-goals').show();
+            }
+        })
+        .fail(function() {
+            $('#overview-loading').hide();
+            alert('Failed to load goals overview');
+        });
 }
 </script>
 {% endblock %} 

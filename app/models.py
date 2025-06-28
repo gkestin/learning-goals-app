@@ -2,7 +2,7 @@ from datetime import datetime
 
 class Document:
     def __init__(self, id=None, name="", original_filename="", creator="", course_name="", 
-                 learning_goals=None, storage_path="", created_at=None, public_url=None, 
+                 learning_goals=None, learning_goals_by_prompt=None, storage_path="", created_at=None, public_url=None, 
                  institution="", doc_type="", notes="", lo_extraction_prompt=""):
         self.id = id
         self.name = name 
@@ -14,6 +14,7 @@ class Document:
         self.notes = notes
         self.lo_extraction_prompt = lo_extraction_prompt
         self.learning_goals = learning_goals or []
+        self.learning_goals_by_prompt = learning_goals_by_prompt or {}
         self.storage_path = storage_path
         self.created_at = created_at or datetime.now()
         self.public_url = public_url
@@ -31,6 +32,7 @@ class Document:
             doc_type=data.get('doc_type', ''),
             notes=data.get('notes', ''),
             learning_goals=data.get('learning_goals', []),
+            learning_goals_by_prompt=data.get('learning_goals_by_prompt', {}),
             storage_path=data.get('storage_path', ''),
             created_at=data.get('created_at', datetime.now()),
             public_url=data.get('public_url', None),
@@ -49,11 +51,46 @@ class Document:
             'doc_type': self.doc_type,
             'notes': self.notes,
             'learning_goals': self.learning_goals,
+            'learning_goals_by_prompt': self.learning_goals_by_prompt,
             'storage_path': self.storage_path,
             'created_at': self.created_at,
             'public_url': self.public_url,
             'lo_extraction_prompt': self.lo_extraction_prompt
         }
+    
+    def get_all_learning_goals(self, include_categories=None, exclude_none=True):
+        """Get all learning goals from all categories or specific categories
+        
+        Args:
+            include_categories: List of category names to include. If None, includes all.
+            exclude_none: Whether to filter out "NONE" goals
+        """
+        all_goals = []
+        all_sources = []
+        
+        for category_name, category_data in self.learning_goals_by_prompt.items():
+            if include_categories and category_name not in include_categories:
+                continue
+                
+            goals = category_data.get('goals', [])
+            if exclude_none:
+                goals = [goal for goal in goals if goal.strip().upper() != "NONE"]
+            
+            for goal in goals:
+                all_goals.append(goal)
+                all_sources.append({
+                    'document_name': self.name,
+                    'creator': self.creator,
+                    'course_name': self.course_name,
+                    'institution': self.institution,
+                    'category': category_name
+                })
+        
+        return all_goals, all_sources
+    
+    def get_available_categories(self):
+        """Get list of available learning goal categories for this document"""
+        return list(self.learning_goals_by_prompt.keys())
         
     @property
     def document_url(self):

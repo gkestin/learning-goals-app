@@ -192,6 +192,7 @@
                                     <option value="creator">Creator</option>
                                     <option value="doc_type">Document Type</option>
                                     <option value="course_name">Course</option>
+                                    <option value="prompt_category">Prompt Category</option>
                                 </select>
                             </div>
                         </div>
@@ -327,6 +328,13 @@
         const noResults = $('#no-results');
         const loadingSpinner = $('#loading-spinner');
         
+        // Helper function for title case conversion
+        function toTitleCase(str) {
+            return str.replace(/_/g, ' ').replace(/\w\S*/g, (txt) => 
+                txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+            );
+        }
+        
         // Variables for filtering
         let allDocuments = [];
         let filterField = '';
@@ -335,7 +343,8 @@
             institution: new Set(),
             creator: new Set(),
             doc_type: new Set(),
-            course_name: new Set()
+            course_name: new Set(),
+            prompt_category: new Set()
         };
         
         // Setup autocomplete
@@ -488,8 +497,19 @@
             
             if (filterField && filterValue) {
                 filteredDocs = filteredDocs.filter(doc => {
+                    if (filterField === 'prompt_category') {
+                        // Special handling for prompt categories
+                        if (doc.prompt_categories && Array.isArray(doc.prompt_categories)) {
+                            return doc.prompt_categories.some(category => {
+                                return toTitleCase(category).toLowerCase() === filterValue.toLowerCase();
+                            });
+                        }
+                        return false;
+                    } else {
+                        // Standard field filtering
                     const fieldValue = doc[filterField] || '';
                     return fieldValue.toLowerCase() === filterValue.toLowerCase();
+                    }
                 });
             }
             
@@ -553,12 +573,26 @@
                 filterOptions[key] = new Set();
             });
             
+            // Add prompt_category to filter options if not already there
+            if (!filterOptions.prompt_category) {
+                filterOptions.prompt_category = new Set();
+            }
+            
             // Collect unique values for each filter field
             documents.forEach(doc => {
                 if (doc.institution) filterOptions.institution.add(doc.institution);
                 if (doc.creator) filterOptions.creator.add(doc.creator);
                 if (doc.doc_type) filterOptions.doc_type.add(doc.doc_type);
                 if (doc.course_name) filterOptions.course_name.add(doc.course_name);
+                
+                // Collect prompt categories
+                if (doc.prompt_categories && Array.isArray(doc.prompt_categories)) {
+                    doc.prompt_categories.forEach(category => {
+                        if (category) {
+                            filterOptions.prompt_category.add(toTitleCase(category));
+                        }
+                    });
+                }
             });
         }
         
@@ -739,13 +773,34 @@
             template.querySelector('.document-name').textContent = docName;
             template.querySelector('.document-type').textContent = docType;
             
-            // Add learning goals preview (first 2-3 goals)
+            // Add learning goals preview (first 2-3 goals from all categories)
             const goalsPreview = template.querySelector('.learning-goals-preview');
-            if (doc.learning_goals && Array.isArray(doc.learning_goals) && doc.learning_goals.length > 0) {
-                const previewGoals = doc.learning_goals.slice(0, 3);
+            let allGoals = [];
+            let categoriesInfo = '';
+            
+            // Collect goals from categorized structure
+            if (doc.learning_goals_by_prompt && Object.keys(doc.learning_goals_by_prompt).length > 0) {
+                const categories = Object.keys(doc.learning_goals_by_prompt);
+                categoriesInfo = `Categories: ${categories.map(cat => toTitleCase(cat)).join(', ')}`;
+                
+                for (const [categoryKey, categoryData] of Object.entries(doc.learning_goals_by_prompt)) {
+                    if (categoryData.goals && Array.isArray(categoryData.goals)) {
+                        const filteredGoals = categoryData.goals.filter(goal => goal.toUpperCase() !== 'NONE');
+                        allGoals.push(...filteredGoals);
+                    }
+                }
+            }
+            // Fall back to old structure
+            else if (doc.learning_goals && Array.isArray(doc.learning_goals) && doc.learning_goals.length > 0) {
+                allGoals = doc.learning_goals.filter(goal => goal.toUpperCase() !== 'NONE');
+                categoriesInfo = 'Category: Default';
+            }
+            
+            if (allGoals.length > 0) {
+                const previewGoals = allGoals.slice(0, 3);
                 const goalText = previewGoals.join('; ');
                 const truncatedText = goalText.length > 100 ? goalText.substring(0, 100) + '...' : goalText;
-                goalsPreview.textContent = truncatedText;
+                goalsPreview.innerHTML = `<div class="goals-text">${truncatedText}</div><div class="categories-info text-muted small">${categoriesInfo}</div>`;
             } else {
                 goalsPreview.textContent = 'No learning goals available';
                 goalsPreview.classList.add('text-muted');

@@ -51,16 +51,9 @@ def init_app(app):
             bucket_name = bucket_name[5:]
             print(f"Removed gs:// prefix, bucket name now: {bucket_name}")
             
-        # Ensure bucket name is in proper format (project-id.firebasestorage.app)  
-        if bucket_name.endswith('.appspot.com'):
-            project_id = bucket_name.split('.')[0]
-            bucket_name = f"{project_id}.firebasestorage.app"
-            print(f"Converted bucket name from appspot.com to correct Storage format: {bucket_name}")
-        elif not bucket_name.endswith('.firebasestorage.app'):
-            # If it doesn't have either domain extension, assume it's just the project ID
-            if '.' not in bucket_name:
-                bucket_name = f"{bucket_name}.firebasestorage.app"
-                print(f"Added .firebasestorage.app domain to bucket name: {bucket_name}")
+        # Keep the bucket name as provided - don't convert appspot.com to firebasestorage.app
+        # The bucket name from environment should be used as-is
+        print(f"Using bucket name as provided: {bucket_name}")
             
         print(f"Final bucket name to use: {bucket_name}")    
         
@@ -298,6 +291,76 @@ def save_document(document):
         print(f"✅ REAL DATABASE: Document saved to Firestore with ID: {doc_ref.id}")
         
     return doc_ref.id
+
+def update_document(doc_id, updates):
+    """Update specific fields of an existing document in Firestore"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    if using_mock:
+        print(f"⚠️ MOCK DATABASE: Updating document '{doc_id}' in mock Firestore")
+        if doc_id in db.collections['documents'].documents:
+            current_data = db.collections['documents'].documents[doc_id].to_dict()
+            
+            # Deep merge for nested dictionaries like learning_goals_by_prompt
+            for key, value in updates.items():
+                if key == 'learning_goals_by_prompt' and isinstance(value, dict):
+                    # Merge with existing learning_goals_by_prompt
+                    if key in current_data and isinstance(current_data[key], dict):
+                        current_data[key].update(value)  # Merge categories
+                    else:
+                        current_data[key] = value  # Set if doesn't exist
+                else:
+                    # Regular update for other fields
+                    current_data[key] = value
+            
+            db.collections['documents'].documents[doc_id].data = current_data
+            print(f"⚠️ MOCK DATABASE: Document updated with deep merge: {doc_id}")
+            return True
+        else:
+            print(f"⚠️ MOCK DATABASE: Document not found for update: {doc_id}")
+            return False
+    else:
+        print(f"✅ REAL DATABASE: Updating document '{doc_id}' in Firestore")
+        try:
+            doc_ref = db.collection('documents').document(doc_id)
+            
+            # Check if we need to do deep merge for learning_goals_by_prompt
+            if 'learning_goals_by_prompt' in updates and isinstance(updates['learning_goals_by_prompt'], dict):
+                # Get current document to merge with existing categories
+                current_doc = doc_ref.get()
+                if current_doc.exists:
+                    current_data = current_doc.to_dict()
+                    current_goals_by_prompt = current_data.get('learning_goals_by_prompt', {})
+                    
+                    # Deep merge: update existing categories, add new ones
+                    merged_goals_by_prompt = current_goals_by_prompt.copy()
+                    merged_goals_by_prompt.update(updates['learning_goals_by_prompt'])
+                    
+                    # Create new updates dict with merged data
+                    merged_updates = updates.copy()
+                    merged_updates['learning_goals_by_prompt'] = merged_goals_by_prompt
+                    
+                    print(f"🔄 REAL DATABASE: Performing deep merge for learning_goals_by_prompt")
+                    print(f"   Existing categories: {list(current_goals_by_prompt.keys())}")
+                    print(f"   New categories: {list(updates['learning_goals_by_prompt'].keys())}")
+                    print(f"   Merged categories: {list(merged_goals_by_prompt.keys())}")
+                    
+                    doc_ref.update(merged_updates)
+                else:
+                    # Document doesn't exist, just do regular update
+                    doc_ref.update(updates)
+            else:
+                # No learning_goals_by_prompt to merge, do regular update
+                doc_ref.update(updates)
+            
+            print(f"✅ REAL DATABASE: Document updated: {doc_id}")
+            return True
+        except Exception as e:
+            print(f"❌ Error updating document: {e}")
+            return False
 
 def get_document(doc_id):
     """Retrieve a document by its ID"""
@@ -2978,3 +3041,85 @@ def clear_existing_chunks(artifact_id):
         
     except Exception as e:
         print(f"⚠️ Error clearing existing chunks: {e}")
+
+
+# =============================================
+# PROMPT MANAGEMENT FUNCTIONS
+# =============================================
+
+def save_prompt(title, system_prompt, user_prompt):
+    """Save a prompt for future reuse"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        prompt_data = {
+            'title': title,
+            'system_prompt': system_prompt,
+            'user_prompt': user_prompt,
+            'created_at': datetime.datetime.now()
+        }
+        
+        if using_mock:
+            # Mock save
+            if 'saved_prompts' not in db.collections:
+                db.collections['saved_prompts'] = type(db.collections['documents'])('saved_prompts')
+            
+            prompt_id = f"prompt_{len(db.collections['saved_prompts'].documents)}"
+            db.collections['saved_prompts'].documents[prompt_id] = type('doc', (), {
+                'id': prompt_id,
+                'data': prompt_data,
+                'to_dict': lambda: prompt_data
+            })()
+            
+            print(f"✅ Prompt saved (mock): {title}")
+            return prompt_id
+        else:
+            # Real database save
+            doc_ref = db.collection('saved_prompts').document()
+            doc_ref.set(prompt_data)
+            
+            print(f"✅ Prompt saved: {title}")
+            return doc_ref.id
+        
+    except Exception as e:
+        print(f"❌ Error saving prompt: {e}")
+        return None
+
+def get_saved_prompts():
+    """Get all saved prompts"""
+    global db, using_mock
+    
+    if not db:
+        init_mock_services()
+    
+    try:
+        prompts = []
+        
+        if using_mock:
+            # Mock retrieval
+            if 'saved_prompts' in db.collections:
+                for doc_id, doc in db.collections['saved_prompts'].documents.items():
+                    prompt_data = doc.to_dict()
+                    prompt_data['id'] = doc_id
+                    prompts.append(prompt_data)
+        else:
+            # Real database retrieval
+            docs = db.collection('saved_prompts').stream()
+            
+            for doc in docs:
+                prompt_data = doc.to_dict()
+                prompt_data['id'] = doc.id
+                prompts.append(prompt_data)
+        
+        # Sort by created date (newest first)
+        prompts.sort(key=lambda x: x.get('created_at', datetime.datetime.min), reverse=True)
+        
+        print(f"✅ Retrieved {len(prompts)} saved prompts")
+        return prompts
+        
+    except Exception as e:
+        print(f"❌ Error retrieving saved prompts: {e}")
+        return []
